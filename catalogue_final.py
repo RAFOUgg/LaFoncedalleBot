@@ -275,6 +275,8 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
         embed.set_thumbnail(url=main_logo_url)
     
     view = MenuView(products)
+    bot_instance.add_view(view)  # Ajoute la vue persistante à chaque publication
+
     content = f"<@&{ROLE_ID_TO_MENTION}>" if mention and ROLE_ID_TO_MENTION else None
     last_message_id = await config_manager.get_state('last_message_id')
     
@@ -408,8 +410,11 @@ async def on_ready():
     try:
         with open(CACHE_FILE, 'r', encoding='utf-8') as f: site_data = json.load(f)
         products = site_data.get('products', [])
-        if products: bot.add_view(MenuView(products)); Logger.success("Vue de menu persistante ré-enregistrée.")
-    except Exception as e: Logger.warning(f"Impossible de charger la vue persistante: {e}")
+        if products:
+            bot.add_view(MenuView(products))  # Ajoute la vue persistante au démarrage
+            Logger.success("Vue de menu persistante ré-enregistrée.")
+    except Exception as e:
+        Logger.warning(f"Impossible de charger la vue persistante: {e}")
 
     await check_for_updates(bot, force_publish=False)
     
