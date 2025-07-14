@@ -944,7 +944,7 @@ class ContactButtonsView(discord.ui.View):
 class RankingPaginatorView(discord.ui.View):
     """Vue pour paginer le classement général des produits."""
     # MODIFICATION 1 : Le constructeur accepte maintenant une map de produits pour les URLs
-    def __init__(self, ratings_data: List<Tuple[str, float, int]], product_map: dict, items_per_page: int = 10):
+    def __init__(self, ratings_data: List[Tuple[str, float, int]], product_map: dict, items_per_page: int = 10):
         super().__init__(timeout=300)
         self.ratings = ratings_data
         self.product_map = product_map  # Stocke les détails des produits (nom -> infos)
