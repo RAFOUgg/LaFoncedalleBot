@@ -130,12 +130,57 @@ def initialize_database():
     conn.commit(); conn.close()
     Logger.success(f"Base de données '{DB_FILE}' initialisée.")
 
-def get_product_counts(products: list):
-    """Compte les produits par catégorie (hash/weed) en se basant sur les mots-clés de la config."""
+def filter_catalog_products(products: list) -> list:
+    """
+    Filtre les produits pour exclure les box, accessoires, réseaux sociaux, etc.
+    """
+    exclude_keywords = [
+        "box", "pack", "briquet", "feuille", "papier", "accessoire", "telegram", "instagram", "tiktok", "promo", "offre"
+    ]
+    filtered = []
+    for p in products:
+        name = p.get('name', '').lower()
+        if any(kw in name for kw in exclude_keywords):
+            continue
+        filtered.append(p)
+    return filtered
+
+def categorize_products(products: list):
+    """
+    Catégorise les produits en fleurs, résines, box, accessoires.
+    Retourne un dict : {"weed": [...], "hash": [...], "box": [...], "accessoire": [...]}
+    """
     hash_keywords = config_manager.get_config("categorization.hash_keywords", [])
-    hash_count = sum(1 for p in products if any(kw.lower() in p['name'].lower() for kw in hash_keywords))
-    weed_count = len(products) - hash_count
-    return hash_count, weed_count
+    box_keywords = ["box", "pack"]
+    accessoire_keywords = ["briquet", "feuille", "papier", "accessoire"]
+    exclude_keywords = ["telegram", "instagram", "tiktok", "promo", "offre"]
+
+    categorized = {"weed": [], "hash": [], "box": [], "accessoire": []}
+    for p in products:
+        name = p.get('name', '').lower()
+        if any(kw in name for kw in exclude_keywords):
+            continue
+        if any(kw in name for kw in box_keywords):
+            categorized["box"].append(p)
+        elif any(kw in name for kw in accessoire_keywords):
+            categorized["accessoire"].append(p)
+        elif any(kw in name for kw in hash_keywords):
+            categorized["hash"].append(p)
+        else:
+            categorized["weed"].append(p)
+    return categorized
+
+def get_product_counts(products: list):
+    """
+    Retourne le nombre de produits par catégorie (weed/hash/box/accessoire).
+    """
+    categorized = categorize_products(products)
+    return (
+        len(categorized["hash"]),
+        len(categorized["weed"]),
+        len(categorized["box"]),
+        len(categorized["accessoire"])
+    )
 
 def create_styled_embed(title: str, description: str, color=discord.Color.blurple(), show_logo: bool = True) -> discord.Embed:
     """Crée un embed Discord avec un style prédéfini."""
