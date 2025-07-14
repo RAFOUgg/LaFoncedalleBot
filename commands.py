@@ -678,7 +678,7 @@ class SlashCommands(commands.Cog):
 
             promo_products = [p for p in site_data.get('products', []) if p.get('is_promo')]
             general_promos = site_data.get('general_promos', [])
-            general_promos_text = "\n".join([f"• {promo}" for promo in general_promos]) if general_promos
+            general_promos_text = "\n".join([f"• {promo}" for promo in general_promos]) if general_promos else ""
             # 2. On vérifie les données
             if not all_products_ratings:
                 await interaction.followup.send("Aucun produit n'a encore été noté sur le serveur.", ephemeral=True)
