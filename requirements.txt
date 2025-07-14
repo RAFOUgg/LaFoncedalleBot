@@ -4,7 +4,7 @@ gunicorn
 discord.py
 
 # --- Shopify & Web Requests ---
-shopify
+ShopifyAPI
 requests
 
 # --- Database & Utils ---
