@@ -1093,7 +1093,7 @@ class RankingPaginatorView(discord.ui.View):
         if self.current_page < self.total_pages:
             self.current_page += 1
         await self.update_message(interaction)
-            self.current_page += 1
+        self.current_page += 1
         await self.update_message(interaction)
 class SlashCommands(commands.Cog):
     def __init__(self, bot):
