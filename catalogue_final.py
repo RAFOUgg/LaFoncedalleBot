@@ -247,16 +247,18 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
         return False
     
     products = site_data.get('products', [])
-    
     promos_list = site_data.get('general_promos', [])
     general_promos_text = "\n".join([f"• {promo.strip()}" for promo in promos_list if promo.strip()]) or "Aucune promotion générale en cours."
 
-    hash_count, weed_count = get_product_counts(products)
-    
+    # Correction ici : on récupère toutes les catégories
+    hash_count, weed_count, box_count, accessoire_count = get_product_counts(products)
+
     description_text = (
         f"__**📦 Produits disponibles :**__\n\n"
         f"**`Fleurs 🍃 :` {weed_count}**\n"
-        f"**`Résines 🍫 :` {hash_count}**\n\n"
+        f"**`Résines 🍫 :` {hash_count}**\n"
+        f"**`Box 📦 :` {box_count}**\n"
+        f"**`Accessoires 🛠️ :` {accessoire_count}**\n\n"
         f"__**💰 Promotions disponibles :**__\n\n{general_promos_text}\n\n"
         f"*(Mise à jour <t:{int(site_data.get('timestamp'))}:R>)*"
     )
