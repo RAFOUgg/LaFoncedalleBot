@@ -8,7 +8,7 @@ __pycache__/
 # Fichiers de base de données et logs (gérés par le disque Render)
 *.db
 *.log
-*.json
+
 
 # Fichiers spécifiques au système ou à l'IDE
 .vscode/
