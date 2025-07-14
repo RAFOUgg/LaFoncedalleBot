@@ -245,7 +245,7 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
     if not channel:
         Logger.error(f"Salon avec l'ID {CHANNEL_ID} non trouvé pour la publication. Vérifiez que CHANNEL_ID correspond bien au salon #nouveaux-drop.")
         return False
-    
+
     products = site_data.get('products', [])
     promos_list = site_data.get('general_promos', [])
     general_promos_text = "\n".join([f"• {promo.strip()}" for promo in promos_list if promo.strip()]) or "Aucune promotion générale en cours."
@@ -279,27 +279,16 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
     last_message_id = await config_manager.get_state('last_message_id')
     
     try:
-        if mention:
-            if last_message_id:
-                try:
-                    old_message = await channel.fetch_message(int(last_message_id))
-                    await old_message.delete()
-                except (discord.NotFound, discord.Forbidden): pass
-            new_message = await channel.send(content=content, embed=embed, view=view)
-            await config_manager.update_state('last_message_id', str(new_message.id))
-            Logger.success(f"Nouveau menu publié avec notification (ID: {new_message.id}).")
-        else:
-            if last_message_id:
-                try:
-                    message = await channel.fetch_message(int(last_message_id))
-                    await message.edit(content=content, embed=embed, view=view)
-                except (discord.NotFound, discord.Forbidden):
-                    new_message = await channel.send(content=content, embed=embed, view=view)
-                    await config_manager.update_state('last_message_id', str(new_message.id))
-            else:
-                new_message = await channel.send(content=content, embed=embed, view=view)
-                await config_manager.update_state('last_message_id', str(new_message.id))
-
+        # Toujours supprimer l'ancien menu avant d'envoyer le nouveau
+        if last_message_id:
+            try:
+                old_message = await channel.fetch_message(int(last_message_id))
+                await old_message.delete()
+            except (discord.NotFound, discord.Forbidden):
+                pass
+        new_message = await channel.send(content=content, embed=embed, view=view)
+        await config_manager.update_state('last_message_id', str(new_message.id))
+        Logger.success(f"Nouveau menu publié (ID: {new_message.id}).")
         return True
     except Exception as e:
         Logger.error(f"Erreur fatale lors de la publication du menu : {e}"); traceback.print_exc()

@@ -239,11 +239,8 @@ class SlashCommands(commands.Cog):
                 await interaction.followup.send("Désolé, le menu n'est pas disponible pour le moment. Réessayez dans un instant.", ephemeral=True)
                 return
 
-            # Filtrer les produits pour exclure box/accessoires/réseaux sociaux
-            filtered_products = filter_catalog_products(products)
-
-            general_promos_text = "\n".join([f"• {promo}" for promo in site_data.get('general_promos', [])]) or "Aucune promotion générale en cours."
-            # Correction ici : récupère toutes les catégories
+            promos_list = site_data.get('general_promos', [])
+            general_promos_text = "\n".join([f"• {promo.strip()}" for promo in promos_list if promo.strip()]) or "Aucune promotion générale en cours."
             hash_count, weed_count, box_count, accessoire_count = get_product_counts(products)
 
             embed = discord.Embed(
@@ -262,8 +259,8 @@ class SlashCommands(commands.Cog):
             if main_logo_url:
                 embed.set_thumbnail(url=main_logo_url)
 
-            # Créer la vue avec les boutons sur les produits filtered
-            view = MenuView(filtered_products)
+            # Utilise tous les produits pour la vue
+            view = MenuView(products)
 
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
@@ -1092,7 +1089,10 @@ class RankingPaginatorView(discord.ui.View):
         if self.current_page < self.total_pages:
             self.current_page += 1
         await self.update_message(interaction)
-
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page < self.total_pages:
+            self.current_page += 1
+        await self.update_message(interaction)
 class SlashCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
