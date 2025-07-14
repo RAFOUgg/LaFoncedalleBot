@@ -740,7 +740,7 @@ def get_purchased_products_from_shopify(email: str) -> list:
         def __init__(self, parent_view):
             super().__init__(label="Réinitialiser les Notes", style=discord.ButtonStyle.danger, emoji="🗑️")
             self.parent_view = parent_view
-        async def callback(self, interaction: discord.Interaction):
+        async def callback(self, interaction: discord.Interaction, button: discord.ui.Button):
             await interaction.response.send_message(
                 f"Êtes-vous sûr de vouloir supprimer **toutes** les notes de {self.parent_view.target_user.mention} ?",
                 view=ConfirmResetNotesView(self.parent_view.target_user, self.parent_view.bot),
@@ -999,6 +999,7 @@ class RankingPaginatorView(discord.ui.View):
         return embed
 
     async def update_message(self, interaction: discord.Interaction):
+        """Met à jour le message avec la nouvelle page."""
         """Met à jour le message avec la nouvelle page."""
         self.update_buttons()
         embed = self.create_embed_for_page()
@@ -1465,7 +1466,6 @@ class SlashCommands(commands.Cog):
 
             promo_products = [p for p in site_data.get('products', []) if p.get('is_promo')]
             general_promos = site_data.get('general_promos', [])
-            general_promos_text = "\n".join([f"• {promo}" for promo in general_promos]) if general_promos
             general_promos_text = "\n".join([f"• {promo}" for promo in general_promos]) if general_promos else ""
 
             # On passe toutes les infos nécessaires à la vue dès sa création
@@ -1584,5 +1584,308 @@ def get_purchased_products_from_shopify(email: str) -> list:
         return list(products)
     finally:
         shopify.ShopifyResource.clear_session()
+            
+        if self.total_pages > 0:
+                embed.set_footer(text=f"Page de notes {self.current_page + 1}/{self.total_pages + 1}")
+        
+        return embed
+
+    # --- Sous-classes pour les boutons ---
+    class PrevButton(discord.ui.Button):
+        def __init__(self, parent_view):
+            super().__init__(label="⬅️ Notes Préc.", style=discord.ButtonStyle.secondary)
+            self.parent_view = parent_view
+        async def callback(self, interaction: discord.Interaction):
+            self.parent_view.current_page -= 1
+            await interaction.response.edit_message(embed=self.parent_view.create_embed(), view=self.parent_view)
+
+    class NextButton(discord.ui.Button):
+        def __init__(self, parent_view):
+            super().__init__(label="Notes Suiv. ➡️", style=discord.ButtonStyle.secondary)
+            self.parent_view = parent_view
+        async def callback(self, interaction: discord.Interaction):
+            self.parent_view.current_page += 1
+            await interaction.response.edit_message(embed=self.parent_view.create_embed(), view=self.parent_view)
+
+    class ResetButton(discord.ui.Button):
+        def __init__(self, parent_view):
+            super().__init__(label="Réinitialiser les Notes", style=discord.ButtonStyle.danger, emoji="🗑️")
+            self.parent_view = parent_view
+        async def callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+            await interaction.response.send_message(
+                f"Êtes-vous sûr de vouloir supprimer **toutes** les notes de {self.parent_view.target_user.mention} ?",
+                view=ConfirmResetNotesView(self.parent_view.target_user, self.parent_view.bot),
+                ephemeral=True
+            )
+
+class ConfirmResetNotesView(discord.ui.View):
+    def __init__(self, user, bot):
+        super().__init__(timeout=30)
+        self.user = user
+        self.bot = bot
+
+    @discord.ui.button(label="Confirmer la suppression", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Suppression des notes
+        def delete_notes():
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM ratings WHERE user_id = ?", (self.user.id,))
+            conn.commit()
+            conn.close()
+        await asyncio.to_thread(delete_notes)
+        await interaction.response.edit_message(content=f"✅ Toutes les notes de {self.user.mention} ont été supprimées.", view=None)
+
+    @discord.ui.button(label="Annuler", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Suppression annulée.", view=None)
+
+class PromoPaginatorView(discord.ui.View):
+    def __init__(self, promo_products: List[dict], general_promos_text: str, items_per_page: int = 6):
+        super().__init__(timeout=300)
+        self.promo_products = promo_products
+        self.general_promos_text = general_promos_text # On stocke le texte des promos
+        self.items_per_page = items_per_page
+        self.current_page = 0
+        self.total_pages = (len(self.promo_products) - 1) // self.items_per_page
+
+        # On ajoute les boutons uniquement s'il y a des produits à paginer
+        if self.promo_products and self.total_pages > 0:
+            self.add_item(self.PrevButton())
+            self.add_item(self.NextButton())
+            self.update_buttons()
+
+    def update_buttons(self):
+        # On vérifie que les boutons existent avant de les manipuler
+        if len(self.children) >= 2:
+            self.children[0].disabled = self.current_page == 0
+            self.children[1].disabled = self.current_page >= self.total_pages
+
+    def create_embed(self) -> discord.Embed:
+        start_index = self.current_page * self.items_per_page
+        end_index = start_index + self.items_per_page
+        page_items = self.promo_products[start_index:end_index]
+
+        embed = create_styled_embed(
+            title="💰 Promotions et Offres Spéciales",
+            description="",
+            color=discord.Color.from_rgb(255, 105, 180)
+        )
+        
+        promo_display_text = self.general_promos_text if self.general_promos_text.strip() else "Aucune offre générale en ce moment."
+        embed.add_field(name="🎁 Offres sur le site", value=promo_display_text, inline=False)
+
+        if not page_items:
+            embed.add_field(name="🛍️ Produits en Promotion", value="Aucun produit spécifique n'est en promotion actuellement.", inline=False)
+        else:
+            for product in page_items:
+                prix_promo = product.get('price', 'N/A')
+                prix_original = product.get('original_price', '')
+                prix_text = f"**{prix_promo}** ~~{prix_original}~~" if prix_original else f"**{prix_promo}**"
+                embed.add_field(name=f"🏷️ {product.get('name', 'Produit inconnu')}", value=f"{prix_text}\n[Voir sur le site]({product.get('product_url', '#')})", inline=True)
+
+        if self.promo_products and self.total_pages > 0:
+             embed.set_footer(text=f"Page {self.current_page + 1} sur {self.total_pages + 1}")
+
+        return embed
+
+    async def update_message(self, interaction: discord.Interaction):
+        self.update_buttons()
+        embed = self.create_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    class PrevButton(discord.ui.Button):
+        def __init__(self):
+            super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary)
+        async def callback(self, interaction: discord.Interaction):
+            if self.view.current_page > 0: self.view.current_page -= 1
+            await self.view.update_message(interaction)
+
+    class NextButton(discord.ui.Button):
+        def __init__(self):
+            super().__init__(label="Suivant ➡️", style=discord.ButtonStyle.secondary)
+        async def callback(self, interaction: discord.Interaction):
+            if self.view.current_page < self.view.total_pages: self.view.current_page += 1
+            await self.view.update_message(interaction)
+
+class ProductSelect(discord.ui.Select):
+    def __init__(self, products):
+        options = [
+            discord.SelectOption(label=prod, value=prod)
+            for prod in products
+        ]
+        super().__init__(placeholder="Choisissez un produit", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        # Cette Select est utilisée pour la commande /graph, PAS pour /noter !
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        product_name = self.values[0]
+        try:
+            # Génère le graphique radar pour ce produit (moyenne de toutes les notes du serveur)
+            chart_path = await asyncio.to_thread(graph_generator.create_radar_chart, product_name)
+            if chart_path and os.path.exists(chart_path):
+                file = discord.File(chart_path, filename="radar.png")
+                embed = discord.Embed(
+                    title=f"Graphique radar pour {product_name}",
+                    description="Voici la moyenne des notes de toute la communauté pour ce produit.",
+                    color=discord.Color.green()
+                )
+                embed.set_image(url="attachment://radar.png")
+                await interaction.followup.send(embed=embed, file=file, ephemeral=True)
+                # Nettoyage du fichier temporaire
+                await asyncio.to_thread(os.remove, chart_path)
+            else:
+                await interaction.followup.send("Impossible de générer le graphique pour ce produit (pas assez de notes ?).", ephemeral=True)
+        except Exception as e:
+            Logger.error(f"Erreur lors de la génération du graphique radar : {e}")
+            await interaction.followup.send("Impossible de générer le graphique pour ce produit.", ephemeral=True)
+
+class ProductSelectView(discord.ui.View):
+    def __init__(self, products):
+        super().__init__(timeout=60)
+        self.add_item(ProductSelect(products))
+
+class ContactButtonsView(discord.ui.View):
+    def __init__(self, contact_info):
+        super().__init__(timeout=120)
+        if contact_info.get("site"):
+            self.add_item(discord.ui.Button(
+                label="Boutique", 
+                style=discord.ButtonStyle.link, 
+                url=contact_info["site"],
+                emoji=LFONCEDALLE_EMOJI
+            ))
+        if contact_info.get("instagram"):
+            self.add_item(discord.ui.Button(
+                label="Instagram", 
+                style=discord.ButtonStyle.link, 
+                url=contact_info["instagram"],
+                emoji=INSTAGRAM_EMOJI
+            ))
+        if contact_info.get("telegram"):
+            self.add_item(discord.ui.Button(
+                label="Telegram", 
+                style=discord.ButtonStyle.link, 
+                url=contact_info["telegram"],
+                emoji=TELEGRAM_EMOJI
+            ))
+        if contact_info.get("tiktok"):
+            self.add_item(discord.ui.Button(
+                label="TikTok", 
+                style=discord.ButtonStyle.link, 
+                url=contact_info["tiktok"],
+                emoji=TIKTOK_EMOJI
+            ))
+
+
+
+# Classe pour les boutons de contact (à placer avant SlashCommands)
+class ContactButtonsView(discord.ui.View):
+    def __init__(self, contact_info):
+        super().__init__(timeout=120)
+        # Vérifiez que les IDs sont bien des entiers et que le bot a accès aux emojis personnalisés
+        if contact_info.get("site"):
+            self.add_item(discord.ui.Button(
+                label="Boutique", 
+                style=discord.ButtonStyle.link, 
+                url=contact_info["site"],
+                emoji=LFONCEDALLE_EMOJI
+            ))
+        if contact_info.get("instagram"):
+            self.add_item(discord.ui.Button(
+                label="Instagram", 
+                style=discord.ButtonStyle.link, 
+                url=contact_info["instagram"],
+                emoji=INSTAGRAM_EMOJI
+            ))
+        if contact_info.get("telegram"):
+            self.add_item(discord.ui.Button(
+                label="Telegram", 
+                style=discord.ButtonStyle.link, 
+                url=contact_info["telegram"],
+                emoji=TELEGRAM_EMOJI
+            ))
+        if contact_info.get("tiktok"):
+            self.add_item(discord.ui.Button(
+                label="TikTok", 
+                style=discord.ButtonStyle.link, 
+                url=contact_info["tiktok"],
+                emoji=TIKTOK_EMOJI
+            ))
+class RankingPaginatorView(discord.ui.View):
+    """Vue pour paginer le classement général des produits."""
+    # MODIFICATION 1 : Le constructeur accepte maintenant une map de produits pour les URLs
+    def __init__(self, ratings_data: List[Tuple[str, float, int]], product_map: dict, items_per_page: int = 10):
+        super().__init__(timeout=300)
+        self.ratings = ratings_data
+        self.product_map = product_map  # Stocke les détails des produits (nom -> infos)
+        self.items_per_page = items_per_page
+        self.current_page = 0
+        self.total_pages = (len(self.ratings) - 1) // self.items_per_page
+
+        self.update_buttons()
+
+    def update_buttons(self):
+        """Active ou désactive les boutons de navigation."""
+        # On s'assure que les enfants existent avant de les manipuler
+        if len(self.children) >= 2:
+            self.children[0].disabled = self.current_page == 0
+            self.children[1].disabled = self.current_page >= self.total_pages
+
+    def create_embed_for_page(self) -> discord.Embed:
+        """Génère l'embed pour la page actuelle."""
+        start_index = self.current_page * self.items_per_page
+        end_index = start_index + self.items_per_page
+        page_items = self.ratings[start_index:end_index]
+
+        embed = create_styled_embed(
+            title="🏆 Classement Général des Produits",
+            description="Cliquez sur le nom d'un produit pour visiter sa page sur le site.", # Description mise à jour
+            color=discord.Color.blue()
+        )
+
+        description_text = ""
+        medals = ["🥇", "🥈", "🥉"]
+        for i, (name, avg_score, count) in enumerate(page_items):
+            rank = start_index + i
+            prefix = medals[rank] if rank < 3 else f"**`{rank + 1}.`**"
+            
+            # MODIFICATION 2 : On cherche le produit dans notre map pour obtenir l'URL
+            # On normalise le nom pour être sûr de la correspondance
+            normalized_name = name.strip().lower()
+            product_details = self.product_map.get(normalized_name)
+
+            # Si on trouve le produit et son URL, on crée un lien, sinon, juste le nom en gras
+            if product_details and product_details.get('product_url'):
+                product_line = f"[{name}]({product_details['product_url']})"
+            else:
+                product_line = f"{name}"
+
+            description_text += f"{prefix} **{product_line}**\n"
+            description_text += f"> Note moyenne : **{avg_score:.2f}/10** | *({count} avis)*\n\n"
+        
+        embed.description = description_text
+        embed.set_footer(text=f"Page {self.current_page + 1} sur {self.total_pages + 1}")
+        
+        return embed
+
+    async def update_message(self, interaction: discord.Interaction):
+        """Met à jour le message avec la nouvelle page."""
+        """Met à jour le message avec la nouvelle page."""
+        self.update_buttons()
+        embed = self.create_embed_for_page()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="⬅️ Précédent", style=discord.ButtonStyle.secondary)
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page > 0:
+            self.current_page -= 1
+        await self.update_message(interaction)
+
+    @discord.ui.button(label="Suivant ➡️", style=discord.ButtonStyle.secondary)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page < self.total_pages:
+            self.current_page += 1
+        await self.update_message(interaction)
 
 
