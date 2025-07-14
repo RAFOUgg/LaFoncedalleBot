@@ -166,30 +166,29 @@ class SlashCommands(commands.Cog):
                 await interaction.followup.send("Désolé, le menu n'est pas disponible pour le moment. Réessayez dans un instant.", ephemeral=True)
                 return
 
-            hash_count, weed_count, box_count, accessoire_count = get_product_counts(products)
-            general_promos_text = "\n".join([f"• {promo}" for promo in site_data.get('general_promos', [])]) or "Aucune promotion générale en cours."
+            # Filtrer les produits pour exclure box/accessoires/réseaux sociaux
+            filtered_products = filter_catalog_products(products)
 
-            description = (
-                f"__**📦 Produits disponibles :**__\n\n"
-                f"**`Fleurs 🍃 :` {weed_count}**\n"
-                f"**`Résines 🍫 :` {hash_count}**\n"
-                f"**`Box 📦 :` {box_count}**\n"
-                f"**`Accessoires 🛠️ :` {accessoire_count}**\n\n"
-                f"__**💰 Promotions disponibles :**__\n\n{general_promos_text}\n\n"
-                f"*(Données mises à jour <t:{int(site_data.get('timestamp'))}:R>)*"
-            )
+            general_promos_text = "\n".join([f"• {promo}" for promo in site_data.get('general_promos', [])]) or "Aucune promotion générale en cours."
+            hash_count, weed_count = get_product_counts(products) # Utilise la fonction filtrée
 
             embed = discord.Embed(
                 title="📢 Menu et Promotions !",
                 url=CATALOG_URL,
-                description=description,
+                description=f"__**📦 Produits disponibles :**__\n\n"
+                            f"**`Fleurs 🍃 :` {weed_count}**\n"
+                            f"**`Résines 🍫 :` {hash_count}**\n\n"
+                            f"__**💰 Promotions disponibles :**__\n\n{general_promos_text}\n\n"
+                            f"*(Données mises à jour <t:{int(site_data.get('timestamp'))}:R>)*",
                 color=discord.Color.from_rgb(0, 102, 204)
             )
             main_logo_url = config_manager.get_config("contact_info.main_logo_url")
             if main_logo_url:
                 embed.set_thumbnail(url=main_logo_url)
 
-            view = MenuView(products)
+            # Créer la vue avec les boutons sur les produits filtrés
+            view = MenuView(filtered_products)
+
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
         except (FileNotFoundError, json.JSONDecodeError):
@@ -715,7 +714,7 @@ def get_purchased_products_from_shopify(email: str) -> list:
     finally:
         shopify.ShopifyResource.clear_session()
             
-            if self.total_pages > 0:
+        if self.total_pages > 0:
                 embed.set_footer(text=f"Page de notes {self.current_page + 1}/{self.total_pages + 1}")
         
         return embed
@@ -1466,6 +1465,7 @@ class SlashCommands(commands.Cog):
 
             promo_products = [p for p in site_data.get('products', []) if p.get('is_promo')]
             general_promos = site_data.get('general_promos', [])
+            general_promos_text = "\n".join([f"• {promo}" for promo in general_promos]) if general_promos
             general_promos_text = "\n".join([f"• {promo}" for promo in general_promos]) if general_promos else ""
 
             # On passe toutes les infos nécessaires à la vue dès sa création
