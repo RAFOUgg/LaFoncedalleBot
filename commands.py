@@ -483,6 +483,55 @@ class SlashCommands(commands.Cog):
                     json.dump(claimed_users, f, indent=4)
                 
                 await log_user_action(interaction, f"a réclamé avec succès le code Nitro : {gift_code}")
+
+            except discord.Forbidden:
+                await interaction.followup.send("Je n'ai pas pu t'envoyer ton code en message privé. Assure-toi d'autoriser les messages privés venant des membres de ce serveur, puis réessaye.", ephemeral=True)
+
+        except FileNotFoundError:
+            await interaction.followup.send("Le fichier de codes de réduction n'a pas été trouvé. Merci de contacter un membre du staff.", ephemeral=True)
+            Logger.error(f"Le fichier '{NITRO_CODES_FILE}' est introuvable.")
+        except Exception as e:
+            Logger.error(f"Erreur inattendue dans la commande /nitro_gift : {e}")
+            traceback.print_exc()
+            await interaction.followup.send("❌ Une erreur interne est survenue. Merci de réessayer ou de contacter un admin.", ephemeral=True)
+
+
+    @app_commands.command(name="profil", description="Affiche le profil et les notations d'un membre.")
+    @app_commands.describe(membre="Le membre dont vous voulez voir le profil (optionnel).")
+    async def profil(self, interaction: discord.Interaction, membre: Optional[discord.Member] = None):
+        await interaction.response.defer(ephemeral=True)
+        
+        target_user = membre or interaction.user
+        await log_user_action(interaction, f"a consulté le profil de {target_user.display_name}")
+
+        # Déterminer les permissions
+        can_reset = False
+        if membre and membre.id != interaction.user.id and await is_staff_or_owner(interaction):
+            can_reset = True
+        def _fetch_user_data_sync(user_id):
+            conn = sqlite3.connect(DB_FILE)
+            # Permet de récupérer les résultats comme des dictionnaires
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            # 1. Obtenir toutes les notes de l'utilisateur
+            cursor.execute("""
+                SELECT product_name, visual_score, smell_score, touch_score, taste_score, effects_score, rating_timestamp
+                FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC
+            """, (user_id,))
+            # Convertit les objets Row en dictionnaires
+            user_ratings = [dict(row) for row in cursor.fetchall()]
+
+            # 2. Obtenir les statistiques globales (rang, moyenne, etc.)
+            # REQUÊTE CORRIGÉE
+            cursor.execute("""
+                WITH AllRanks AS (
+                    SELECT 
+                        user_id,
+                        COUNT(id) as rating_count,
+                        AVG((COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0) as avg_note,
+                        RANK() OVER (ORDER BY COUNT(id) DESC, AVG((COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0) DESC) as user_rank
+                    FROM ratings
                     GROUP BY user_id
                 )
                 SELECT user_rank, rating_count, avg_note FROM AllRanks WHERE user_id = ?
@@ -629,56 +678,7 @@ class SlashCommands(commands.Cog):
 
             promo_products = [p for p in site_data.get('products', []) if p.get('is_promo')]
             general_promos = site_data.get('general_promos', [])
-            general_promos_text = "\n".join([f"• {promo}" for promo in general_promos]) if general_promos else ""
-
-            # On passe toutes les infos nécessaires à la vue dès sa création
-            paginator = PromoPaginatorView(promo_products, general_promos_text)
-            embed = paginator.create_embed()
-            
-            await interaction.followup.send(embed=embed, view=paginator, ephemeral=True)
-
-        except Exception as e:
-            Logger.error(f"Erreur lors de l'exécution de la commande /promos : {e}")
-            traceback.print_exc()
-            # Ce message ne devrait plus être précédé par une réponse correcte
-            await interaction.followup.send("❌ Une erreur est survenue lors de la récupération des promotions.", ephemeral=True)
-
-    @app_commands.command(name="classement_general", description="Affiche la moyenne de tous les produits notés.")
-    async def classement_general(self, interaction: discord.Interaction):
-        """Affiche un classement complet et paginé de tous les produits ayant reçu une note."""
-        await interaction.response.defer()
-        await log_user_action(interaction, "a demandé le classement général des produits.")
-
-        # --- Début de la zone "protégée" ---
-        try:
-            # Fonctions pour récupérer les données
-            def _fetch_all_ratings_sync():
-                # ... (code de la fonction)
-                conn = sqlite3.connect(DB_FILE)
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT product_name, AVG((COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0), COUNT(id)
-                    FROM ratings GROUP BY product_name HAVING COUNT(id) > 0
-                    ORDER BY AVG((visual_score + smell_score + touch_score + taste_score + effects_score) / 5.0) DESC
-                """)
-                results = cursor.fetchall()
-                conn.close()
-                return results
-
-            def _read_product_cache_sync():
-                # ... (code de la fonction)
-                try:
-                    with open(CACHE_FILE, 'r', encoding='utf-8') as f:
-                        return json.load(f)
-                except (FileNotFoundError, json.JSONDecodeError):
-                    return {}
-
-            # 1. On récupère les données
-            all_products_ratings, site_data = await asyncio.gather(
-                asyncio.to_thread(_fetch_all_ratings_sync),
-                asyncio.to_thread(_read_product_cache_sync)
-            )
-
+            general_promos_text = "\n".join([f"• {promo}" for promo in general_promos]) if general_promos
             # 2. On vérifie les données
             if not all_products_ratings:
                 await interaction.followup.send("Aucun produit n'a encore été noté sur le serveur.", ephemeral=True)
