@@ -679,6 +679,55 @@ class SlashCommands(commands.Cog):
             promo_products = [p for p in site_data.get('products', []) if p.get('is_promo')]
             general_promos = site_data.get('general_promos', [])
             general_promos_text = "\n".join([f"• {promo}" for promo in general_promos]) if general_promos else ""
+
+            # On passe toutes les infos nécessaires à la vue dès sa création
+            paginator = PromoPaginatorView(promo_products, general_promos_text)
+            embed = paginator.create_embed()
+            
+            await interaction.followup.send(embed=embed, view=paginator, ephemeral=True)
+
+        except Exception as e:
+            Logger.error(f"Erreur lors de l'exécution de la commande /promos : {e}")
+            traceback.print_exc()
+            # Ce message ne devrait plus être précédé par une réponse correcte
+            await interaction.followup.send("❌ Une erreur est survenue lors de la récupération des promotions.", ephemeral=True)
+
+    @app_commands.command(name="classement_general", description="Affiche la moyenne de tous les produits notés.")
+    async def classement_general(self, interaction: discord.Interaction):
+        """Affiche un classement complet et paginé de tous les produits ayant reçu une note."""
+        await interaction.response.defer()
+        await log_user_action(interaction, "a demandé le classement général des produits.")
+
+        # --- Début de la zone "protégée" ---
+        try:
+            # Fonctions pour récupérer les données
+            def _fetch_all_ratings_sync():
+                # ... (code de la fonction)
+                conn = sqlite3.connect(DB_FILE)
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT product_name, AVG((COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0), COUNT(id)
+                    FROM ratings GROUP BY product_name HAVING COUNT(id) > 0
+                    ORDER BY AVG((visual_score + smell_score + touch_score + taste_score + effects_score) / 5.0) DESC
+                """)
+                results = cursor.fetchall()
+                conn.close()
+                return results
+
+            def _read_product_cache_sync():
+                # ... (code de la fonction)
+                try:
+                    with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+                        return json.load(f)
+                except (FileNotFoundError, json.JSONDecodeError):
+                    return {}
+
+            # 1. On récupère les données
+            all_products_ratings, site_data = await asyncio.gather(
+                asyncio.to_thread(_fetch_all_ratings_sync),
+                asyncio.to_thread(_read_product_cache_sync)
+            )
+
             # 2. On vérifie les données
             if not all_products_ratings:
                 await interaction.followup.send("Aucun produit n'a encore été noté sur le serveur.", ephemeral=True)
