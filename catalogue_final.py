@@ -119,8 +119,7 @@ def get_site_data_from_api():
         return None
     finally:
         # S'assurer de toujours nettoyer la session
-        if shopify.Session.activated:
-            shopify.ShopifyResource.clear_session()
+        shopify.ShopifyResource.clear_session()
 
 
 # --- La suite du code reste identique, car elle dépend du format des données, pas de la méthode de récupération ---
