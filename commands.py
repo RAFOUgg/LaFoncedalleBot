@@ -195,14 +195,21 @@ class MenuView(discord.ui.View):
 
     # --- Logique partagée pour afficher la vue du produit ---
     async def start_product_view(self, interaction: discord.Interaction, products: List[dict], category_name: str):
+        # --- ÉTAPE 1 : DÉFÉRER L'INTERACTION IMMÉDIATEMENT ---
+        # On dit à Discord "j'ai reçu le clic", et on demande à ce que la réponse soit cachée (ephemeral).
+        await interaction.response.defer(ephemeral=True)
+
         if not products:
-            await interaction.response.send_message(f"Désolé, aucun produit de type '{category_name}' trouvé.", ephemeral=True)
+            # --- ÉTAPE 2 : UTILISER .followup.send POUR LA RÉPONSE ---
+            await interaction.followup.send(f"Désolé, aucun produit de type '{category_name}' trouvé.", ephemeral=True)
             return
         
         view = ProductView(products, category=category_name.lower())
         embed = view.create_embed()
         
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        # --- ÉTAPE 2 : UTILISER .followup.send POUR LA RÉPONSE ---
+        # On envoie le nouveau menu en utilisant le "suivi" de l'interaction.
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     # --- Sous-classes pour chaque bouton ---
     # C'est la méthode la plus fiable pour les vues persistantes.
