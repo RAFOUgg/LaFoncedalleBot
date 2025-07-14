@@ -38,10 +38,11 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
 
 # --- Vues pour la commande /menu
 class ProductView(discord.ui.View):
-    def __init__(self, products: List[dict]):
+    def __init__(self, products: List[dict], category: str = None):
         super().__init__(timeout=300)
         self.products = products
         self.current_index = 0
+        self.category = category
         self.update_buttons()
 
     def update_buttons(self):
@@ -49,58 +50,66 @@ class ProductView(discord.ui.View):
             self.children[0].disabled = self.current_index == 0
             self.children[1].disabled = self.current_index >= len(self.products) - 1
 
+    def get_category_emoji(self):
+        if self.category == "weed":
+            return "🍃"
+        if self.category == "hash":
+            return "🍫"
+        if self.category == "box":
+            return "📦"
+        if self.category == "accessoire":
+            return "🛠️"
+        return ""
+
     def create_embed(self) -> discord.Embed:
         product = self.products[self.current_index]
-        # Détermine l'emoji selon la catégorie
-        name_lower = product.get('name', '').lower()
-        if "peach" in name_lower or "pêche" in name_lower:
-            emoji = "🍑"
-        elif "blueberry" in name_lower or "bleu" in name_lower:
-            emoji = "🫐"
-        elif "dry sift" in name_lower or "résine" in name_lower:
-            emoji = "🍫"
-        elif "box" in name_lower or "pack" in name_lower:
-            emoji = "📦"
-        elif "accessoire" in name_lower or "briquet" in name_lower or "feuille" in name_lower:
-            emoji = "🛠️"
-        else:
-            emoji = "🌿"
-
+        emoji = self.get_category_emoji()
         embed_color = discord.Color.dark_red() if product.get('is_sold_out') else discord.Color.from_rgb(255, 204, 0)
+
+        # Nom du produit stylisé
+        title = f"{emoji} **{product.get('name', 'Produit inconnu')}**"
         embed = discord.Embed(
-            title=f"{emoji} {product.get('name', 'Produit inconnu')}",
+            title=title,
             url=product.get('product_url', CATALOG_URL),
-            description=product.get('detailed_description', "Aucune description."),
+            description=None,
             color=embed_color
         )
         if product.get('image'):
             embed.set_thumbnail(url=product['image'])
 
-        # Prix et stock
+        # Description courte
+        description = product.get('detailed_description', "Aucune description.")
+        if description and len(description) > 220:
+            description = description[:220] + "..."
+        embed.add_field(name="Description", value=description, inline=False)
+
+        # Prix et promo
         if product.get('is_sold_out'):
             price_text = "❌ **ÉPUISÉ**"
         elif product.get('is_promo'):
             price_text = f"🏷️ **{product.get('price')}** ~~{product.get('original_price')}~~"
         else:
             price_text = f"💰 **{product.get('price', 'N/A')}**"
-        embed.add_field(name="Prix", value=price_text, inline=False)
+        embed.add_field(name="Prix", value=price_text, inline=True)
 
-        # Caractéristiques stylisées
+        # Caractéristiques
         stats = product.get('stats', {})
         if stats:
             stats_lines = []
             for label, value in stats.items():
-                # Si c'est un lien PDF, on le rend cliquable
-                if "pdf" in label.lower() or "lab" in label.lower():
-                    if value.startswith("gid://"):
-                        # On ne peut pas rendre cliquable, on affiche brut
-                        stats_lines.append(f"**Lab test PDF :** `{value}`")
-                    else:
-                        stats_lines.append(f"**Lab test PDF :** [Voir le PDF]({value})")
-                else:
-                    stats_lines.append(f"**{label} :** {value}")
-            embed.add_field(name="Caractéristiques", value="\n".join(stats_lines), inline=False)
+                stats_lines.append(f"**{label}** : {value}")
+            embed.add_field(name="Caractéristiques", value="\n".join(stats_lines), inline=True)
 
+        # Lien PDF lab test si présent
+        labtest = None
+        for k, v in stats.items():
+            if "pdf" in k.lower() or "lab" in k.lower():
+                labtest = v
+                break
+        if labtest:
+            embed.add_field(name="Lab Test", value=f"[Voir le PDF]({labtest})" if labtest.startswith("http") else labtest, inline=False)
+
+        # Footer pagination
         embed.set_footer(text=f"Produit {self.current_index + 1} sur {len(self.products)}")
         return embed
 
@@ -119,7 +128,6 @@ class ProductView(discord.ui.View):
         if self.current_index < len(self.products) - 1:
             self.current_index += 1
         await self.update_message(interaction)
-
 
 class MenuView(discord.ui.View):
     def __init__(self, all_products: List[dict]):
@@ -145,10 +153,9 @@ class MenuView(discord.ui.View):
             else:
                 await interaction.followup.send(f"Désolé, aucun produit de type '{category_name}' trouvé.", ephemeral=True)
             return
-        
-        view = ProductView(products)
+        # Passe la catégorie pour le style
+        view = ProductView(products, category=category_name.lower())
         embed = view.create_embed()
-        
         if not interaction.response.is_done():
             await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         else:
@@ -156,19 +163,18 @@ class MenuView(discord.ui.View):
 
     @discord.ui.button(label="Nos Fleurs 🍃", style=discord.ButtonStyle.success, emoji="🍃")
     async def weed_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.start_product_view(interaction, self.weed_products, "Fleurs")
+        await self.start_product_view(interaction, self.weed_products, "weed")
 
     @discord.ui.button(label="Nos Résines 🍫", style=discord.ButtonStyle.primary, emoji="🍫")
     async def hash_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.start_product_view(interaction, self.hash_products, "Résines")
+        await self.start_product_view(interaction, self.hash_products, "hash")
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        # Permet de router les boutons dynamiques
         if interaction.data.get("custom_id") == "menu_view_box_button":
-            await self.start_product_view(interaction, self.box_products, "Box")
+            await self.start_product_view(interaction, self.box_products, "box")
             return False
         if interaction.data.get("custom_id") == "menu_view_accessoire_button":
-            await self.start_product_view(interaction, self.accessoire_products, "Accessoires")
+            await self.start_product_view(interaction, self.accessoire_products, "accessoire")
             return False
         return True
 
