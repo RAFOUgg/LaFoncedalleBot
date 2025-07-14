@@ -54,17 +54,15 @@ class ProductView(discord.ui.View):
             self.children[1].disabled = self.current_index >= len(self.products) - 1
 
     def update_download_buttons(self):
-        # Retire les anciens boutons de téléchargement
         self.download_lab_url = None
         self.download_terpen_url = None
         self.children = [c for c in self.children if not hasattr(c, "is_download_button")]
         product = self.products[self.current_index]
         stats = product.get('stats', {})
-        # Lab test
         for k, v in stats.items():
-            if "lab" in k.lower() and ("pdf" in k.lower() or v.startswith("http")):
+            if "lab" in k.lower() and ("pdf" in k.lower() or str(v).startswith("http")):
                 self.download_lab_url = v
-            if "terpen" in k.lower() and ("pdf" in k.lower() or v.startswith("http")):
+            if "terpen" in k.lower() and ("pdf" in k.lower() or str(v).startswith("http")):
                 self.download_terpen_url = v
         if self.download_lab_url and str(self.download_lab_url).startswith("http"):
             self.add_item(self.DownloadButton("Télécharger Lab Test", self.download_lab_url, emoji="🧪"))
@@ -103,6 +101,7 @@ class ProductView(discord.ui.View):
         embed.add_field(name="Description", value=description, inline=False)
 
         # Prix et promo
+        price_text = ""
         if product.get('is_sold_out'):
             price_text = "❌ **ÉPUISÉ**"
         elif product.get('is_promo'):
@@ -111,42 +110,33 @@ class ProductView(discord.ui.View):
             price_text = f"💰 **{product.get('price', 'N/A')}**"
         embed.add_field(name="Prix", value=price_text, inline=True)
 
+        # Stock
+        if not product.get('is_sold_out') and product.get('stats', {}).get('Stock'):
+            embed.add_field(name="Stock", value=f"{product['stats']['Stock']}", inline=True)
+
         # Caractéristiques stylisées
         stats = product.get('stats', {})
-        if self.category == "box":
-            box_lines = []
-            # Regroupe les hash et fleurs avec emojis
-            for k, v in stats.items():
-                if "hash" in k.lower():
-                    box_lines.append(f"**Hash :** {v}")
-                elif "fleur" in k.lower() or "flower" in k.lower():
-                    box_lines.append(f"**Fleurs :** {v}")
-                elif "description" in k.lower():
-                    box_lines.append(f"**Description :** {v}")
-                elif "gout" in k.lower():
-                    box_lines.append(f"**Goût :** {v}")
-                elif "effet" in k.lower():
-                    box_lines.append(f"**Effet :** {v}")
-            embed.add_field(name="Contenu de la Box", value="\n".join(box_lines) if box_lines else "Aucun détail.", inline=True)
-        else:
-            char_lines = []
-            for k, v in stats.items():
-                # Ignore les liens PDF ici, ils sont gérés en bouton
-                if "pdf" in k.lower() or "lab" in k.lower() or "terpen" in k.lower():
-                    continue
-                # Stylisation
-                if "effet" in k.lower():
-                    char_lines.append(f"**Effet :** {v}")
-                elif "gout" in k.lower():
-                    char_lines.append(f"**Goût :** {v}")
-                elif "cbd" in k.lower():
-                    char_lines.append(f"**CBD :** {v}")
-                elif "thc" in k.lower():
-                    char_lines.append(f"**THC :** {v}")
-                else:
-                    char_lines.append(f"**{k.capitalize()} :** {v}")
-            if char_lines:
-                embed.add_field(name="Caractéristiques", value="\n".join(char_lines), inline=True)
+        char_lines = []
+        for k, v in stats.items():
+            if "pdf" in k.lower() or "lab" in k.lower() or "terpen" in k.lower():
+                continue
+            if "effet" in k.lower():
+                char_lines.append(f"**Effet :** {v}")
+            elif "gout" in k.lower():
+                char_lines.append(f"**Goût :** {v}")
+            elif "cbd" in k.lower():
+                char_lines.append(f"**CBD :** {v}")
+            elif "thc" in k.lower():
+                char_lines.append(f"**THC :** {v}")
+            elif "stock" in k.lower():
+                continue
+            else:
+                char_lines.append(f"**{k.capitalize()} :** {v}")
+        if char_lines:
+            embed.add_field(name="Caractéristiques", value="\n".join(char_lines), inline=False)
+
+        # Lien direct vers la fiche produit
+        embed.add_field(name="Voir sur le site", value=f"[Fiche produit]({product.get('product_url', CATALOG_URL)})", inline=False)
 
         # Lab test et terpen test affichés si non bouton
         for k, v in stats.items():
@@ -253,14 +243,17 @@ class SlashCommands(commands.Cog):
             filtered_products = filter_catalog_products(products)
 
             general_promos_text = "\n".join([f"• {promo}" for promo in site_data.get('general_promos', [])]) or "Aucune promotion générale en cours."
-            hash_count, weed_count = get_product_counts(products) # Utilise la fonction filtrée
+            # Correction ici : récupère toutes les catégories
+            hash_count, weed_count, box_count, accessoire_count = get_product_counts(products)
 
             embed = discord.Embed(
                 title="📢 Menu et Promotions !",
                 url=CATALOG_URL,
                 description=f"__**📦 Produits disponibles :**__\n\n"
                             f"**`Fleurs 🍃 :` {weed_count}**\n"
-                            f"**`Résines 🍫 :` {hash_count}**\n\n"
+                            f"**`Résines 🍫 :` {hash_count}**\n"
+                            f"**`Box 📦 :` {box_count}**\n"
+                            f"**`Accessoires 🛠️ :` {accessoire_count}**\n\n"
                             f"__**💰 Promotions disponibles :**__\n\n{general_promos_text}\n\n"
                             f"*(Données mises à jour <t:{int(site_data.get('timestamp'))}:R>)*",
                 color=discord.Color.from_rgb(0, 102, 204)
@@ -269,7 +262,7 @@ class SlashCommands(commands.Cog):
             if main_logo_url:
                 embed.set_thumbnail(url=main_logo_url)
 
-            # Créer la vue avec les boutons sur les produits filtrés
+            # Créer la vue avec les boutons sur les produits filtered
             view = MenuView(filtered_products)
 
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
@@ -1124,14 +1117,17 @@ class SlashCommands(commands.Cog):
             filtered_products = filter_catalog_products(products)
 
             general_promos_text = "\n".join([f"• {promo}" for promo in site_data.get('general_promos', [])]) or "Aucune promotion générale en cours."
-            hash_count, weed_count = get_product_counts(products) # Utilise la fonction filtrée
+            # Correction ici : récupère toutes les catégories
+            hash_count, weed_count, box_count, accessoire_count = get_product_counts(products)
 
             embed = discord.Embed(
                 title="📢 Menu et Promotions !",
                 url=CATALOG_URL,
                 description=f"__**📦 Produits disponibles :**__\n\n"
                             f"**`Fleurs 🍃 :` {weed_count}**\n"
-                            f"**`Résines 🍫 :` {hash_count}**\n\n"
+                            f"**`Résines 🍫 :` {hash_count}**\n"
+                            f"**`Box 📦 :` {box_count}**\n"
+                            f"**`Accessoires 🛠️ :` {accessoire_count}**\n\n"
                             f"__**💰 Promotions disponibles :**__\n\n{general_promos_text}\n\n"
                             f"*(Données mises à jour <t:{int(site_data.get('timestamp'))}:R>)*",
                 color=discord.Color.from_rgb(0, 102, 204)
@@ -1140,7 +1136,7 @@ class SlashCommands(commands.Cog):
             if main_logo_url:
                 embed.set_thumbnail(url=main_logo_url)
 
-            # Créer la vue avec les boutons sur les produits filtrés
+            # Créer la vue avec les boutons sur les produits filtered
             view = MenuView(filtered_products)
 
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
@@ -1966,6 +1962,10 @@ class RankingPaginatorView(discord.ui.View):
         await self.update_message(interaction)
 
     @discord.ui.button(label="Suivant ➡️", style=discord.ButtonStyle.secondary)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page < self.total_pages:
+            self.current_page += 1
+        await self.update_message(interaction)
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.current_page < self.total_pages:
             self.current_page += 1
