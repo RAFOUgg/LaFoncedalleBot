@@ -226,6 +226,7 @@ class SlashCommands(commands.Cog):
     # --- DÉBUT DES COMMANDES INDENTÉES CORRECTEMENT ---
     @app_commands.command(name="menu", description="Affiche le menu interactif des produits disponibles.")
     async def menu(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         await log_user_action(interaction, "a demandé le menu interactif (/menu)")
 
         try:
@@ -235,7 +236,7 @@ class SlashCommands(commands.Cog):
             site_data = await asyncio.to_thread(_read_cache_sync)
 
             if not site_data or not (products := site_data.get('products')):
-                await interaction.response.send_message("Désolé, le menu n'est pas disponible pour le moment. Réessayez dans un instant.", ephemeral=True)
+                await interaction.followup.send("Désolé, le menu n'est pas disponible pour le moment. Réessayez dans un instant.", ephemeral=True)
                 return
 
             promos_list = site_data.get('general_promos', [])
@@ -263,14 +264,14 @@ class SlashCommands(commands.Cog):
                 embed.set_thumbnail(url=main_logo_url)
 
             view = MenuView(products)
-            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
         except (FileNotFoundError, json.JSONDecodeError):
-            await interaction.response.send_message("Le menu est en cours de construction, veuillez réessayer dans quelques instants.", ephemeral=True)
+            await interaction.followup.send("Le menu est en cours de construction, veuillez réessayer dans quelques instants.", ephemeral=True)
         except Exception as e:
             Logger.error(f"Erreur dans /menu : {e}")
             traceback.print_exc()
-            await interaction.response.send_message("❌ Une erreur est survenue lors de l'affichage du menu.", ephemeral=True)
+            await interaction.followup.send("❌ Une erreur est survenue lors de l'affichage du menu.", ephemeral=True)
 
     @app_commands.command(name="export_db", description="Télécharger la base de données des notes utilisateur (staff uniquement)")
     @app_commands.check(is_staff_or_owner)
@@ -807,9 +808,8 @@ def get_purchased_products_from_shopify(email: str) -> list:
             super().__init__(label="Notes Suiv. ➡️", style=discord.ButtonStyle.secondary)
             self.parent_view = parent_view
         async def callback(self, interaction: discord.Interaction):
-            if self.parent_view.current_page < self.parent_view.total_pages:
-                self.parent_view.current_page += 1
-                await interaction.response.edit_message(embed=self.parent_view.create_embed(), view=self.parent_view)
+            self.parent_view.current_page += 1
+            await interaction.response.edit_message(embed=self.parent_view.create_embed(), view=self.parent_view)
 
     class ResetButton(discord.ui.Button):
         def __init__(self, parent_view):
