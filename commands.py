@@ -1084,13 +1084,13 @@ class RankingPaginatorView(discord.ui.View):
     async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.current_page > 0:
             self.current_page -= 1
-        await self.update_message(interaction)
+        await interaction.response.edit_message(embed=self.create_embed_for_page(), view=self)
 
     @discord.ui.button(label="Suivant ➡️", style=discord.ButtonStyle.secondary)
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.current_page < self.total_pages:
             self.current_page += 1
-        await self.update_message(interaction)
+        await interaction.response.edit_message(embed=self.create_embed_for_page(), view=self)
         self.current_page += 1
         await self.update_message(interaction)
 class SlashCommands(commands.Cog):
