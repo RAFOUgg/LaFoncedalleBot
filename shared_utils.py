@@ -197,3 +197,17 @@ def create_styled_embed(title: str, description: str, color=discord.Color.blurpl
     else:
         embed.set_footer(text="LaFoncedalle")
     return embed
+
+def get_general_promos():
+    """
+    Retourne la liste des promotions générales (pop-up, bandeau, etc.) définies dans config.json.
+    """
+    promos = []
+    # Ajoute ici les clés à lire dans config.json
+    popup_promo = config_manager.get_config("contact_info.popup_promo")
+    if popup_promo:
+        promos.append(popup_promo)
+    banner_promo = config_manager.get_config("contact_info.banner_promo")
+    if banner_promo:
+        promos.append(banner_promo)
+    return promos

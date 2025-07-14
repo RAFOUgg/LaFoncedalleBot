@@ -253,14 +253,17 @@ class SlashCommands(commands.Cog):
             filtered_products = filter_catalog_products(products)
 
             general_promos_text = "\n".join([f"• {promo}" for promo in site_data.get('general_promos', [])]) or "Aucune promotion générale en cours."
-            hash_count, weed_count = get_product_counts(products) # Utilise la fonction filtrée
+            # Correction ici : on récupère toutes les catégories
+            hash_count, weed_count, box_count, accessoire_count = get_product_counts(products)
 
             embed = discord.Embed(
                 title="📢 Menu et Promotions !",
                 url=CATALOG_URL,
                 description=f"__**📦 Produits disponibles :**__\n\n"
                             f"**`Fleurs 🍃 :` {weed_count}**\n"
-                            f"**`Résines 🍫 :` {hash_count}**\n\n"
+                            f"**`Résines 🍫 :` {hash_count}**\n"
+                            f"**`Box 📦 :` {box_count}**\n"
+                            f"**`Accessoires 🛠️ :` {accessoire_count}**\n\n"
                             f"__**💰 Promotions disponibles :**__\n\n{general_promos_text}\n\n"
                             f"*(Données mises à jour <t:{int(site_data.get('timestamp'))}:R>)*",
                 color=discord.Color.from_rgb(0, 102, 204)
@@ -1124,14 +1127,17 @@ class SlashCommands(commands.Cog):
             filtered_products = filter_catalog_products(products)
 
             general_promos_text = "\n".join([f"• {promo}" for promo in site_data.get('general_promos', [])]) or "Aucune promotion générale en cours."
-            hash_count, weed_count = get_product_counts(products) # Utilise la fonction filtrée
+            # Correction ici : on récupère toutes les catégories
+            hash_count, weed_count, box_count, accessoire_count = get_product_counts(products)
 
             embed = discord.Embed(
                 title="📢 Menu et Promotions !",
                 url=CATALOG_URL,
                 description=f"__**📦 Produits disponibles :**__\n\n"
                             f"**`Fleurs 🍃 :` {weed_count}**\n"
-                            f"**`Résines 🍫 :` {hash_count}**\n\n"
+                            f"**`Résines 🍫 :` {hash_count}**\n"
+                            f"**`Box 📦 :` {box_count}**\n"
+                            f"**`Accessoires 🛠️ :` {accessoire_count}**\n\n"
                             f"__**💰 Promotions disponibles :**__\n\n{general_promos_text}\n\n"
                             f"*(Données mises à jour <t:{int(site_data.get('timestamp'))}:R>)*",
                 color=discord.Color.from_rgb(0, 102, 204)
