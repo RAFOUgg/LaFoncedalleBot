@@ -168,33 +168,32 @@ class ProductView(discord.ui.View):
             super().__init__(label=label, style=discord.ButtonStyle.link, url=url, emoji=emoji)
             self.is_download_button = True
 
+# Fichier : commands.py
+
 class MenuView(discord.ui.View):
     def __init__(self, all_products: List[dict]):
-        # Important : timeout=None pour une vue persistante
-        super().__init__(timeout=None)
+        super().__init__(timeout=None)  # Vue persistante
 
-        # 1. On catégorise les produits
+        # --- Catégorisation des produits ---
         categorized = categorize_products(all_products)
         self.weed_products = categorized["weed"]
         self.hash_products = categorized["hash"]
         self.box_products = categorized["box"]
         self.accessoire_products = categorized["accessoire"]
-        
-        # 2. On met à jour les custom_id des boutons décorés
-        # C'est crucial pour que la vue soit persistante et retrouve ses boutons
-        self.weed_button.custom_id = "persistent_menu:fleurs"
-        self.hash_button.custom_id = "persistent_menu:resines"
-        
-        # 3. On ajoute les boutons conditionnels s'il y a des produits
+
+        # --- Ajout des boutons ---
+        # On ajoute les boutons qui sont toujours présents
+        self.add_item(self.WeedButton(self))
+        self.add_item(self.HashButton(self))
+
+        # On ajoute les boutons conditionnels
         if self.box_products:
-            self.box_button.custom_id = "persistent_menu:box"
-            self.add_item(self.box_button)
+            self.add_item(self.BoxButton(self))
         
         if self.accessoire_products:
-            self.accessoire_button.custom_id = "persistent_menu:accessoires"
-            self.add_item(self.accessoire_button)
+            self.add_item(self.AccessoireButton(self))
 
-    # Une fonction utilitaire pour éviter la répétition de code
+    # --- Logique partagée pour afficher la vue du produit ---
     async def start_product_view(self, interaction: discord.Interaction, products: List[dict], category_name: str):
         if not products:
             await interaction.response.send_message(f"Désolé, aucun produit de type '{category_name}' trouvé.", ephemeral=True)
@@ -203,29 +202,42 @@ class MenuView(discord.ui.View):
         view = ProductView(products, category=category_name.lower())
         embed = view.create_embed()
         
-        # On utilise followup si une réponse a déjà été envoyée (ce qui est le cas ici)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-    # --- Définition des boutons avec des décorateurs ---
-    # C'est la méthode la plus propre. Chaque bouton a sa propre fonction.
+    # --- Sous-classes pour chaque bouton ---
+    # C'est la méthode la plus fiable pour les vues persistantes.
+    
+    class WeedButton(discord.ui.Button):
+        def __init__(self, parent_view):
+            super().__init__(label="Nos Fleurs 🍃", style=discord.ButtonStyle.success, emoji="🍃", custom_id="persistent_menu:fleurs")
+            self.parent_view = parent_view
+        
+        async def callback(self, interaction: discord.Interaction):
+            await self.parent_view.start_product_view(interaction, self.parent_view.weed_products, "weed")
 
-    @discord.ui.button(label="Nos Fleurs 🍃", style=discord.ButtonStyle.success, emoji="🍃")
-    async def weed_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.start_product_view(interaction, self.weed_products, "weed")
+    class HashButton(discord.ui.Button):
+        def __init__(self, parent_view):
+            super().__init__(label="Nos Résines 🍫", style=discord.ButtonStyle.primary, emoji="🍫", custom_id="persistent_menu:resines")
+            self.parent_view = parent_view
 
-    @discord.ui.button(label="Nos Résines 🍫", style=discord.ButtonStyle.primary, emoji="🍫")
-    async def hash_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.start_product_view(interaction, self.hash_products, "hash")
+        async def callback(self, interaction: discord.Interaction):
+            await self.parent_view.start_product_view(interaction, self.parent_view.hash_products, "hash")
 
-    # On définit aussi les boutons conditionnels avec des décorateurs
-    # Ils seront simplement ajoutés ou non à la vue dans __init__
-    @discord.ui.button(label="Nos Box 📦", style=discord.ButtonStyle.success, emoji="📦")
-    async def box_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.start_product_view(interaction, self.box_products, "box")
+    class BoxButton(discord.ui.Button):
+        def __init__(self, parent_view):
+            super().__init__(label="Nos Box 📦", style=discord.ButtonStyle.success, emoji="📦", custom_id="persistent_menu:box")
+            self.parent_view = parent_view
 
-    @discord.ui.button(label="Accessoires 🛠️", style=discord.ButtonStyle.secondary, emoji="🛠️")
-    async def accessoire_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.start_product_view(interaction, self.accessoire_products, "accessoire")
+        async def callback(self, interaction: discord.Interaction):
+            await self.parent_view.start_product_view(interaction, self.parent_view.box_products, "box")
+
+    class AccessoireButton(discord.ui.Button):
+        def __init__(self, parent_view):
+            super().__init__(label="Accessoires 🛠️", style=discord.ButtonStyle.secondary, emoji="🛠️", custom_id="persistent_menu:accessoires")
+            self.parent_view = parent_view
+            
+        async def callback(self, interaction: discord.Interaction):
+            await self.parent_view.start_product_view(interaction, self.parent_view.accessoire_products, "accessoire")
 
 # --- COMMANDES ---
 
