@@ -1,25 +1,17 @@
 # --- Core Frameworks ---
 Flask
 gunicorn
-discord.py==2.3.2
-python-dotenv
+discord.py
 
 # --- Shopify & Web Requests ---
 shopify-api-python
 requests
-cloudscraper  # Gardé si vous avez encore des petits besoins de scraping
 
-# --- Database ---
-# Uniquement les librairies SQLite que vous utilisez
+# --- Database & Utils ---
 aiosqlite
-
-# --- Data Parsing & Manipulation ---
+python-dotenv
 beautifulsoup4
 numpy
-matplotlib # Pour graph_generator
-pillow # Dépendance pour matplotlib et potentiellement d'autres
-
-# --- Utils ---
-colorama # Pour les logs en couleur
-qrcode # Si vous en avez l'utilité quelque part
-python-dateutil
+matplotlib
+pillow
+colorama
