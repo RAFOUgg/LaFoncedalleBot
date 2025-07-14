@@ -1,0 +1,336 @@
+{
+    "timestamp": 1752524691.6234934,
+    "products": [
+        {
+            "name": "Briquet et Feuille",
+            "product_url": "https://la-foncedalle.fr/products/briquet",
+            "image": null,
+            "detailed_description": "Pas de description.",
+            "is_sold_out": false,
+            "price": "0,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {}
+        },
+        {
+            "name": "La Box Gustative Ultime  🍫🍃",
+            "product_url": "https://la-foncedalle.fr/products/la-box-gustative-ultime-🍫🍃",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/decouverte.png?v=1749992487",
+            "detailed_description": "Avec mes sobeuhliers, on a goûté, noté, re-testé.\nVoici notre sélection ultime :\n12 strains\nparmi les plus\ngustatives, authentiques et puissantes\nqu’on ait jamais fumées.\nT’as déjà goûté du CBD ?\nOublie.\nAvec cette box, tu vas le redécouvrir !",
+            "is_sold_out": false,
+            "price": "89,00 €",
+            "is_promo": true,
+            "original_price": "120,00 €",
+            "stats": {
+                "Box description": "🍫 Les Hash :\n🫐 Dry Blueberry  1G\n🍑 Dry Peach 1G\n\n Les Fleurs 🌿 :\n🍨 Vanilla 6G (offert 🎁 )\n💎 Dark Saphyr 1G (offert 🎁)\n🍋 Sour Meringue 1G\n🪐 Interstellar 1G\n🍓 Fraise Sauvage 1G\n🫐 Blueberry 1G\n🧿 Afghan Berry 1G\n🍒Cheese Berry 1G\n🧀 Cheese Cake 1G\n🧠 Amnesia Punch 1G\n🧟 Zombie Kush 1G",
+                "Gout tag": "Livraison Offerte 🎁",
+                "Effet tag": "⭐️⭐️⭐️⭐️⭐️"
+            }
+        },
+        {
+            "name": "La Box Weed Premium 🍃",
+            "product_url": "https://la-foncedalle.fr/products/la-box-weed-premium-🍃",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/boxweed_b82f6ea1-8dc6-4fb7-a165-035eb58e6e9e.png?v=1749992865",
+            "detailed_description": "Avec mes sobeuhliers, on a goûté, noté, re-testé.\nVoici notre sélection ultime :\n9 strains\nparmi les plus\ngustatives, authentiques et puissantes\nqu’on ait jamais fumées.\nT’as déjà goûté du CBD ?\nOublie.\nAvec cette box, tu vas le redécouvrir !",
+            "is_sold_out": false,
+            "price": "64,99 €",
+            "is_promo": true,
+            "original_price": "79,99 €",
+            "stats": {
+                "Box description": "La Box Weed Premium  🌿\n\nCette box contient nos meilleures \nsélections de fleurs : \n\n🍨 Vanilla 6G (offert 🎁 )\n🍋 Sour Meringue 1G\n🪐 Interstellar 1G\n🍓 Fraise Sauvage 1G\n🫐 Blueberry 1G\n🧿 Afghan Berry 1G\n🍒Cheese Berry\n🧀 Cheese Cake 1G\n🧠 Amnesia Punch 1G\n🧟 Zombie Kush 1G",
+                "Gout tag": "Livraison Offerte 🎁",
+                "Effet tag": "⭐️⭐️⭐️⭐️⭐️"
+            }
+        },
+        {
+            "name": "Telegram",
+            "product_url": "https://la-foncedalle.fr/products/telegram",
+            "image": null,
+            "detailed_description": "Pas de description.",
+            "is_sold_out": false,
+            "price": "0,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {}
+        },
+        {
+            "name": "vanilla",
+            "product_url": "https://la-foncedalle.fr/products/vanilla",
+            "image": null,
+            "detailed_description": "Pas de description.",
+            "is_sold_out": false,
+            "price": "0,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {}
+        },
+        {
+            "name": "🧿 Afghan Berry",
+            "product_url": "https://la-foncedalle.fr/products/afghan-berry",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/afgranberry.png?v=1749992481",
+            "detailed_description": "Une fleur gourmande au parfum intense de fruits noirs mûrs. Mûre, cassis, légère touche boisée : chaque bouffée fond comme une confiture de fin d’été. Effet relaxant, tout en douceur, pour t’envelopper dans une vibe calme et apaisante 👨‍🍳",
+            "is_sold_out": false,
+            "price": "à partir de 8,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {
+                "Lab test pdf": "gid://shopify/GenericFile/53228636176726",
+                "Terpene test pdf": "gid://shopify/GenericFile/53228636176726",
+                "Gout tag": "Fruité",
+                "Effet tag": "Relaxant"
+            }
+        },
+        {
+            "name": "🧠 Amnesia Punch",
+            "product_url": "https://la-foncedalle.fr/products/amnesia-punch",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/Amne.png?v=1746185166",
+            "detailed_description": "Un classique au tempérament affirmé. Arômes épicés et boisés qui montent doucement, comme un encens fin ou une infusion orientale. La bouche se gorge de notes chaudes et herbacées, avec une petite pointe d’amertume noble. L’effet relaxant arrive tout en douceur, pour relâcher la pression sans t’anesthésier\n🧘♂️",
+            "is_sold_out": false,
+            "price": "à partir de 7,50 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {
+                "Effet tag": "RELAXANTE",
+                "Gout tag": "ÉPICÉ",
+                "Terpene test pdf": "gid://shopify/GenericFile/52015197061462",
+                "Lab test pdf": "gid://shopify/GenericFile/52015197061462"
+            }
+        },
+        {
+            "name": "🫐 Blueberry",
+            "product_url": "https://la-foncedalle.fr/products/blueberry",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/blueberry_2cd23945-684f-447e-9476-019207144d92.png?v=1749992515",
+            "detailed_description": "Une fleur douce et juteuse aux arômes riches de myrtilles sauvages et de sucre naturel. En bouche, c’est fruité, rond et ultra réconfortant. L’effet calme instantanément, posant une vibe tranquille et douce, parfaite pour respirer un coup et savourer l’instant\n🌫️",
+            "is_sold_out": false,
+            "price": "à partir de 9,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {
+                "Gout tag": "SUCRÉ",
+                "Effet tag": "CALME INTENSE",
+                "Lab test pdf": "gid://shopify/GenericFile/53271582966102"
+            }
+        },
+        {
+            "name": "🌴 Ceiba Oz",
+            "product_url": "https://la-foncedalle.fr/products/🌴-ceiba-oz",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/ceibaoz_3815652e-38e0-4821-ba77-59521c6fbca0.png?v=1746800568",
+            "detailed_description": "Une fleur précieuse, presque confidentielle, au parfum délicat de noisette grillée, relevée de notes boisées et terreuses. En bouche, c’est soyeux, doux, et profond. L’effet envoûte sans alourdir : une détente enveloppante, idéale pour atterrir tout en restant dans la lumière💡",
+            "is_sold_out": false,
+            "price": "à partir de 8,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {
+                "Effet tag": "ENIVRANTE",
+                "Gout tag": "NOISETTE",
+                "Lab test pdf": "gid://shopify/MediaImage/52592008855894",
+                "Terpene test pdf": "gid://shopify/MediaImage/52592008855894"
+            }
+        },
+        {
+            "name": "🍒 Cheese Berry",
+            "product_url": "https://la-foncedalle.fr/products/cheese-berry-🍒",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/Cheeseberry.png?v=1749992229",
+            "detailed_description": "Une fleur ultra gourmande au parfum sucré de fruits rouges fondus dans une crème douce et lactée. Chaque bouffée est un petit plaisir sucré, comme une cuillère de dessert onctueux. L’effet est délicat mais satisfaisant, parfait pour savourer l’instant sans se presser\n🍮",
+            "is_sold_out": false,
+            "price": "à partir de 8,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {
+                "Lab test pdf": "gid://shopify/GenericFile/53228636275030",
+                "Terpene test pdf": "gid://shopify/GenericFile/53228636275030",
+                "Gout tag": "SUCRÉ",
+                "Effet tag": "GOURMAND"
+            }
+        },
+        {
+            "name": "🍰 Cheese Cake",
+            "product_url": "https://la-foncedalle.fr/products/🧀-cheese-cake",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/Cheese_097b6f84-1b69-4c3c-a071-f0eedddcdf99.png?v=1749891409",
+            "detailed_description": "Une fleur généreuse et fondante, comme une part de dessert que t’as pas envie de partager. Notes fruitées bien mûres mêlées à une douceur sucrée presque pâtissière. L’équilibre est parfait : un effet relax sans te clouer, idéal pour profiter d’un moment posé, actif, inspiré, ou juste détendu entre potes\n🌴",
+            "is_sold_out": false,
+            "price": "à partir de 9,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {
+                "Effet tag": "EN JOURNÉE",
+                "Gout tag": "FRUITÉE",
+                "Terpene test pdf": "gid://shopify/GenericFile/52015197094230",
+                "Lab test pdf": "gid://shopify/GenericFile/52015400681814"
+            }
+        },
+        {
+            "name": "💎 Dark Saphir",
+            "product_url": "https://la-foncedalle.fr/products/💎-dark-saphir",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/DarkSaphir.png?v=1749891409",
+            "detailed_description": "Dark Saphir, c’est l’art de la détente en version crème glacée. Cultivée par l’un des meilleurs grower français, cette fleur premium contient\n6% de terpènes\nnaturels : un bouquet aromatique dense, onctueux et ultra savoureux. En bouche, une caresse lactée façon crème vanille légèrement caramélisée, suivie d’une vague relaxante qui ralentit le temps.",
+            "is_sold_out": false,
+            "price": "à partir de 13,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {
+                "Effet tag": "REPOSANT",
+                "Gout tag": "CRÈME GLACÉE",
+                "Lab test pdf": "gid://shopify/GenericFile/53228636242262",
+                "Terpene test pdf": "gid://shopify/GenericFile/53228636242262"
+            }
+        },
+        {
+            "name": "🫐 Dry Sift Blueberry",
+            "product_url": "https://la-foncedalle.fr/products/dry-sift-blueberry",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/Blueberry_7ea98eea-9cfc-4d61-a87b-4b48f495e88e.png?v=1746185497",
+            "detailed_description": "Un concentré moelleux au goût de baies sucrées et de raisin noir. Texture fondante, fumée douce, et arôme sucré qui tapisse le palais comme une confiture maison. L’effet est chaleureux et apaisant, un vrai petit cocon mental pour se détendre en fin de journée ou chiller en douceur\n🧸",
+            "is_sold_out": false,
+            "price": "à partir de 8,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {
+                "Effet tag": "RÉCONFORTANTE",
+                "Gout tag": "SUCRÉE",
+                "Lab test pdf": "gid://shopify/GenericFile/52015400812886",
+                "Title tag": "Dry Sift Blueberry",
+                "Description tag": "Un hybride CBD délicieux aux arômes prononcés de raisin mûr et de baies sucrées. Saveur fruitée et douce qui ravira les amateurs de profils gustatifs riches. Effet relaxant et apaisant, parfait pour décompresser après une longue journée."
+            }
+        },
+        {
+            "name": "🍑 Dry Sift Peach",
+            "product_url": "https://la-foncedalle.fr/products/🍑-dry-sift-peach",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/Peach_e1084295-d204-452b-b2af-925c5575244c.png?v=1746185450",
+            "detailed_description": "Une résine légère et lumineuse aux parfums de pêche juteuse et de fruits jaunes bien mûrs. La texture est douce, le goût fruité tapisse le palais avec une touche acidulée très naturelle. L’effet est fluide, apaisant, sans lourdeur : l’esprit respire, les idées s’éclaircissent, et le corps se relâche juste ce qu’il faut\n🌞",
+            "is_sold_out": false,
+            "price": "à partir de 8,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {
+                "Effet tag": "APAISANT",
+                "Gout tag": "FRUITÉ ",
+                "Lab test pdf": "gid://shopify/GenericFile/52015400780118"
+            }
+        },
+        {
+            "name": "🍓 Fraise Sauvage",
+            "product_url": "https://la-foncedalle.fr/products/fraise-sauvage-🍓🍓",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/fraisesauvage.png?v=1749992562",
+            "detailed_description": "Une fleur douce et fraîche aux arômes authentiques de fraise des bois et de sucre naturel. En bouche, c’est délicat, fruité, et légèrement acidulé. L’effet apaise sans alourdir, comme une promenade au calme, l’esprit léger et le corps détendu\n🌿",
+            "is_sold_out": false,
+            "price": "à partir de 9,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {
+                "Gout tag": "FRAICHE",
+                "Effet tag": "APAISANT",
+                "Lab test pdf": "gid://shopify/GenericFile/53271560782166"
+            }
+        },
+        {
+            "name": "🍇 Grape Kush",
+            "product_url": "https://la-foncedalle.fr/products/🍊-orange-fritter-copy",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/Grape_c576926e-cec5-48fc-8bba-8cfad2f433a5.png?v=1747916731",
+            "detailed_description": "Une fleur juteuse et sucrée qui claque direct au nez et en bouche. Arômes intenses de raisin noir et de baies sauvages, comme une confiture artisanale tout juste ouverte. En bouche, c’est doux, sirupeux, presque velouté. L’effet relax se fait sentir rapidement, enveloppant et calmant, comme une bonne claque fruitée à la fin d’une journée trop longue\n💥",
+            "is_sold_out": false,
+            "price": "à partir de 8,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {
+                "Gout tag": "FRUITÉE",
+                "Effet tag": "DÉTONANTE",
+                "Lab test pdf": "gid://shopify/GenericFile/52015400452438",
+                "Terpene test pdf": "gid://shopify/GenericFile/52015197028694"
+            }
+        },
+        {
+            "name": "🪐 Interstellar",
+            "product_url": "https://la-foncedalle.fr/products/interstellar",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/Interstellar.png?v=1749992566",
+            "detailed_description": "Une fleur sombre et élégante, au parfum de sucre roux caramélisé, de bois chaud et de notes torréfiées. En bouche, c’est profond et légèrement fumé, l’effet chill s’installe lentement, comme une descente en apesanteur vers un état de calme total 💆",
+            "is_sold_out": false,
+            "price": "à partir de 8,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {
+                "Lab test pdf": "gid://shopify/GenericFile/53228636209494",
+                "Terpene test pdf": "gid://shopify/GenericFile/53228636209494",
+                "Gout tag": "SUCRE ROUX",
+                "Effet tag": "CHILL"
+            }
+        },
+        {
+            "name": "🫐 La Box Blueberry",
+            "product_url": "https://la-foncedalle.fr/products/la-box-blueberry",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/bluebox.png?v=1749992762",
+            "detailed_description": "La\nBox Blueberry\n, c’est comme plonger la tête la première dans un panier de fruits rouges en fin d’été.\nChaque variété est une déclinaison sensorielle autour de la baie\n: sucrée, juteuse, confiturée…\nUn combo moelleux\npour les palais qui aiment le goût doux et les vibes calmes. À savourer quand le monde ralentit et que tu veux juste te faire plaisir, tranquille. 🫐",
+            "is_sold_out": false,
+            "price": "28,99 €",
+            "is_promo": true,
+            "original_price": "35,00 €",
+            "stats": {
+                "Box description": "🫐 Dry Sift Blueberry : une confiture maison de myrtilles et de raisin noir, avec une texture fondante et un effet cocon apaisant.\n\n🍮 Cheese Berry : un dessert fruité et lacté, comme une crème sucrée aux fruits rouges, pour une pause gourmande toute en douceur.\n\n🍒 Afghan Berry : un shot de mûre et de cassis, boisé et velouté, avec une vibe relax qui coule lentement dans le corps.\n\n🌫️ Blueberry : la fleur iconique aux notes riches de myrtille sauvage et de sucre naturel. Douce, posée, réconfortante.",
+                "Effet tag": "⭐️⭐️⭐️⭐️⭐️"
+            }
+        },
+        {
+            "name": "🍊 Orange Fritter",
+            "product_url": "https://la-foncedalle.fr/products/🍊-orange-fritter",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/Orange_1bcb9973-5f40-460a-9e69-15f2b28a2241.png?v=1747916681",
+            "detailed_description": "Une friandise fruitée qui sent bon l’orange pressée et le sucre blond. En bouche, c’est rond, doux, avec ce twist acidulé d’agrumes frais, comme une pâtisserie sortie du four. L’effet est chill, bien calé entre détente physique et clarté mentale. Parfaite pour une pause zen dans la journée, sans brouiller les idées 💆",
+            "is_sold_out": false,
+            "price": "à partir de 8,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {
+                "Effet tag": "CHILL",
+                "Gout tag": "GOURMANDE",
+                "Lab test pdf": "gid://shopify/GenericFile/52015400419670",
+                "Terpene test pdf": "gid://shopify/GenericFile/52015196963158"
+            }
+        },
+        {
+            "name": "🍋 Sour Meringue",
+            "product_url": "https://la-foncedalle.fr/products/sour-meringue-🍋",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/Sourmeringue.png?v=1749992571",
+            "detailed_description": "Une fleur légère et sucrée au goût unique de meringue citronnée. Douce en bouche, avec un twist acidulé qui réveille les papilles et fait monter une vibe pleine d’énergie. L’effet est frais, motivant et clair : parfait pour démarrer la journée ou enclencher une session créative ⚡️",
+            "is_sold_out": false,
+            "price": "à partir de 8,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {
+                "Lab test pdf": "gid://shopify/GenericFile/53228636209494",
+                "Terpene test pdf": "gid://shopify/GenericFile/53228636209494",
+                "Gout tag": "MERINGUE",
+                "Effet tag": "ÉNERGIE"
+            }
+        },
+        {
+            "name": "🧟 Zombie Kush",
+            "product_url": "https://la-foncedalle.fr/products/zombie-kush",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/Zombie_0afe0fcd-0d06-4779-a0ad-88ea2837b1e9.png?v=1748772655",
+            "detailed_description": "Une fleur hypnotisante au goût complexe et envoutant. Lavande musquée, raisin bien mûr et un fond terreux qui évoque les sous-bois humides d’une nuit tombante. Une touche florale presque mystique, pour un trip olfactif intense. Son effet est lourd, profond, comme une couverture chaude qui t’enveloppe doucement avant de t’emmener vers un sommeil lourd et réparateur\n😴",
+            "is_sold_out": false,
+            "price": "à partir de 7,50 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {
+                "Effet tag": "DÉTENTE PROFONDE",
+                "Gout tag": "COMPLEXE",
+                "Lab test pdf": "gid://shopify/GenericFile/52015400714582",
+                "Terpene test pdf": "gid://shopify/GenericFile/52015197126998"
+            }
+        },
+        {
+            "name": "👨‍🍳 La Box Nostaweed",
+            "product_url": "https://la-foncedalle.fr/products/box-nostaweed",
+            "image": "https://cdn.shopify.com/s/files/1/0897/2540/3478/files/nostabox.png?v=1749992695",
+            "detailed_description": "La\nBox Nostaweed\n, c’est une capsule temporelle aromatique :\ntrois anciennes variétés mythiques réunies\nune dernière fois pour les vrais amateurs. Entre la\nCeiba Oz 🌴\net sa noisette boisée ultra chill,\nl’\nOrange Fritter\n🍊\nfruitée comme une tarte sortie du four, et la\nGrape Kush\n🍇\naux vibes de confiture artisanale… chaque\ngramme\nest un retour sensoriel vers des vibes oubliées.\nDerniers lots, jamais refaits\n.\nPour ceux qui fument avec le cœur (et le palais) 👨🍳",
+            "is_sold_out": false,
+            "price": "18,97 €",
+            "is_promo": true,
+            "original_price": "24,99 €",
+            "stats": {
+                "Box description": "Elle contient 1g de chacune de ces pépites oubliées, pour un total de 3g de nostalgie sensorielle 👨‍🌾\n\n(1G)🌰 Ceiba Oz : une noisette grillée subtile, portée par des notes boisées et terreuses, avec un effet relaxant mais lumineux. Classique, profond, précieux.\n\n(1G)🍊 Orange Fritter : des arômes d’orange fraîche et de sucre blond, comme une viennoiserie aux agrumes. Chill léger, parfait pour le day smoke zen.\n\n(1G)🍇 Grape Kush : un gros raisin noir mûr, presque confit, avec un effet détente instantané qui frappe comme une claque fruitée en fin de journée.",
+                "Gout tag": "Derniers grammes 🚨",
+                "Effet tag": "⭐️⭐️⭐️⭐️⭐️"
+            }
+        }
+    ],
+    "general_promos": []
+}
