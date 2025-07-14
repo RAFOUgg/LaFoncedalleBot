@@ -43,12 +43,33 @@ class ProductView(discord.ui.View):
         self.products = products
         self.current_index = 0
         self.category = category
+        self.download_lab_url = None
+        self.download_terpen_url = None
         self.update_buttons()
+        self.update_download_buttons()
 
     def update_buttons(self):
         if len(self.children) >= 2:
             self.children[0].disabled = self.current_index == 0
             self.children[1].disabled = self.current_index >= len(self.products) - 1
+
+    def update_download_buttons(self):
+        # Retire les anciens boutons de téléchargement
+        self.download_lab_url = None
+        self.download_terpen_url = None
+        self.children = [c for c in self.children if not hasattr(c, "is_download_button")]
+        product = self.products[self.current_index]
+        stats = product.get('stats', {})
+        # Lab test
+        for k, v in stats.items():
+            if "lab" in k.lower() and ("pdf" in k.lower() or v.startswith("http")):
+                self.download_lab_url = v
+            if "terpen" in k.lower() and ("pdf" in k.lower() or v.startswith("http")):
+                self.download_terpen_url = v
+        if self.download_lab_url and str(self.download_lab_url).startswith("http"):
+            self.add_item(self.DownloadButton("Télécharger Lab Test", self.download_lab_url, emoji="🧪"))
+        if self.download_terpen_url and str(self.download_terpen_url).startswith("http"):
+            self.add_item(self.DownloadButton("Télécharger Terpen Test", self.download_terpen_url, emoji="🌿"))
 
     def get_category_emoji(self):
         if self.category == "weed":
@@ -65,8 +86,6 @@ class ProductView(discord.ui.View):
         product = self.products[self.current_index]
         emoji = self.get_category_emoji()
         embed_color = discord.Color.dark_red() if product.get('is_sold_out') else discord.Color.from_rgb(255, 204, 0)
-
-        # Nom du produit stylisé
         title = f"{emoji} **{product.get('name', 'Produit inconnu')}**"
         embed = discord.Embed(
             title=title,
@@ -92,29 +111,54 @@ class ProductView(discord.ui.View):
             price_text = f"💰 **{product.get('price', 'N/A')}**"
         embed.add_field(name="Prix", value=price_text, inline=True)
 
-        # Caractéristiques
+        # Caractéristiques stylisées
         stats = product.get('stats', {})
-        if stats:
-            stats_lines = []
-            for label, value in stats.items():
-                stats_lines.append(f"**{label}** : {value}")
-            embed.add_field(name="Caractéristiques", value="\n".join(stats_lines), inline=True)
+        if self.category == "box":
+            box_lines = []
+            # Regroupe les hash et fleurs avec emojis
+            for k, v in stats.items():
+                if "hash" in k.lower():
+                    box_lines.append(f"**Hash :** {v}")
+                elif "fleur" in k.lower() or "flower" in k.lower():
+                    box_lines.append(f"**Fleurs :** {v}")
+                elif "description" in k.lower():
+                    box_lines.append(f"**Description :** {v}")
+                elif "gout" in k.lower():
+                    box_lines.append(f"**Goût :** {v}")
+                elif "effet" in k.lower():
+                    box_lines.append(f"**Effet :** {v}")
+            embed.add_field(name="Contenu de la Box", value="\n".join(box_lines) if box_lines else "Aucun détail.", inline=True)
+        else:
+            char_lines = []
+            for k, v in stats.items():
+                # Ignore les liens PDF ici, ils sont gérés en bouton
+                if "pdf" in k.lower() or "lab" in k.lower() or "terpen" in k.lower():
+                    continue
+                # Stylisation
+                if "effet" in k.lower():
+                    char_lines.append(f"**Effet :** {v}")
+                elif "gout" in k.lower():
+                    char_lines.append(f"**Goût :** {v}")
+                elif "cbd" in k.lower():
+                    char_lines.append(f"**CBD :** {v}")
+                elif "thc" in k.lower():
+                    char_lines.append(f"**THC :** {v}")
+                else:
+                    char_lines.append(f"**{k.capitalize()} :** {v}")
+            if char_lines:
+                embed.add_field(name="Caractéristiques", value="\n".join(char_lines), inline=True)
 
-        # Lien PDF lab test si présent
-        labtest = None
+        # Lab test et terpen test affichés si non bouton
         for k, v in stats.items():
-            if "pdf" in k.lower() or "lab" in k.lower():
-                labtest = v
-                break
-        if labtest:
-            embed.add_field(name="Lab Test", value=f"[Voir le PDF]({labtest})" if labtest.startswith("http") else labtest, inline=False)
+            if ("lab" in k.lower() or "terpen" in k.lower()) and not str(v).startswith("http"):
+                embed.add_field(name=k.replace("_", " ").capitalize(), value=v, inline=False)
 
-        # Footer pagination
         embed.set_footer(text=f"Produit {self.current_index + 1} sur {len(self.products)}")
         return embed
 
     async def update_message(self, interaction: discord.Interaction):
         self.update_buttons()
+        self.update_download_buttons()
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="⬅️ Précédent", style=discord.ButtonStyle.secondary)
@@ -128,6 +172,11 @@ class ProductView(discord.ui.View):
         if self.current_index < len(self.products) - 1:
             self.current_index += 1
         await self.update_message(interaction)
+
+    class DownloadButton(discord.ui.Button):
+        def __init__(self, label, url, emoji=None):
+            super().__init__(label=label, style=discord.ButtonStyle.link, url=url, emoji=emoji)
+            self.is_download_button = True
 
 class MenuView(discord.ui.View):
     def __init__(self, all_products: List[dict]):
