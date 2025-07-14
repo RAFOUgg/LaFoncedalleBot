@@ -187,18 +187,11 @@ class MenuView(discord.ui.View):
 
     async def start_product_view(self, interaction: discord.Interaction, products: List[dict], category_name: str):
         if not products:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(f"Désolé, aucun produit de type '{category_name}' trouvé.", ephemeral=True)
-            else:
-                await interaction.followup.send(f"Désolé, aucun produit de type '{category_name}' trouvé.", ephemeral=True)
+            await interaction.response.send_message(f"Désolé, aucun produit de type '{category_name}' trouvé.", ephemeral=True)
             return
-        # Passe la catégorie pour le style
         view = ProductView(products, category=category_name.lower())
         embed = view.create_embed()
-        if not interaction.response.is_done():
-            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-        else:
-            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     @discord.ui.button(label="Nos Fleurs 🍃", style=discord.ButtonStyle.success, emoji="🍃")
     async def weed_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1084,6 +1077,13 @@ class RankingPaginatorView(discord.ui.View):
     async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.current_page > 0:
             self.current_page -= 1
+        await interaction.response.edit_message(embed=self.create_embed_for_page(), view=self)
+
+    @discord.ui.button(label="Suivant ➡️", style=discord.ButtonStyle.secondary)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page < self.total_pages:
+            self.current_page += 1
+        await interaction.response.edit_message(embed=self.create_embed_for_page(), view=self)
         await self.update_message(interaction)
 
     @discord.ui.button(label="Suivant ➡️", style=discord.ButtonStyle.secondary)
