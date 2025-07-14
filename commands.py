@@ -51,27 +51,55 @@ class ProductView(discord.ui.View):
 
     def create_embed(self) -> discord.Embed:
         product = self.products[self.current_index]
+        # Détermine l'emoji selon la catégorie
+        name_lower = product.get('name', '').lower()
+        if "peach" in name_lower or "pêche" in name_lower:
+            emoji = "🍑"
+        elif "blueberry" in name_lower or "bleu" in name_lower:
+            emoji = "🫐"
+        elif "dry sift" in name_lower or "résine" in name_lower:
+            emoji = "🍫"
+        elif "box" in name_lower or "pack" in name_lower:
+            emoji = "📦"
+        elif "accessoire" in name_lower or "briquet" in name_lower or "feuille" in name_lower:
+            emoji = "🛠️"
+        else:
+            emoji = "🌿"
+
         embed_color = discord.Color.dark_red() if product.get('is_sold_out') else discord.Color.from_rgb(255, 204, 0)
-        
         embed = discord.Embed(
-            title=f"{product.get('name', 'Produit inconnu')}",
+            title=f"{emoji} {product.get('name', 'Produit inconnu')}",
             url=product.get('product_url', CATALOG_URL),
             description=product.get('detailed_description', "Aucune description."),
             color=embed_color
         )
         if product.get('image'):
             embed.set_thumbnail(url=product['image'])
-            
-        price_text = "❌ **ÉPUISÉ**" if product.get('is_sold_out') else f"💰 **{product.get('price', 'N/A')}**"
-        if product.get('is_promo') and not product.get('is_sold_out'):
+
+        # Prix et stock
+        if product.get('is_sold_out'):
+            price_text = "❌ **ÉPUISÉ**"
+        elif product.get('is_promo'):
             price_text = f"🏷️ **{product.get('price')}** ~~{product.get('original_price')}~~"
+        else:
+            price_text = f"💰 **{product.get('price', 'N/A')}**"
         embed.add_field(name="Prix", value=price_text, inline=False)
-        
+
+        # Caractéristiques stylisées
         stats = product.get('stats', {})
         if stats:
-            stats_text = "\n".join([f"**{label} :** {value}" for label, value in stats.items()])
-            if stats_text:
-                embed.add_field(name="Caractéristiques", value=stats_text.strip(), inline=False)
+            stats_lines = []
+            for label, value in stats.items():
+                # Si c'est un lien PDF, on le rend cliquable
+                if "pdf" in label.lower() or "lab" in label.lower():
+                    if value.startswith("gid://"):
+                        # On ne peut pas rendre cliquable, on affiche brut
+                        stats_lines.append(f"**Lab test PDF :** `{value}`")
+                    else:
+                        stats_lines.append(f"**Lab test PDF :** [Voir le PDF]({value})")
+                else:
+                    stats_lines.append(f"**{label} :** {value}")
+            embed.add_field(name="Caractéristiques", value="\n".join(stats_lines), inline=False)
 
         embed.set_footer(text=f"Produit {self.current_index + 1} sur {len(self.products)}")
         return embed
