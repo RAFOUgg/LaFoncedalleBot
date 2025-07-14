@@ -902,15 +902,17 @@ class PromoPaginatorView(discord.ui.View):
         def __init__(self):
             super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary)
         async def callback(self, interaction: discord.Interaction):
-            if self.view.current_page > 0: self.view.current_page -= 1
-            await self.view.update_message(interaction)
+            if self.view.current_page > 0:
+                self.view.current_page -= 1
+            await interaction.response.edit_message(embed=self.view.create_embed(), view=self.view)
 
     class NextButton(discord.ui.Button):
         def __init__(self):
             super().__init__(label="Suivant ➡️", style=discord.ButtonStyle.secondary)
         async def callback(self, interaction: discord.Interaction):
-            if self.view.current_page < self.view.total_pages: self.view.current_page += 1
-            await self.view.update_message(interaction)
+            if self.view.current_page < self.view.total_pages:
+                self.view.current_page += 1
+            await interaction.response.edit_message(embed=self.view.create_embed(), view=self.view)
 
 class ProductSelect(discord.ui.Select):
     def __init__(self, products):
@@ -1776,15 +1778,17 @@ class PromoPaginatorView(discord.ui.View):
         def __init__(self):
             super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary)
         async def callback(self, interaction: discord.Interaction):
-            if self.view.current_page > 0: self.view.current_page -= 1
-            await self.view.update_message(interaction)
+            if self.view.current_page > 0:
+                self.view.current_page -= 1
+            await interaction.response.edit_message(embed=self.view.create_embed(), view=self.view)
 
     class NextButton(discord.ui.Button):
         def __init__(self):
             super().__init__(label="Suivant ➡️", style=discord.ButtonStyle.secondary)
         async def callback(self, interaction: discord.Interaction):
-            if self.view.current_page < self.view.total_pages: self.view.current_page += 1
-            await self.view.update_message(interaction)
+            if self.view.current_page < self.view.total_pages:
+                self.view.current_page += 1
+            await interaction.response.edit_message(embed=self.view.create_embed(), view=self.view)
 
 class ProductSelect(discord.ui.Select):
     def __init__(self, products):
@@ -1958,15 +1962,14 @@ class RankingPaginatorView(discord.ui.View):
     async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.current_page > 0:
             self.current_page -= 1
-        await self.update_message(interaction)
+        await interaction.response.edit_message(embed=self.create_embed_for_page(), view=self)
 
     @discord.ui.button(label="Suivant ➡️", style=discord.ButtonStyle.secondary)
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.current_page < self.total_pages:
             self.current_page += 1
-        await self.update_message(interaction)
-        if self.current_page < self.total_pages:
-            self.current_page += 1
+        await interaction.response.edit_message(embed=self.create_embed_for_page(), view=self)
+        self.current_page += 1
         await self.update_message(interaction)
 
 
