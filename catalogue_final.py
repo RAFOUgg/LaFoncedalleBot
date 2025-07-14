@@ -243,7 +243,7 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
     Logger.info(f"Publication du menu (mention: {mention})...")
     channel = bot_instance.get_channel(CHANNEL_ID)
     if not channel:
-        Logger.error(f"Salon avec l'ID {CHANNEL_ID} non trouvé pour la publication.")
+        Logger.error(f"Salon avec l'ID {CHANNEL_ID} non trouvé pour la publication. Vérifiez que CHANNEL_ID correspond bien au salon #nouveaux-drop.")
         return False
     
     products = site_data.get('products', [])
