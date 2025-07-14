@@ -1,0 +1,43 @@
+{
+  "general": {
+    "CATALOG_URL": "https://la-foncedalle.fr/pages/catalogue"
+  },
+  "scraping": {
+  "selectors": {
+    "age_popup_button": "#age-yes",
+    "cookies_banner_button": "#shopify-pc__banner__btn-accept",
+    "product_list_container": "form.pf-product-form",
+    "product_name": "h3.pf-heading-1-h3",
+    "product_price_select": "select.pf-variant-select",
+    "product_description": "div.product-tags-wrapper",
+    "product_image": "img.variant-image",
+    "promo_price_indicator": "del",
+    "promo_price_sale": "span.pf-price-item-sale",
+    "promo_price_original": "del span.pf-price",
+    
+    "//--- NOUVEAUX SÉLECTEURS POUR LES PAGES PRODUIT ---//": "",
+    "detailed_description": "div.pf-product-description",
+    "metafields_container": "div.metafields-container",
+    "metafield_item": "div.metafield-item",
+    "metafield_label": "span.metafield-label",
+    "metafield_value": "span.metafield-value",
+    "add_to_cart_button": "button#pf-product-add-to-cart"
+    }
+},
+  "categorization": {
+    "hash_keywords": [
+      "hash", "résine", "pollen", "jaune", 
+      "filtré", "ketama", "sift", "mousseux", 
+      "dry", "frozen", "sieved", "plasma", "static",
+      "bubble", "ice", "water", "charas"
+    ]
+  },
+  "contact_info": {
+    "boutique_url": "https://la-foncedalle.fr/",
+    "instagram_url": "https://www.instagram.com/lafoncedalle.frr/",
+    "telegram_url": "https://t.me/+X1P65R4EVZAXZmEO",
+    "tiktok_url": "https://www.tiktok.com/@terpsbymaaaax",
+    "main_logo_url": "https://la-foncedalle.fr/cdn/shop/files/logofooter_940a0d85-435e-410d-b047-c402d452d8c3.png?v=1742650852&width=160",
+    "thumbnail_logo_url": "https://images-ext-1.discordapp.net/external/Z6lAhCFw2p_h6Q6TDGWYV0Av5oLNsTwBoX2YWNUtN8k/https/i.imgur.com/8wfHIYO.png?format=webp&quality=lossless&width=968&height=968"
+  }
+}

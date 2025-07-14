@@ -1,0 +1,141 @@
+{
+    "timestamp": 1752499792.2163184,
+    "products": [
+        {
+            "name": "🧟 Zombie Kush",
+            "product_url": "https://la-foncedalle.fr/products/zombie-kush",
+            "image": "https://la-foncedalle.fr/cdn/shop/files/Zombie_0afe0fcd-0d06-4779-a0ad-88ea2837b1e9.png?v=1748772655",
+            "detailed_description": "Une fleur hypnotisante au goût complexe et envoutant. Lavande musquée, raisin bien mûr et un fond terreux qui évoque les sous-bois humides d’une nuit tombante. Une touche florale presque mystique, pour un trip olfactif intense. Son effet est lourd, profond, comme une couverture chaude qui t’enveloppe doucement avant de t’emmener vers un sommeil lourd et réparateur😴",
+            "is_sold_out": false,
+            "price": "à partir de 7,50 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {}
+        },
+        {
+            "name": "🧠 Amnesia Punch",
+            "product_url": "https://la-foncedalle.fr/products/amnesia-punch",
+            "image": "https://la-foncedalle.fr/cdn/shop/files/Amne.png?v=1746185166",
+            "detailed_description": "Un classique au tempérament affirmé. Arômes épicés et boisés qui montent doucement, comme un encens fin ou une infusion orientale. La bouche se gorge de notes chaudes et herbacées, avec une petite pointe d’amertume noble. L’effet relaxant arrive tout en douceur, pour relâcher la pression sans t’anesthésier🧘♂️",
+            "is_sold_out": false,
+            "price": "à partir de 7,50 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {}
+        },
+        {
+            "name": "🍰 Cheese Cake",
+            "product_url": "https://la-foncedalle.fr/products/%F0%9F%A7%80-cheese-cake",
+            "image": "https://la-foncedalle.fr/cdn/shop/files/Cheese_097b6f84-1b69-4c3c-a071-f0eedddcdf99.png?v=1749891409",
+            "detailed_description": "Une fleur généreuse et fondante, comme une part de dessert que t’as pas envie de partager. Notes fruitées bien mûres mêlées à une douceur sucrée presque pâtissière. L’équilibre est parfait : un effet relax sans te clouer, idéal pour profiter d’un moment posé, actif, inspiré, ou juste détendu entre potes🌴",
+            "is_sold_out": false,
+            "price": "à partir de 9,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {}
+        },
+        {
+            "name": "🍓 Fraise Sauvage",
+            "product_url": "https://la-foncedalle.fr/products/fraise-sauvage-%F0%9F%8D%93%F0%9F%8D%93",
+            "image": "https://la-foncedalle.fr/cdn/shop/files/fraisesauvage.png?v=1749992562",
+            "detailed_description": "Une fleur douce et fraîche aux arômes authentiques de fraise des bois et de sucre naturel. En bouche, c’est délicat, fruité, et légèrement acidulé. L’effet apaise sans alourdir, comme une promenade au calme, l’esprit léger et le corps détendu🌿",
+            "is_sold_out": false,
+            "price": "à partir de 9,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {}
+        },
+        {
+            "name": "💎 Dark Saphir",
+            "product_url": "https://la-foncedalle.fr/products/%F0%9F%92%8E-dark-saphir",
+            "image": "https://la-foncedalle.fr/cdn/shop/files/DarkSaphir.png?v=1749891409",
+            "detailed_description": "Dark Saphir, c’est l’art de la détente en version crème glacée. Cultivée par l’un des meilleurs grower français, cette fleur premium contient6% de terpènesnaturels : un bouquet aromatique dense, onctueux et ultra savoureux. En bouche, une caresse lactée façon crème vanille légèrement caramélisée, suivie d’une vague relaxante qui ralentit le temps.",
+            "is_sold_out": false,
+            "price": "à partir de 13,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {}
+        },
+        {
+            "name": "🍒 Cheese Berry",
+            "product_url": "https://la-foncedalle.fr/products/cheese-berry-%F0%9F%8D%92",
+            "image": "https://la-foncedalle.fr/cdn/shop/files/Cheeseberry.png?v=1749992229",
+            "detailed_description": "Une fleur ultra gourmande au parfum sucré de fruits rouges fondus dans une crème douce et lactée. Chaque bouffée est un petit plaisir sucré, comme une cuillère de dessert onctueux. L’effet est délicat mais satisfaisant, parfait pour savourer l’instant sans se presser🍮",
+            "is_sold_out": false,
+            "price": "à partir de 8,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {}
+        },
+        {
+            "name": "🍋 Sour Meringue",
+            "product_url": "https://la-foncedalle.fr/products/sour-meringue-%F0%9F%8D%8B",
+            "image": "https://la-foncedalle.fr/cdn/shop/files/Sourmeringue.png?v=1749992571",
+            "detailed_description": "Une fleur légère et sucrée au goût unique de meringue citronnée. Douce en bouche, avec un twist acidulé qui réveille les papilles et fait monter une vibe pleine d’énergie. L’effet est frais, motivant et clair : parfait pour démarrer la journée ou enclencher une session créative ⚡️",
+            "is_sold_out": false,
+            "price": "à partir de 8,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {}
+        },
+        {
+            "name": "🫐 Blueberry",
+            "product_url": "https://la-foncedalle.fr/products/blueberry",
+            "image": "https://la-foncedalle.fr/cdn/shop/files/blueberry_2cd23945-684f-447e-9476-019207144d92.png?v=1749992515",
+            "detailed_description": "Une fleur douce et juteuse aux arômes riches de myrtilles sauvages et de sucre naturel. En bouche, c’est fruité, rond et ultra réconfortant. L’effet calme instantanément, posant une vibe tranquille et douce, parfaite pour respirer un coup et savourer l’instant🌫️",
+            "is_sold_out": false,
+            "price": "à partir de 9,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {}
+        },
+        {
+            "name": "🪐 Interstellar",
+            "product_url": "https://la-foncedalle.fr/products/interstellar",
+            "image": "https://la-foncedalle.fr/cdn/shop/files/Interstellar.png?v=1749992566",
+            "detailed_description": "Une fleur sombre et élégante, au parfum de sucre roux caramélisé, de bois chaud et de notes torréfiées. En bouche, c’est profond et légèrement fumé, l’effet chill s’installe lentement, comme une descente en apesanteur vers un état de calme total 💆",
+            "is_sold_out": false,
+            "price": "à partir de 8,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {}
+        },
+        {
+            "name": "🧿 Afghan Berry",
+            "product_url": "https://la-foncedalle.fr/products/afghan-berry",
+            "image": "https://la-foncedalle.fr/cdn/shop/files/afgranberry.png?v=1749992481",
+            "detailed_description": "Une fleur gourmande au parfum intense de fruits noirs mûrs. Mûre, cassis, légère touche boisée : chaque bouffée fond comme une confiture de fin d’été. Effet relaxant, tout en douceur, pour t’envelopper dans une vibe calme et apaisante 👨‍🍳",
+            "is_sold_out": false,
+            "price": "à partir de 8,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {}
+        },
+        {
+            "name": "🍑 Dry Sift Peach",
+            "product_url": "https://la-foncedalle.fr/products/%F0%9F%8D%91-dry-sift-peach",
+            "image": "https://la-foncedalle.fr/cdn/shop/files/Peach_e1084295-d204-452b-b2af-925c5575244c.png?v=1746185450",
+            "detailed_description": "Une résine légère et lumineuse aux parfums de pêche juteuse et de fruits jaunes bien mûrs. La texture est douce, le goût fruité tapisse le palais avec une touche acidulée très naturelle. L’effet est fluide, apaisant, sans lourdeur : l’esprit respire, les idées s’éclaircissent, et le corps se relâche juste ce qu’il faut🌞",
+            "is_sold_out": false,
+            "price": "à partir de 8,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {}
+        },
+        {
+            "name": "🫐 Dry Sift Blueberry",
+            "product_url": "https://la-foncedalle.fr/products/dry-sift-blueberry",
+            "image": "https://la-foncedalle.fr/cdn/shop/files/Blueberry_7ea98eea-9cfc-4d61-a87b-4b48f495e88e.png?v=1746185497",
+            "detailed_description": "Un concentré moelleux au goût de baies sucrées et de raisin noir. Texture fondante, fumée douce, et arôme sucré qui tapisse le palais comme une confiture maison. L’effet est chaleureux et apaisant, un vrai petit cocon mental pour se détendre en fin de journée ou chiller en douceur🧸",
+            "is_sold_out": false,
+            "price": "à partir de 8,00 €",
+            "is_promo": false,
+            "original_price": null,
+            "stats": {}
+        }
+    ],
+    "general_promos": [
+        "-15€ POUR REJOINDRE",
+        "livraison offerte dès 49€ d’achat"
+    ]
+}
