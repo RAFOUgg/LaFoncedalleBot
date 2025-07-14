@@ -23,8 +23,7 @@ from shared_utils import (
     TOKEN, CHANNEL_ID, ROLE_ID_TO_MENTION, CATALOG_URL,
     Logger, executor, paris_tz, initialize_database, config_manager,
     CACHE_FILE, RANKING_CHANNEL_ID, DB_FILE, THUMBNAIL_LOGO_URL,
-    create_styled_embed, get_product_counts, GUILD_ID, SELECTION_CHANNEL_ID,
-    get_general_promos # <-- Ajout ici
+    create_styled_embed, get_product_counts, GUILD_ID, SELECTION_CHANNEL_ID, 
 )
 from graph_generator import create_radar_chart
 
@@ -248,8 +247,7 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
         return False
     
     products = site_data.get('products', [])
-    # Ajoute les promos générales manuelles
-    promos_list = site_data.get('general_promos', []) + get_general_promos()
+    promos_list = site_data.get('general_promos', [])
     general_promos_text = "\n".join([f"• {promo.strip()}" for promo in promos_list if promo.strip()]) or "Aucune promotion générale en cours."
 
     # Correction ici : on récupère toutes les catégories
