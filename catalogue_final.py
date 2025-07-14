@@ -1,83 +1,79 @@
 # catalogue_final.py
 
 # --- Imports ---
-import shopify
-import os, re, json, hashlib, asyncio, traceback
-import time as a_time, time as time_sleep
+import os
+import json
+import hashlib
+import asyncio
+import traceback
+import time as a_time
 from datetime import time as dt_time, datetime, timedelta
 from typing import List
-import undetected_chromedriver as uc
-import sqlite3, cloudscraper, discord
-import requests 
+
+# Imports des librairies nécessaires
+import shopify
+import discord
 from discord.ext import commands, tasks
 from discord import app_commands
-from commands import SlashCommands, MenuView
-from bs4 import BeautifulSoup
-from selenium import webdriver
+from bs4 import BeautifulSoup # Toujours utile pour nettoyer le HTML des descriptions
 
-from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
-
+# Imports depuis vos fichiers de projet
+from commands import MenuView # On importe MenuView car on en a besoin dans on_ready
 from shared_utils import (
-    TOKEN, CHANNEL_ID, ROLE_ID_TO_MENTION, CATALOG_URL, BASE_URL,
+    TOKEN, CHANNEL_ID, ROLE_ID_TO_MENTION, CATALOG_URL,
     Logger, executor, paris_tz, initialize_database, config_manager,
-    CACHE_FILE, RANKING_CHANNEL_ID, DB_FILE, THUMBNAIL_LOGO_URL, 
+    CACHE_FILE, RANKING_CHANNEL_ID, DB_FILE, THUMBNAIL_LOGO_URL,
     create_styled_embed, get_product_counts, GUILD_ID, SELECTION_CHANNEL_ID
-
 )
-
 from graph_generator import create_radar_chart
 
 # --- Initialisation du bot ---
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
 intents.members = True
+bot = commands.Bot(command_prefix='!', intents=intents)
 
+# Configuration des heures pour les tâches programmées
 update_time = dt_time(hour=8, minute=0, tzinfo=paris_tz)
 ranking_time = dt_time(hour=16, minute=0, tzinfo=paris_tz)
 selection_time = dt_time(hour=12, minute=0, tzinfo=paris_tz)
 
-def scrape_site_data(): # On garde le même nom pour ne rien casser
+
+# --- NOUVELLE FONCTION BASÉE UNIQUEMENT SUR L'API SHOPIFY ---
+def get_site_data_from_api():
+    """
+    Récupère les données des produits directement depuis l'API Admin de Shopify.
+    Cette fonction remplace complètement l'ancien scraping.
+    """
     Logger.info("Démarrage de la récupération des données via l'API Shopify Admin...")
     
     try:
         # 1. Configuration de la session API avec le jeton d'accès Admin
-        # Ces valeurs doivent venir de votre fichier .env ou config
         shop_url = os.getenv('SHOPIFY_SHOP_URL')
         api_version = os.getenv('SHOPIFY_API_VERSION')
         access_token = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
 
         if not all([shop_url, api_version, access_token]):
-            Logger.error("CRITIQUE : Les informations d'API Shopify Admin sont manquantes dans la configuration.")
+            Logger.error("CRITIQUE : Les informations d'API Shopify Admin sont manquantes dans le .env.")
             return None
 
         session = shopify.Session(shop_url, api_version, access_token)
         shopify.ShopifyResource.activate_session(session)
 
         # 2. Récupérer tous les produits publiés
-        # Le statut 'active' assure qu'on ne prend que les produits visibles sur la boutique
-        all_products_api = shopify.Product.find(status='active')
+        all_products_api = shopify.Product.find(status='active', limit=250)
         
         products = []
         for prod in all_products_api:
-            # On convertit l'objet API en dictionnaire, comme le faisait le scraper
             product_data = {}
             
             # --- Mappage des données ---
             product_data['name'] = prod.title
-            # On construit l'URL du produit à partir du "handle"
             product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
-            
-            # Image du produit
             product_data['image'] = prod.image.src if prod.image else None
             
-            # Description
             desc_html = prod.body_html
-            product_data['detailed_description'] = BeautifulSoup(desc_html, 'html.parser').get_text(strip=True) if desc_html else "Pas de description."
+            product_data['detailed_description'] = BeautifulSoup(desc_html, 'html.parser').get_text(strip=True, separator='\n') if desc_html else "Pas de description."
 
             # Gestion des variants (prix, stock)
             available_variants = [v for v in prod.variants if v.inventory_quantity > 0 or v.inventory_policy == 'continue']
@@ -89,50 +85,46 @@ def scrape_site_data(): # On garde le même nom pour ne rien casser
                 product_data['original_price'] = None
             else:
                 product_data['is_sold_out'] = False
-                # On prend le prix le plus bas parmi les variants disponibles
                 min_price_variant = min(available_variants, key=lambda v: float(v.price))
                 
                 price = float(min_price_variant.price)
                 compare_price = float(min_price_variant.compare_at_price) if min_price_variant.compare_at_price else 0.0
                 
-                # Le prix est "à partir de" s'il y a plus d'un variant disponible
                 price_prefix = "à partir de " if len(available_variants) > 1 else ""
                 product_data['price'] = f"{price_prefix}{price:.2f} €".replace('.', ',')
                 
                 product_data['is_promo'] = compare_price > price
-                if product_data['is_promo']:
-                    product_data['original_price'] = f"{compare_price:.2f} €".replace('.', ',')
-                else:
-                    product_data['original_price'] = None
+                product_data['original_price'] = f"{compare_price:.2f} €".replace('.', ',') if product_data['is_promo'] else None
 
             # Récupérer les metafields (taux CBD, etc.)
             product_data['stats'] = {}
             metafields = prod.metafields()
             for meta in metafields:
-                # Vous devrez peut-être ajuster le "namespace" et la "key" selon votre configuration Shopify
-                # Pour l'instant, on suppose une structure simple `namespace.key`
-                label = meta.key.replace('_', ' ').capitalize() # Ex: 'taux_cbd' -> 'Taux cbd'
+                # Vous pouvez affiner ici si vous connaissez les 'namespace' et 'key' exacts
+                label = meta.key.replace('_', ' ').capitalize()
                 product_data['stats'][label] = meta.value
 
             products.append(product_data)
-            Logger.success(f"Produit récupéré via API : {product_data['name']}")
-
-        # Nettoyer la session
-        shopify.ShopifyResource.clear_session()
         
         Logger.success(f"Récupération API terminée. {len(products)} produits trouvés.")
         
-        # NOTE: La récupération des "general_promos" du site n'est pas possible via l'API standard.
-        # Vous pouvez soit les gérer manuellement dans votre config.json, soit garder une petite partie
-        # de scraping juste pour ça si c'est absolument nécessaire. Pour l'instant, on la laisse vide.
+        # NOTE: La récupération des "general_promos" (bandeaux, popups) n'est pas possible via l'API.
+        # Cette partie est maintenant vide. Vous pouvez gérer les promotions générales manuellement
+        # dans votre config.json si nécessaire.
         return {"timestamp": a_time.time(), "products": products, "general_promos": []}
 
     except Exception as e:
         Logger.error(f"CRITIQUE lors de la récupération via API Shopify : {repr(e)}")
         traceback.print_exc()
         return None
+    finally:
+        # S'assurer de toujours nettoyer la session
+        if shopify.Session.activated:
+            shopify.ShopifyResource.clear_session()
 
-# Dans catalogue_final.py
+
+# --- La suite du code reste identique, car elle dépend du format des données, pas de la méthode de récupération ---
+
 
 async def post_weekly_selection(bot_instance: commands.Bot):
     Logger.info("Génération et publication de la sélection de la semaine...")
@@ -204,15 +196,11 @@ async def post_weekly_selection(bot_instance: commands.Bot):
             note_str = f"**Note :** {round(avg_score,2)}/10\n"
             count_str = f"**Nombre de notations :** {num_ratings}\n"
             if prod:
-                # --- LIGNE CORRIGÉE ---
-                # On utilise 'detailed_description' et la méthode .get() pour plus de sécurité
                 description = prod.get('detailed_description', 'Pas de description.')
-                # On limite la description pour ne pas surcharger l'embed
                 if len(description) > 150:
                     description = description[:150] + "..."
                 
                 value = f"{note_str}{count_str}[Voir sur le site]({prod.get('product_url', '#')})\nPrix : {prod.get('price', 'N/A')}\n{description}"
-                # --- FIN DE LA CORRECTION ---
                 
                 embed.add_field(name=f"{medals[i]} {prod['name']}", value=value, inline=False)
                 if i == 0 and prod.get("image"):
@@ -227,13 +215,12 @@ async def post_weekly_selection(bot_instance: commands.Bot):
             embed.add_field(name="\u200b", value="▬▬▬▬▬▬▬▬▬▬", inline=False)
             thanks_text = ""
             for i, (user_id, weekly_count) in enumerate(weekly_top_raters):
-                member = guild.get_member(user_id) # Essaye de trouver dans le cache (rapide)
+                member = guild.get_member(user_id)
                 if member is None:
                     try:
-                        # Si non trouvé, on le demande directement à Discord (fiable)
                         member = await guild.fetch_member(user_id)
                     except discord.NotFound:
-                        member = None # L'utilisateur a vraiment quitté le serveur
+                        member = None
                 
                 display_name = member.mention if member else f"Ancien Membre (ID: {user_id})"
                 plural_s = 's' if weekly_count > 1 else ''
@@ -251,37 +238,6 @@ async def post_weekly_selection(bot_instance: commands.Bot):
     except Exception as e:
         Logger.error(f"Erreur lors de la génération de la sélection : {e}")
         traceback.print_exc()
-def get_product_counts(products: List[dict]):
-    hash_keywords = config_manager.get_config("categorization", {}).get("hash_keywords", [])
-    hash_count = sum(1 for p in products if any(kw in p['name'].lower() for kw in hash_keywords))
-    weed_count = len(products) - hash_count
-    return hash_count, weed_count
-class ProductView(discord.ui.View):
-    def __init__(self, products: List[dict]):
-        super().__init__(timeout=300)
-        self.products = products; self.current_index = 0
-        self.update_buttons()
-    def update_buttons(self):
-        self.children[0].disabled = self.current_index == 0
-        self.children[1].disabled = self.current_index >= len(self.products) - 1
-    def create_embed(self) -> discord.Embed:
-        product = self.products[self.current_index]
-        embed = discord.Embed(title=product['name'], url=product.get('product_url', CATALOG_URL), description=product['description'], color=discord.Color.from_rgb(255, 204, 0))
-        embed.add_field(name="Prix à partir de", value=product['price'], inline=False)
-        if product.get('image'): embed.set_thumbnail(url=product['image'])
-        embed.set_footer(text=f"Produit {self.current_index + 1} sur {len(self.products)}")
-        return embed
-    async def update_message(self, interaction: discord.Interaction):
-        self.update_buttons()
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
-    @discord.ui.button(label="⬅️ Précédent", style=discord.ButtonStyle.secondary)
-    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_index > 0: self.current_index -= 1
-        await self.update_message(interaction)
-    @discord.ui.button(label="Suivant ➡️", style=discord.ButtonStyle.secondary)
-    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_index < len(self.products) - 1: self.current_index += 1
-        await self.update_message(interaction)
 
 
 async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: bool = False):
@@ -293,16 +249,8 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
     
     products = site_data.get('products', [])
     
-    # LOGIQUE D'AFFICHAGE EXPLICITE ET SÛRE
     promos_list = site_data.get('general_promos', [])
-    if promos_list:
-        general_promos_text = "\n".join([f"• {promo.strip()}" for promo in promos_list if promo.strip()])
-    else:
-        general_promos_text = "Aucune promotion générale en cours."
-    
-    # Si après le nettoyage la liste est vide, on remet le message par défaut
-    if not general_promos_text:
-        general_promos_text = "Aucune promotion générale en cours."
+    general_promos_text = "\n".join([f"• {promo.strip()}" for promo in promos_list if promo.strip()]) or "Aucune promotion générale en cours."
 
     hash_count, weed_count = get_product_counts(products)
     
@@ -330,13 +278,11 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
     last_message_id = await config_manager.get_state('last_message_id')
     
     try:
-        # Le reste de la logique de publication est déjà correct
         if mention:
             if last_message_id:
                 try:
                     old_message = await channel.fetch_message(int(last_message_id))
                     await old_message.delete()
-                    Logger.info(f"Ancien message (ID: {last_message_id}) supprimé.")
                 except (discord.NotFound, discord.Forbidden): pass
             new_message = await channel.send(content=content, embed=embed, view=view)
             await config_manager.update_state('last_message_id', str(new_message.id))
@@ -346,27 +292,26 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
                 try:
                     message = await channel.fetch_message(int(last_message_id))
                     await message.edit(content=content, embed=embed, view=view)
-                    Logger.info(f"Ancien message (ID: {last_message_id}) édité sans notification.")
-                    return True
                 except (discord.NotFound, discord.Forbidden):
-                    Logger.warning(f"Impossible d'éditer le message {last_message_id}. Création d'un nouveau.")
-            new_message = await channel.send(content=content, embed=embed, view=view)
-            await config_manager.update_state('last_message_id', str(new_message.id))
-            Logger.info(f"Nouveau menu créé sans notification (ID: {new_message.id}).")
+                    new_message = await channel.send(content=content, embed=embed, view=view)
+                    await config_manager.update_state('last_message_id', str(new_message.id))
+            else:
+                new_message = await channel.send(content=content, embed=embed, view=view)
+                await config_manager.update_state('last_message_id', str(new_message.id))
+
         return True
     except Exception as e:
         Logger.error(f"Erreur fatale lors de la publication du menu : {e}"); traceback.print_exc()
         return False
 
-# Dans catalogue_final.py
 
 async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = False):
     Logger.info("Vérification programmée du menu...")
-    site_data = await bot_instance.loop.run_in_executor(executor, scrape_site_data)
+    site_data = await bot_instance.loop.run_in_executor(executor, get_site_data_from_api)
     
-    if not site_data or not site_data.get('products'):
-        Logger.error("Scraping échoué, la vérification s'arrête.")
-        return False # Indique qu'aucune mise à jour n'a été faite
+    if not site_data or 'products' not in site_data: # On vérifie 'products' car c'est la clé essentielle
+        Logger.error("Récupération des données API échouée, la vérification s'arrête.")
+        return False
 
     data_to_hash = {
         'products': site_data.get('products', []),
@@ -387,13 +332,13 @@ async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = Fa
         
         if await publish_menu(bot_instance, site_data, mention=True): 
             await config_manager.update_state('last_menu_hash', current_hash)
-            return True # Indique qu'une mise à jour a été faite
+            return True
         else:
-            return False # La publication a échoué
+            return False
     else:
         Logger.info("Aucun changement détecté.")
-        await publish_menu(bot_instance, site_data, mention=False) # On met quand même à jour le timestamp
-        return False # Indique qu'aucune mise à jour n'a été faite
+        await publish_menu(bot_instance, site_data, mention=False)
+        return False
 async def force_republish_menu(bot_instance: commands.Bot):
     Logger.info("Publication forcée du menu demandée..."); await check_for_updates(bot_instance, force_publish=True)
 async def generate_and_send_ranking(bot_instance: commands.Bot, force_run: bool = False):
@@ -453,8 +398,10 @@ bot.post_weekly_selection = post_weekly_selection
 # --- Tâches et Commandes ---
 @tasks.loop(time=update_time)
 async def scheduled_check(): await check_for_updates(bot)
+
 @tasks.loop(time=ranking_time)
 async def post_weekly_ranking(): await generate_and_send_ranking(bot)
+
 @tasks.loop(time=selection_time)
 async def scheduled_selection():
     if datetime.now(paris_tz).weekday() == 0: await post_weekly_selection(bot)
@@ -476,17 +423,15 @@ async def on_ready():
 
     await check_for_updates(bot, force_publish=False)
     
-    # Démarrage des tâches une seule fois
     if not scheduled_check.is_running(): scheduled_check.start()
     if not post_weekly_ranking.is_running(): post_weekly_ranking.start()
     if not scheduled_selection.is_running(): scheduled_selection.start()
     Logger.success("Toutes les tâches programmées ont démarré.")
 
-# GESTIONNAIRE D'ERREUR CORRECT ET UNIQUE
+
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.CheckFailure):
-        Logger.warning(f"Accès refusé pour {interaction.user.name} à la commande /{interaction.command.name}.")
         embed = discord.Embed(title="🚫 Accès Refusé", description="Désolé, mais tu n'as pas les permissions nécessaires pour utiliser cette commande.", color=discord.Color.red())
         if THUMBNAIL_LOGO_URL:
             embed.set_thumbnail(url=THUMBNAIL_LOGO_URL)
@@ -501,7 +446,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
     else:
         await interaction.response.send_message(error_message, ephemeral=True)
 
-# --- Main ---
+
 async def main():
     async with bot:
         await bot.load_extension("commands")
