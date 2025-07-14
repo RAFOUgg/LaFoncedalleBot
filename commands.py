@@ -191,7 +191,11 @@ class MenuView(discord.ui.View):
             return
         view = ProductView(products, category=category_name.lower())
         embed = view.create_embed()
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        # Utilise followup.send si la réponse est déjà faite, sinon response.send_message
+        if not interaction.response.is_done():
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        else:
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     @discord.ui.button(label="Nos Fleurs 🍃", style=discord.ButtonStyle.success, emoji="🍃")
     async def weed_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1077,13 +1081,6 @@ class RankingPaginatorView(discord.ui.View):
     async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.current_page > 0:
             self.current_page -= 1
-        await interaction.response.edit_message(embed=self.create_embed_for_page(), view=self)
-
-    @discord.ui.button(label="Suivant ➡️", style=discord.ButtonStyle.secondary)
-    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_page < self.total_pages:
-            self.current_page += 1
-        await interaction.response.edit_message(embed=self.create_embed_for_page(), view=self)
         await self.update_message(interaction)
 
     @discord.ui.button(label="Suivant ➡️", style=discord.ButtonStyle.secondary)
@@ -1091,7 +1088,8 @@ class RankingPaginatorView(discord.ui.View):
         if self.current_page < self.total_pages:
             self.current_page += 1
         await self.update_message(interaction)
-        self.current_page += 1
+        if self.current_page < self.total_pages:
+            self.current_page += 1
         await self.update_message(interaction)
 class SlashCommands(commands.Cog):
     def __init__(self, bot):
