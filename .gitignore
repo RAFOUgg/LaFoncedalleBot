@@ -1,0 +1,15 @@
+# Fichiers secrets
+.env
+
+# Fichiers de cache Python
+__pycache__/
+*.pyc
+
+# Fichiers de base de données et logs (gérés par le disque Render)
+*.db
+*.log
+*.json
+
+# Fichiers spécifiques au système ou à l'IDE
+.vscode/
+*.exe
