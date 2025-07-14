@@ -807,8 +807,9 @@ def get_purchased_products_from_shopify(email: str) -> list:
             super().__init__(label="Notes Suiv. ➡️", style=discord.ButtonStyle.secondary)
             self.parent_view = parent_view
         async def callback(self, interaction: discord.Interaction):
-            self.parent_view.current_page += 1
-            await interaction.response.edit_message(embed=self.parent_view.create_embed(), view=self.parent_view)
+            if self.parent_view.current_page < self.parent_view.total_pages:
+                self.parent_view.current_page += 1
+                await interaction.response.edit_message(embed=self.parent_view.create_embed(), view=self.parent_view)
 
     class ResetButton(discord.ui.Button):
         def __init__(self, parent_view):
@@ -1090,8 +1091,7 @@ class RankingPaginatorView(discord.ui.View):
         if self.current_page < self.total_pages:
             self.current_page += 1
         await self.update_message(interaction)
-        if self.current_page < self.total_pages:
-            self.current_page += 1
+        self.current_page += 1
         await self.update_message(interaction)
         self.current_page += 1
         await self.update_message(interaction)
