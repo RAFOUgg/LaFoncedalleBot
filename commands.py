@@ -944,7 +944,7 @@ class ContactButtonsView(discord.ui.View):
 class RankingPaginatorView(discord.ui.View):
     """Vue pour paginer le classement général des produits."""
     # MODIFICATION 1 : Le constructeur accepte maintenant une map de produits pour les URLs
-    def __init__(self, ratings_data: List[Tuple[str, float, int]], product_map: dict, items_per_page: int = 10):
+    def __init__(self, ratings_data: List<Tuple[str, float, int]], product_map: dict, items_per_page: int = 10):
         super().__init__(timeout=300)
         self.ratings = ratings_data
         self.product_map = product_map  # Stocke les détails des produits (nom -> infos)
@@ -1081,67 +1081,49 @@ class SlashCommands(commands.Cog):
             Logger.error(f"Erreur lors de l'envoi du fichier DB : {e}")
             await interaction.followup.send("Erreur lors de l'envoi du fichier de base de données.", ephemeral=True)
 
-# @app_commands.command(name="noter", description="Note un produit que tu as acheté.")
-#     async def noter(self, interaction: discord.Interaction):
-#         await interaction.response.defer(ephemeral=True)
-        
-#         app_url = "https://votre-app-hebergee.com/api" # URL de l'API de votre app pont
-        
-#         try:
-#             # On appelle notre API pour récupérer les produits achetés
-#             # Dans une vraie app, on ajouterait une clé d'API dans les headers pour la sécurité
-#             response = requests.get(f"{app_url}/get_purchased_products/{interaction.user.id}")
-
-#             if response.status_code == 404:
-#                 await interaction.followup.send("Ton compte Discord n'est pas encore lié à un compte sur la boutique. Utilise la commande `/lier_compte` pour commencer.", ephemeral=True)
-#                 return
-            
-#             response.raise_for_status() # Lève une erreur si le statut n'est pas 2xx
-            
-#             data = response.json()
-#             purchased_products = data.get("products", [])
-
-#             if not purchased_products:
-#                 await interaction.followup.send("Nous n'avons trouvé aucun produit dans ton historique d'achats. Si tu penses que c'est une erreur, contacte le staff.", ephemeral=True)
-#                 return
-
-#             # (Ici, ajoutez la logique pour filtrer les produits déjà notés)
-#             # ...
-
-#             # On affiche le menu déroulant avec les produits achetés
-#             # ... (logique de NotationProductSelectView) ...
-
-#         except requests.exceptions.RequestException as e:
-#             Logger.error(f"Erreur de communication avec l'app pont : {e}")
-#             await interaction.followup.send("Impossible de communiquer avec le service de la boutique. Réessayez plus tard.", ephemeral=True)
-#         except Exception as e:
-#             # ...
-    @app_commands.command(name="noter", description="Note un produit de la boutique.")
+    @app_commands.command(name="noter", description="Note un produit que tu as acheté sur la boutique.")
     async def noter(self, interaction: discord.Interaction):
         try:
             Logger.info("[NOTER DEBUG] Commande reçue. Appel de defer()...")
             await interaction.response.defer(ephemeral=True)
             await log_user_action(interaction, "a initié la commande /noter")
-            Logger.info("[NOTER DEBUG] Log réussi. Tentative de lecture du cache...")
+            Logger.info("[NOTER DEBUG] Log réussi. Récupération des achats Shopify...")
 
-            def _read_cache_sync():
-                with open(CACHE_FILE, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+            # Appel à l'API Flask pour récupérer les produits achetés
+            app_url = "https://votre-app-hebergee.com" # À adapter selon votre hébergement
+            api_url = f"{app_url}/api/get_purchased_products/{interaction.user.id}"
 
-            site_data = await asyncio.to_thread(_read_cache_sync)
-            Logger.info("[NOTER DEBUG] Fichier cache lu avec succès.")
+            def fetch_purchased_products():
+                import requests
+                try:
+                    response = requests.get(api_url, timeout=10)
+                    if response.status_code == 404:
+                        return None
+                    response.raise_for_status()
+                    data = response.json()
+                    return data.get("products", [])
+                except Exception as e:
+                    Logger.error(f"Erreur API Flask get_purchased_products: {e}")
+                    return None
 
-            products = site_data.get('products')
-            if not products:
-                Logger.warning("[NOTER DEBUG] La clé 'products' est absente ou vide dans le cache.")
-                await interaction.followup.send("Désolé, aucun produit n'a été trouvé dans le cache. Veuillez réessayer plus tard.", ephemeral=True)
+            purchased_products = await asyncio.to_thread(fetch_purchased_products)
+
+            if purchased_products is None:
+                await interaction.followup.send(
+                    "Ton compte Discord n'est pas encore lié à un compte sur la boutique. Utilise la commande `/lier_compte` pour commencer.",
+                    ephemeral=True
+                )
                 return
 
-            Logger.info(f"[NOTER DEBUG] {len(products)} produits trouvés. Création de la vue...")
-            product_names = [p['name'] for p in products]
+            if not purchased_products:
+                await interaction.followup.send(
+                    "Nous n'avons trouvé aucun produit dans ton historique d'achats. Si tu penses que c'est une erreur, contacte le staff.",
+                    ephemeral=True
+                )
+                return
 
-            # Correction ici : utiliser la classe NotationProductSelectView définie ci-dessus
-            view = NotationProductSelectView(product_names, interaction.user, self.bot)
+            Logger.info(f"[NOTER DEBUG] {len(purchased_products)} produits achetés trouvés. Création de la vue...")
+            view = NotationProductSelectView(purchased_products, interaction.user, self.bot)
 
             Logger.info("[NOTER DEBUG] Vue créée. Envoi du message followup...")
             await interaction.followup.send("Veuillez choisir un produit à noter :", view=view, ephemeral=True)
@@ -1482,7 +1464,7 @@ class SlashCommands(commands.Cog):
 
             promo_products = [p for p in site_data.get('products', []) if p.get('is_promo')]
             general_promos = site_data.get('general_promos', [])
-            general_promos_text = "\n".join([f"• {promo}" for promo in general_promos]) if general_promos else ""
+            general_promos_text = "\n".join([f"• { promo}" for promo in general_promos]) if general_promos else ""
 
             # On passe toutes les infos nécessaires à la vue dès sa création
             paginator = PromoPaginatorView(promo_products, general_promos_text)
@@ -1562,5 +1544,43 @@ class SlashCommands(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SlashCommands(bot))
+
+def get_purchased_products_from_shopify(email: str) -> list:
+    """
+    Récupère la liste des produits achetés par un client via l'API Shopify Admin.
+    """
+    import shopify
+    shop_url = os.getenv('SHOPIFY_SHOP_URL')
+    api_version = os.getenv('SHOPIFY_API_VERSION')
+    access_token = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
+    session = shopify.Session(shop_url, api_version, access_token)
+    shopify.ShopifyResource.activate_session(session)
+    try:
+        orders = shopify.Order.find(email=email, status='any', limit=50)
+        products = set()
+        for order in orders:
+            for item in order.line_items:
+                products.add(item.title)
+        return list(products)
+    finally:
+        shopify.ShopifyResource.clear_session()
+    """
+    Récupère la liste des produits achetés par un client via l'API Shopify Admin.
+    """
+    import shopify
+    shop_url = os.getenv('SHOPIFY_SHOP_URL')
+    api_version = os.getenv('SHOPIFY_API_VERSION')
+    access_token = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
+    session = shopify.Session(shop_url, api_version, access_token)
+    shopify.ShopifyResource.activate_session(session)
+    try:
+        orders = shopify.Order.find(email=email, status='any', limit=50)
+        products = set()
+        for order in orders:
+            for item in order.line_items:
+                products.add(item.title)
+        return list(products)
+    finally:
+        shopify.ShopifyResource.clear_session()
 
 
