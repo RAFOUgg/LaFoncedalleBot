@@ -65,28 +65,19 @@ class Logger:
 # shared_utils.py
 
 def categorize_products(products: list):
-    """
-    Catégorise les produits en se basant sur la clé 'category'
-    assignée lors de la récupération via l'API des Collections.
-    """
     categorized = {"weed": [], "hash": [], "box": [], "accessoire": []}
-    
-    # Mapping des noms de collection vers nos clés internes
-    category_map = {
-        "fleurs": "weed",
-        "résines": "hash",
-        "box": "box",
-        "accessoires": "accessoire"
-    }
-    
     for p in products:
-        product_category = p.get('category', '').lower()
-        internal_category = category_map.get(product_category)
-        
-        if internal_category:
-            categorized[internal_category].append(p)
-            
+        # La catégorie est déjà définie, on n'a plus besoin de deviner !
+        if p.get('category') in categorized:
+            categorized[p['category']].append(p)
     return categorized
+
+def get_product_counts(products: list):
+    counts = {"hash": 0, "weed": 0, "box": 0, "accessoire": 0}
+    for p in products:
+        if p.get('category') in counts:
+            counts[p['category']] += 1
+    return counts['hash'], counts['weed'], counts['box'], counts['accessoire']
 
 class ConfigManager:
     def __init__(self, config_path, state_path):

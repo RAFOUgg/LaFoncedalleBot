@@ -278,6 +278,76 @@ class ProductSelectForGraph(discord.ui.Select):
         else:
             await interaction.followup.send("Impossible de générer le graphique (pas assez de données ?).", ephemeral=True)
 
+class PromoPaginatorView(discord.ui.View):
+    def __init__(self, promo_products: List[dict], general_promos: List[str], items_per_page: int = 6):
+        super().__init__(timeout=300)
+        self.promo_products = promo_products
+        self.general_promos_text = "\n".join([f"• {promo}" for promo in general_promos]) if general_promos else "Aucune offre générale en ce moment."
+        self.items_per_page = items_per_page
+        self.current_page = 0
+        self.total_pages = (len(self.promo_products) - 1) // self.items_per_page
+
+        if self.promo_products and self.total_pages > 0:
+            self.add_item(self.PrevButton())
+            self.add_item(self.NextButton())
+            self.update_buttons()
+
+    def update_buttons(self):
+        if len(self.children) >= 2:
+            self.children[0].disabled = self.current_page == 0
+            self.children[1].disabled = self.current_page >= self.total_pages
+
+    def create_embed(self) -> discord.Embed:
+        start_index = self.current_page * self.items_per_page
+        end_index = start_index + self.items_per_page
+        page_items = self.promo_products[start_index:end_index]
+
+        embed = create_styled_embed(
+            title="💰 Promotions et Offres Spéciales",
+            description="",
+            color=discord.Color.from_rgb(255, 105, 180) # Rose promo
+        )
+        
+        # Section pour les offres générales
+        embed.add_field(name="🎁 Offres sur le site", value=self.general_promos_text, inline=False)
+
+        # Section pour les produits en promotion
+        product_promo_text = ""
+        if not page_items:
+            product_promo_text = "Aucun produit spécifique n'est en promotion actuellement."
+        else:
+            for product in page_items:
+                prix_promo = product.get('price', 'N/A')
+                prix_original = product.get('original_price', '')
+                prix_text = f"**{prix_promo}** ~~{prix_original}~~"
+                product_promo_text += f"**🏷️ [{product.get('name', 'N/A')}]({product.get('product_url', '#')})**\n> {prix_text}\n"
+
+        embed.add_field(name="🛍️ Produits en Promotion", value=product_promo_text, inline=False)
+
+        if self.promo_products and self.total_pages > 0:
+             embed.set_footer(text=f"Page {self.current_page + 1} sur {self.total_pages + 1}")
+
+        return embed
+
+    async def update_message(self, interaction: discord.Interaction):
+        self.update_buttons()
+        embed = self.create_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    class PrevButton(discord.ui.Button):
+        def __init__(self):
+            super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary)
+        async def callback(self, interaction: discord.Interaction):
+            if self.view.current_page > 0: self.view.current_page -= 1
+            await self.view.update_message(interaction)
+
+    class NextButton(discord.ui.Button):
+        def __init__(self):
+            super().__init__(label="Suivant ➡️", style=discord.ButtonStyle.secondary)
+        async def callback(self, interaction: discord.Interaction):
+            if self.view.current_page < self.view.total_pages: self.view.current_page += 1
+            await self.view.update_message(interaction)
+
 class ProfilePaginatorView(discord.ui.View):
     def __init__(self, target_user, user_stats, user_ratings, shopify_data, can_reset, bot, items_per_page=3):
         super().__init__(timeout=300)
@@ -537,7 +607,7 @@ class SlashCommands(commands.Cog):
 
             if not purchased_products:
                 await interaction.followup.send(
-                    "Nous n'avons trouvé aucun produit dans ton historique d'achats. Si tu penses que c'est une erreur, contacte le staff.",
+                    "Nous n'avons trouvé aucun produit dans ton historique d'achats. Si tu penses que c'est une erreur, contacte le staff : <#1391805202314559759>.",
                     ephemeral=True
                 )
                 return
@@ -904,22 +974,17 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, "a demandé la liste des promotions.")
 
         try:
-            def _read_product_cache_sync():
-                try:
-                    with open(CACHE_FILE, 'r', encoding='utf-8') as f: return json.load(f)
-                except (FileNotFoundError, json.JSONDecodeError): return {}
+            # On utilise les données fiables stockées dans le bot
+            all_products = self.bot.products
+            general_promos = self.bot.general_promos
 
-            site_data = await asyncio.to_thread(_read_product_cache_sync)
-            if not site_data:
-                await interaction.followup.send("Désolé, les informations ne sont pas disponibles.", ephemeral=True)
+            if not all_products and not general_promos:
+                await interaction.followup.send("Désolé, aucune information sur les promotions n'est disponible pour le moment.", ephemeral=True)
                 return
 
-            promo_products = [p for p in site_data.get('products', []) if p.get('is_promo')]
-            general_promos = site_data.get('general_promos', [])
-            general_promos_text = "\n".join([f"• {promo}" for promo in general_promos]) if general_promos else ""
-
-            # On passe toutes les infos nécessaires à la vue dès sa création
-            paginator = PromoPaginatorView(promo_products, general_promos_text)
+            promo_products = [p for p in all_products if p.get('is_promo')]
+            
+            paginator = PromoPaginatorView(promo_products, general_promos)
             embed = paginator.create_embed()
             
             await interaction.followup.send(embed=embed, view=paginator, ephemeral=True)
@@ -927,7 +992,6 @@ class SlashCommands(commands.Cog):
         except Exception as e:
             Logger.error(f"Erreur lors de l'exécution de la commande /promos : {e}")
             traceback.print_exc()
-            # Ce message ne devrait plus être précédé par une réponse correcte
             await interaction.followup.send("❌ Une erreur est survenue lors de la récupération des promotions.", ephemeral=True)
 
     @app_commands.command(name="classement_general", description="Affiche la moyenne de tous les produits notés.")

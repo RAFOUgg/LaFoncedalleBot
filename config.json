@@ -1,35 +1,14 @@
 {
   "general": {
-    "CATALOG_URL": "https://la-foncedalle.fr/pages/catalogue"
+    "CATALOG_URL": "https://la-foncedalle.fr/pages/catalogue",
+    "general_promos": [
+      "Livraison offerte dès 60€ d'achat !",
+      "-15% sur votre première commande avec le code BIENVENUE10"
+    ]
   },
-  "scraping": {
-  "selectors": {
-    "age_popup_button": "#age-yes",
-    "cookies_banner_button": "#shopify-pc__banner__btn-accept",
-    "product_list_container": "form.pf-product-form",
-    "product_name": "h3.pf-heading-1-h3",
-    "product_price_select": "select.pf-variant-select",
-    "product_description": "div.product-tags-wrapper",
-    "product_image": "img.variant-image",
-    "promo_price_indicator": "del",
-    "promo_price_sale": "span.pf-price-item-sale",
-    "promo_price_original": "del span.pf-price",
-    
-    "//--- NOUVEAUX SÉLECTEURS POUR LES PAGES PRODUIT ---//": "",
-    "detailed_description": "div.pf-product-description",
-    "metafields_container": "div.metafields-container",
-    "metafield_item": "div.metafield-item",
-    "metafield_label": "span.metafield-label",
-    "metafield_value": "span.metafield-value",
-    "add_to_cart_button": "button#pf-product-add-to-cart"
-    }
-},
   "categorization": {
     "hash_keywords": [
-      "hash", "résine", "pollen", "jaune", 
-      "filtré", "ketama", "sift", "mousseux", 
-      "dry", "frozen", "sieved", "plasma", "static",
-      "bubble", "ice", "water", "charas"
+      "hash", "résine", "pollen", "jaune", "filtré", "ketama", "sift" 
     ]
   },
   "contact_info": {
