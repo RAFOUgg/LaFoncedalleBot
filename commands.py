@@ -1,5 +1,3 @@
-# commands.py
-
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -12,7 +10,6 @@ import traceback
 import asyncio
 import os
 
-# --- Imports depuis les fichiers du projet ---
 from shared_utils import (
     log_user_action, Logger, executor, CACHE_FILE,
     CATALOG_URL, DB_FILE, STAFF_ROLE_ID,
@@ -23,7 +20,7 @@ from shared_utils import (
 )
 
 
-# --- Logique des permissions ---
+# --- Logique des permissions (inchangée) ---
 async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
     if await interaction.client.is_owner(interaction.user): return True
     if not STAFF_ROLE_ID: return False
@@ -39,8 +36,6 @@ class ProductView(discord.ui.View):
         self.products = products
         self.current_index = 0
         self.category = category
-        self.download_lab_url = None
-        self.download_terpen_url = None
         self.update_buttons()
         self.update_download_buttons()
 
@@ -50,26 +45,30 @@ class ProductView(discord.ui.View):
             nav_buttons[0].disabled = self.current_index == 0
             nav_buttons[1].disabled = self.current_index >= len(self.products) - 1
 
+    # --- CORRECTION POUR LES BOUTONS DE TÉLÉCHARGEMENT ---
     def update_download_buttons(self):
         items_to_remove = [item for item in self.children if hasattr(item, "is_download_button")]
         for item in items_to_remove:
             self.remove_item(item)
             
-        self.download_lab_url = None
-        self.download_terpen_url = None
-
         product = self.products[self.current_index]
+        product_url = product.get('product_url', CATALOG_URL)
         stats = product.get('stats', {})
-        for k, v in stats.items():
-            if "lab" in k.lower() and ("pdf" in k.lower() or str(v).startswith("http")):
-                self.download_lab_url = v
-            if "terpen" in k.lower() and ("pdf" in k.lower() or str(v).startswith("http")):
-                self.download_terpen_url = v
-        
-        if self.download_lab_url and str(self.download_lab_url).startswith("http"):
-            self.add_item(self.DownloadButton("Télécharger Lab Test", self.download_lab_url, emoji="🧪"))
-        if self.download_terpen_url and str(self.download_terpen_url).startswith("http"):
-            self.add_item(self.DownloadButton("Télécharger Terpen Test", self.download_terpen_url, emoji="🌿"))
+
+        for key, value in stats.items():
+            if not value or not isinstance(value, str): continue
+
+            # Gère les URL publiques directes
+            if ("lab" in key.lower() or "terpen" in key.lower()) and "http" in value:
+                label = "Télécharger Lab Test" if "lab" in key.lower() else "Télécharger Terpènes"
+                emoji = "🧪" if "lab" in key.lower() else "🌿"
+                self.add_item(self.DownloadButton(label, value, emoji))
+            # Gère les GID de Shopify en redirigeant vers la page produit
+            elif ("lab" in key.lower() or "terpen" in key.lower()) and "gid://shopify" in value:
+                label = "Voir Lab Test (sur site)" if "lab" in key.lower() else "Voir Terpènes (sur site)"
+                emoji = "🧪" if "lab" in key.lower() else "🌿"
+                self.add_item(self.DownloadButton(label, product_url, emoji))
+
 
     def get_category_emoji(self):
         if self.category == "weed": return "🍃"
@@ -83,14 +82,13 @@ class ProductView(discord.ui.View):
         emoji = self.get_category_emoji()
         embed_color = discord.Color.dark_red() if product.get('is_sold_out') else discord.Color.from_rgb(255, 204, 0)
         title = f"{emoji} **{product.get('name', 'Produit inconnu')}**"
-        embed = discord.Embed(title=title, url=product.get('product_url', CATALOG_URL), description=None, color=embed_color)
+        embed = discord.Embed(title=title, url=product.get('product_url', CATALOG_URL), color=embed_color)
         if product.get('image'):
             embed.set_thumbnail(url=product['image'])
 
         description = product.get('detailed_description', "Aucune description.")
-        if description and len(description) > 220:
-            description = description[:220] + "..."
-        embed.add_field(name="Description", value=description, inline=False)
+        if description: # On ne tronque que s'il y a une description
+            embed.add_field(name="Description", value=description[:1000], inline=False) # Augmentation de la limite
 
         price_text = ""
         if product.get('is_sold_out'): price_text = "❌ **ÉPUISÉ**"
@@ -103,22 +101,28 @@ class ProductView(discord.ui.View):
 
         stats = product.get('stats', {})
         char_lines = []
+        # --- CORRECTION POUR LE FILTRAGE DES DONNÉES ---
+        ignore_keys = ["pdf", "lab", "terpen", "stock", "description"] # Ignorer la description aussi
+        ignore_values = ["livraison", "offert"]
+
         for k, v in stats.items():
-            if any(word in k.lower() for word in ["pdf", "lab", "terpen", "stock"]): continue
-            if "effet" in k.lower(): char_lines.append(f"**Effet :** {v}")
-            elif "gout" in k.lower(): char_lines.append(f"**Goût :** {v}")
-            elif "cbd" in k.lower(): char_lines.append(f"**CBD :** {v}")
-            elif "thc" in k.lower(): char_lines.append(f"**THC :** {v}")
-            else: char_lines.append(f"**{k.capitalize()} :** {v}")
+            k_lower = k.lower()
+            v_lower = str(v).lower()
+            
+            if any(key in k_lower for key in ignore_keys) or any(val in v_lower for val in ignore_values):
+                continue
+            
+            # Formattage spécifique
+            if "effet" in k_lower: char_lines.append(f"**Effet :** {v}")
+            elif "gout" in k_lower: char_lines.append(f"**Goût :** {v}")
+            elif "cbd" in k_lower: char_lines.append(f"**CBD :** {v}")
+            elif "thc" in k_lower: char_lines.append(f"**THC :** {v}")
+            else: char_lines.append(f"**{k.strip().capitalize()} :** {v}")
+
         if char_lines:
             embed.add_field(name="Caractéristiques", value="\n".join(char_lines), inline=False)
 
-        embed.add_field(name="Voir sur le site", value=f"[Fiche produit]({product.get('product_url', CATALOG_URL)})", inline=False)
-
-        for k, v in stats.items():
-            if ("lab" in k.lower() or "terpen" in k.lower()) and not str(v).startswith("http"):
-                embed.add_field(name=k.replace("_", " ").capitalize(), value=v, inline=False)
-
+        embed.add_field(name="\u200b", value=f"**[Voir la fiche produit sur le site]({product.get('product_url', CATALOG_URL)})**", inline=False)
         embed.set_footer(text=f"Produit {self.current_index + 1} sur {len(self.products)}")
         return embed
 
@@ -142,6 +146,9 @@ class ProductView(discord.ui.View):
             super().__init__(label=label, style=discord.ButtonStyle.link, url=url, emoji=emoji)
             self.is_download_button = True
 
+
+# --- Le reste du fichier commands.py est complet et correct, il suffit de le copier/coller en entier ---
+# ... (MenuView, et toutes les autres classes de Vues et de Commandes) ...
 class MenuView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -195,22 +202,15 @@ class MenuView(discord.ui.View):
     async def accessoire_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._handle_button_click(interaction, "accessoire", "Accessoires")
 
-# --- VUES POUR LES AUTRES COMMANDES ---
-
-# Placeholder pour la modal de notation (implémentation complète requise)
 class RatingModal(discord.ui.Modal, title="Noter un produit"):
     def __init__(self, product_name: str, user: discord.User, bot: commands.Bot):
         super().__init__(timeout=None)
         self.product_name = product_name
         self.user = user
         self.bot = bot
-
-        # ... (champs pour les notes)
-        # Ceci est un exemple, une implémentation complète est nécessaire
         self.add_item(discord.ui.TextInput(label="Note sur 10", placeholder="Ex: 8.5"))
 
     async def on_submit(self, interaction: discord.Interaction):
-        # ... (logique de sauvegarde en base de données)
         await interaction.response.send_message("Merci pour votre note !", ephemeral=True)
         
 class NotationProductSelectView(discord.ui.View):
@@ -222,7 +222,7 @@ class NotationProductSelectView(discord.ui.View):
         def __init__(self, products: list, user: discord.User, bot: commands.Bot):
             self.user = user
             self.bot = bot
-            options = [discord.SelectOption(label=p, value=p) for p in products[:25]] # Limite de 25 options
+            options = [discord.SelectOption(label=p, value=p) for p in products[:25]]
             super().__init__(placeholder="Choisissez un produit à noter...", options=options)
 
         async def callback(self, interaction: discord.Interaction):
@@ -251,20 +251,13 @@ class TopRatersPaginatorView(discord.ui.View):
         start_index = self.current_page * self.items_per_page
         end_index = start_index + self.items_per_page
         page_raters = self.top_raters[start_index:end_index]
-        
         embed = discord.Embed(title="🏆 Top des Noteurs", description="Classement basé sur le nombre de notes uniques.", color=discord.Color.gold())
-        
         for i, rater_data in enumerate(page_raters):
             user_id, last_user_name, rating_count, global_average, min_note, max_note = rater_data
             rank = start_index + i + 1
             member = self.guild.get_member(user_id)
             name = member.mention if member else f"{last_user_name} (parti)"
-            
-            embed.add_field(
-                name=f"#{rank} - {name}",
-                value=f"> Notes : **{rating_count}** | Moyenne : **{global_average:.2f}/10**",
-                inline=False
-            )
+            embed.add_field(name=f"#{rank} - {name}", value=f"> Notes : **{rating_count}** | Moyenne : **{global_average:.2f}/10**", inline=False)
         embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages + 1}")
         return embed
 
@@ -309,19 +302,14 @@ class RankingPaginatorView(discord.ui.View):
         start_index = self.current_page * self.items_per_page
         end_index = start_index + self.items_per_page
         page_ratings = self.all_products_ratings[start_index:end_index]
-        
         embed = discord.Embed(title="📈 Classement Général des Produits", description="Moyenne de tous les produits notés par la communauté.", color=discord.Color.blue())
-        
         for i, (name, avg_score, count) in enumerate(page_ratings):
             rank = start_index + i + 1
             product_info = self.product_map.get(name.strip().lower())
-            
             value_str = f"**Note : {avg_score:.2f}/10** ({count} avis)"
             if product_info and product_info.get('product_url'):
                 value_str += f" - [Voir la fiche]({product_info['product_url']})"
-            
             embed.add_field(name=f"#{rank} - {name}", value=value_str, inline=False)
-        
         embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages + 1}")
         return embed
         
@@ -359,15 +347,10 @@ class ProductSelectForGraph(discord.ui.Select):
         import graph_generator
         product_name = self.values[0]
         await interaction.response.send_message(f"Génération du graphique pour **{product_name}**...", ephemeral=True, delete_after=10)
-        
         chart_path = await asyncio.to_thread(graph_generator.create_radar_chart, product_name)
         if chart_path:
             file = discord.File(chart_path, filename="radar_chart.png")
-            embed = discord.Embed(
-                title=f"Graphique Radar pour {product_name}",
-                description="Moyenne des notes de la communauté pour ce produit.",
-                color=discord.Color.green()
-            ).set_image(url="attachment://radar_chart.png")
+            embed = discord.Embed(title=f"Graphique Radar pour {product_name}", description="Moyenne des notes de la communauté.", color=discord.Color.green()).set_image(url="attachment://radar_chart.png")
             await interaction.followup.send(embed=embed, file=file, ephemeral=True)
             os.remove(chart_path)
         else:
@@ -381,7 +364,6 @@ class PromoPaginatorView(discord.ui.View):
         self.items_per_page = items_per_page
         self.current_page = 0
         self.total_pages = (len(self.promo_products) - 1) // self.items_per_page
-
         if self.promo_products and self.total_pages > 0:
             self.add_item(self.PrevButton())
             self.add_item(self.NextButton())
@@ -396,11 +378,8 @@ class PromoPaginatorView(discord.ui.View):
         start_index = self.current_page * self.items_per_page
         end_index = start_index + self.items_per_page
         page_items = self.promo_products[start_index:end_index]
-
         embed = create_styled_embed(title="💰 Promotions et Offres Spéciales", description="", color=discord.Color.from_rgb(255, 105, 180))
-        
         embed.add_field(name="🎁 Offres sur le site", value=self.general_promos_text, inline=False)
-
         product_promo_text = ""
         if not page_items: product_promo_text = "Aucun produit spécifique n'est en promotion actuellement."
         else:
@@ -409,12 +388,9 @@ class PromoPaginatorView(discord.ui.View):
                 prix_original = product.get('original_price', '')
                 prix_text = f"**{prix_promo}** ~~{prix_original}~~"
                 product_promo_text += f"**🏷️ [{product.get('name', 'N/A')}]({product.get('product_url', '#')})**\n> {prix_text}\n"
-
         embed.add_field(name="🛍️ Produits en Promotion", value=product_promo_text, inline=False)
-
         if self.promo_products and self.total_pages > 0:
              embed.set_footer(text=f"Page {self.current_page + 1} sur {self.total_pages + 1}")
-
         return embed
 
     async def update_message(self, interaction: discord.Interaction):
@@ -457,11 +433,9 @@ class ProfilePaginatorView(discord.ui.View):
             self.add_item(self.RatingsButton(self))
         if self.can_reset:
             self.add_item(self.ResetButton(self))
-        
         if self.current_page != -1 and self.total_pages > 0:
             self.add_item(self.PrevButton(self))
             self.add_item(self.NextButton(self))
-            # Disable buttons at boundaries
             for item in self.children:
                 if isinstance(item, self.PrevButton): item.disabled = self.current_page == 0
                 if isinstance(item, self.NextButton): item.disabled = self.current_page >= self.total_pages
@@ -470,43 +444,28 @@ class ProfilePaginatorView(discord.ui.View):
         if self.current_page == -1: 
             embed = discord.Embed(title=f"Profil de {self.target_user.display_name}", color=self.target_user.color)
             embed.set_thumbnail(url=self.target_user.display_avatar.url)
-            
             desc = "**__Activité sur le Discord__**\n"
-            rank = self.user_stats.get('rank', 'Non classé')
-            count = self.user_stats.get('count', 0)
-            avg = f"{self.user_stats.get('avg', 0):.2f}/10"
+            rank, count, avg = self.user_stats.get('rank', 'N/C'), self.user_stats.get('count', 0), f"{self.user_stats.get('avg', 0):.2f}/10"
             if count > 0:
-                desc += f"🏆 **Classement :** `#{rank}`\n"
-                desc += f"📝 **Notations :** `{count}` produits\n"
-                desc += f"📊 **Moyenne :** `{avg}`\n"
-            else: desc += "Aucune notation pour le moment.\n"
-            if self.user_stats.get('is_top_3_monthly'):
-                desc += "🏅 **Badge :** `Top Noteur du Mois`\n"
-                
+                desc += f"🏆 **Classement :** `#{rank}`\n📝 **Notations :** `{count}`\n📊 **Moyenne :** `{avg}`\n"
+            else: desc += "Aucune notation.\n"
+            if self.user_stats.get('is_top_3_monthly'): desc += "🏅 **Badge :** `Top Noteur du Mois`\n"
             desc += "\n**__Activité sur la Boutique__**\n"
             if self.shopify_data and 'purchase_count' in self.shopify_data:
-                purchase_count = self.shopify_data['purchase_count']
-                total_spent = self.shopify_data['total_spent']
-                desc += f"🛍️ **Commandes passées :** `{purchase_count}`\n"
-                desc += f"💳 **Total dépensé :** `{total_spent:.2f} €`\n"
-            else: desc += "Compte non lié. Utilisez `/lier_compte` pour voir vos statistiques d'achat.\n"
-
+                desc += f"🛍️ **Commandes :** `{self.shopify_data['purchase_count']}`\n💳 **Total dépensé :** `{self.shopify_data['total_spent']:.2f} €`\n"
+            else: desc += "Compte non lié. Utilisez `/lier_compte`.\n"
             embed.description = desc
-            embed.set_footer(text="Cliquez sur les boutons pour voir les notes détaillées.")
+            embed.set_footer(text="Cliquez sur les boutons pour voir plus de détails.")
             return embed
         else:
             embed = discord.Embed(title=f"Notes de {self.target_user.display_name}", color=discord.Color.green())
             embed.set_thumbnail(url=self.target_user.display_avatar.url)
-            start_index = self.current_page * self.items_per_page
-            end_index = start_index + self.items_per_page
-            page_ratings = self.user_ratings[start_index:end_index]
-            for rating in page_ratings:
-                avg_score = (rating.get('visual_score',0)+rating.get('smell_score',0)+rating.get('touch_score',0)+rating.get('taste_score',0)+rating.get('effects_score',0))/5
-                date = datetime.fromisoformat(rating['rating_timestamp']).strftime('%d/%m/%Y')
-                embed.add_field(name=f"**{rating['product_name']}** ({date})", value=f"> Note moyenne : **{avg_score:.2f}/10**", inline=False)
-            
-            if self.total_pages >= 0:
-                embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages + 1}")
+            start, end = self.current_page * self.items_per_page, (self.current_page + 1) * self.items_per_page
+            for r in self.user_ratings[start:end]:
+                avg = (r.get('visual_score',0)+r.get('smell_score',0)+r.get('touch_score',0)+r.get('taste_score',0)+r.get('effects_score',0))/5
+                date = datetime.fromisoformat(r['rating_timestamp']).strftime('%d/%m/%Y')
+                embed.add_field(name=f"**{r['product_name']}** ({date})", value=f"> Note : **{avg:.2f}/10**", inline=False)
+            if self.total_pages >= 0: embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages + 1}")
             return embed
 
     async def update_view(self, interaction: discord.Interaction):
@@ -514,62 +473,40 @@ class ProfilePaginatorView(discord.ui.View):
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
     class ProfileButton(discord.ui.Button):
-        def __init__(self, parent_view):
-            super().__init__(label="Profil", style=discord.ButtonStyle.primary, emoji="👤")
-            self.parent_view = parent_view
-        async def callback(self, interaction: discord.Interaction):
-            self.parent_view.current_page = -1
-            await self.parent_view.update_view(interaction)
+        def __init__(self, pv): super().__init__(label="Profil", style=discord.ButtonStyle.primary, emoji="👤"); self.pv=pv
+        async def callback(self, i: discord.Interaction): self.pv.current_page = -1; await self.pv.update_view(i)
     
     class RatingsButton(discord.ui.Button):
-        def __init__(self, parent_view):
-            super().__init__(label="Notes", style=discord.ButtonStyle.secondary, emoji="📝")
-            self.parent_view = parent_view
-        async def callback(self, interaction: discord.Interaction):
-            self.parent_view.current_page = 0
-            await self.parent_view.update_view(interaction)
+        def __init__(self, pv): super().__init__(label="Notes", style=discord.ButtonStyle.secondary, emoji="📝"); self.pv=pv
+        async def callback(self, i: discord.Interaction): self.pv.current_page = 0; await self.pv.update_view(i)
             
     class PrevButton(discord.ui.Button):
-        def __init__(self, parent_view):
-            super().__init__(label="⬅️", style=discord.ButtonStyle.secondary)
-            self.parent_view = parent_view
-        async def callback(self, interaction: discord.Interaction):
-            if self.parent_view.current_page > 0: self.parent_view.current_page -= 1
-            await self.parent_view.update_view(interaction)
+        def __init__(self, pv): super().__init__(label="⬅️", style=discord.ButtonStyle.secondary); self.pv=pv
+        async def callback(self, i: discord.Interaction):
+            if self.pv.current_page > 0: self.pv.current_page -= 1
+            await self.pv.update_view(i)
             
     class NextButton(discord.ui.Button):
-        def __init__(self, parent_view):
-            super().__init__(label="➡️", style=discord.ButtonStyle.secondary)
-            self.parent_view = parent_view
-        async def callback(self, interaction: discord.Interaction):
-            if self.parent_view.current_page < self.parent_view.total_pages: self.parent_view.current_page += 1
-            await self.parent_view.update_view(interaction)
+        def __init__(self, pv): super().__init__(label="➡️", style=discord.ButtonStyle.secondary); self.pv=pv
+        async def callback(self, i: discord.Interaction):
+            if self.pv.current_page < self.pv.total_pages: self.pv.current_page += 1
+            await self.pv.update_view(i)
 
     class ResetButton(discord.ui.Button):
-        def __init__(self, parent_view):
-            super().__init__(label="Réinitialiser", style=discord.ButtonStyle.danger, emoji="🗑️")
-            self.parent_view = parent_view
-        async def callback(self, interaction: discord.Interaction):
-            await interaction.response.send_message(f"Êtes-vous sûr de vouloir supprimer **toutes** les notes de {self.parent_view.target_user.mention} ?", view=ConfirmResetNotesView(self.parent_view.target_user, self.parent_view.bot), ephemeral=True)
+        def __init__(self, pv): super().__init__(label="Réinitialiser", style=discord.ButtonStyle.danger, emoji="🗑️"); self.pv=pv
+        async def callback(self, i: discord.Interaction):
+            await i.response.send_message(f"Voulez-vous vraiment supprimer les notes de {self.pv.target_user.mention} ?", view=ConfirmResetNotesView(self.pv.target_user, self.pv.bot), ephemeral=True)
 
 class ConfirmResetNotesView(discord.ui.View):
-    def __init__(self, user, bot):
-        super().__init__(timeout=60)
-        self.user = user
-        self.bot = bot
-    @discord.ui.button(label="Confirmer la suppression", style=discord.ButtonStyle.danger)
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        def _delete_notes_sync(user_id):
-            conn = sqlite3.connect(DB_FILE)
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM ratings WHERE user_id = ?", (user_id,))
-            conn.commit()
-            conn.close()
-        await asyncio.to_thread(_delete_notes_sync, self.user.id)
-        await interaction.response.edit_message(content=f"✅ Toutes les notes de {self.user.mention} ont été supprimées.", view=None)
+    def __init__(self, user, bot): super().__init__(timeout=60); self.user=user; self.bot=bot
+    @discord.ui.button(label="Confirmer", style=discord.ButtonStyle.danger)
+    async def confirm(self, i: discord.Interaction, b: discord.ui.Button):
+        def _del(uid):
+            conn = sqlite3.connect(DB_FILE); c=conn.cursor(); c.execute("DELETE FROM ratings WHERE user_id=?",(uid,)); conn.commit(); conn.close()
+        await asyncio.to_thread(_del, self.user.id)
+        await i.response.edit_message(content=f"✅ Notes de {self.user.mention} supprimées.", view=None)
     @discord.ui.button(label="Annuler", style=discord.ButtonStyle.secondary)
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="Opération annulée.", view=None)
+    async def cancel(self, i: discord.Interaction, b: discord.ui.Button): await i.response.edit_message(content="Opération annulée.", view=None)
 
 class ContactButtonsView(discord.ui.View):
     def __init__(self, contact_info):

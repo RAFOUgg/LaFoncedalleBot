@@ -1,6 +1,6 @@
 # catalogue_final.py
 
-# --- Imports ---
+# --- Imports (inchangés) ---
 import os
 import json
 import hashlib
@@ -10,16 +10,15 @@ import time as a_time
 from datetime import time as dt_time, datetime, timedelta
 from typing import List
 import sqlite3
+import re
 
-# Imports des librairies nécessaires
 import shopify
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
-from bs4 import BeautifulSoup # Toujours utile pour nettoyer le HTML des descriptions
+from bs4 import BeautifulSoup
 
-# Imports depuis vos fichiers de projet
-from commands import MenuView # On importe MenuView car on en a besoin dans on_ready
+from commands import MenuView
 from shared_utils import (
     TOKEN, CHANNEL_ID, ROLE_ID_TO_MENTION, CATALOG_URL,
     Logger, executor, paris_tz, initialize_database, config_manager,
@@ -28,13 +27,12 @@ from shared_utils import (
 )
 from graph_generator import create_radar_chart
 
-# --- Initialisation du bot ---
+# --- Initialisation (inchangée) ---
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Configuration des heures pour les tâches programmées
 update_time = dt_time(hour=8, minute=0, tzinfo=paris_tz)
 ranking_time = dt_time(hour=16, minute=0, tzinfo=paris_tz)
 selection_time = dt_time(hour=12, minute=0, tzinfo=paris_tz)
@@ -42,10 +40,9 @@ selection_time = dt_time(hour=12, minute=0, tzinfo=paris_tz)
 
 def get_site_data_from_api():
     """
-    Version FINALE : Récupère les produits, les catégorise via une méthode hybride
-    (Type, Tags, Titre) et filtre intelligemment les articles non désirés.
+    Version FINALE : Récupère, catégorise et filtre les produits de manière robuste.
     """
-    Logger.info("Démarrage de la récupération via API Shopify (Méthode Hybride Finale)...")
+    Logger.info("Démarrage de la récupération via API Shopify (Méthode Robuste)...")
     
     try:
         shop_url = os.getenv('SHOPIFY_SHOP_URL')
@@ -60,38 +57,34 @@ def get_site_data_from_api():
         all_products_api = shopify.Product.find(status='active', limit=250)
         final_products = []
 
-        hash_keywords = config_manager.get_config("categorization.hash_keywords", [])
-        box_keywords = ["box", "pack"]
-        accessoire_keywords = ["briquet", "feuille", "papier", "accessoire", "grinder"]
+        # --- LOGIQUE DE CATÉGORISATION AMÉLIORÉE ---
+        hash_keywords = config_manager.get_config("categorization.hash_keywords", []) + ["hash", "résine", "resin", "resine"]
+        box_keywords = ["box", "pack", "coffret", "gustative"]
+        accessoire_keywords = ["briquet", "feuille", "papier", "accessoire", "grinder", "plateau", "clipper", "ocb"]
         
         for prod in all_products_api:
-            # Étape 1 : Catégorisation
-            category = None
+            category = "weed" # Catégorie par défaut
             title_lower = prod.title.lower()
             product_type_lower = prod.product_type.lower() if prod.product_type else ""
             tags_lower = [tag.lower() for tag in prod.tags]
 
-            if any(kw in title_lower for kw in box_keywords) or "box" in product_type_lower:
+            # L'ordre est important : du plus spécifique au plus général
+            if any(kw in title_lower for kw in box_keywords):
                 category = "box"
             elif any(kw in title_lower for kw in hash_keywords) or any(kw in tags_lower for kw in hash_keywords) or "résine" in product_type_lower:
                 category = "hash"
             elif any(kw in title_lower for kw in accessoire_keywords) or "accessoire" in product_type_lower:
                 category = "accessoire"
-            else:
-                category = "weed"
-
-            # Étape 2 : Filtrage Intelligent
+            
+            # --- FILTRAGE AMÉLIORÉ ---
             is_free = not any(float(variant.price) > 0 for variant in prod.variants)
-
-            # On ignore les produits gratuits SAUF si ce sont des accessoires.
             if is_free and category != "accessoire":
+                Logger.info(f"Produit gratuit '{prod.title}' ignoré car non-accessoire.")
                 continue
             
-            # On ignore les éléments non désirés explicitement.
-            if "telegram" in title_lower:
+            if any(kw in title_lower for kw in ["telegram", "instagram", "tiktok"]):
                 continue
 
-            # --- Le reste du code est maintenant correct ---
             product_data = {}
             product_data['name'] = prod.title
             product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
@@ -100,8 +93,16 @@ def get_site_data_from_api():
             category_map = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
             product_data['category'] = category_map.get(category, category)
 
+            # --- CORRECTION POUR LA DESCRIPTION ---
             desc_html = prod.body_html
-            product_data['detailed_description'] = BeautifulSoup(desc_html, 'html.parser').get_text(strip=True, separator='\n') if desc_html else "Pas de description."
+            if desc_html:
+                # Remplace les balises de saut de ligne et de paragraphe par de vrais sauts de ligne
+                desc_html = re.sub(r'<br\s*/?>', '\n', desc_html, flags=re.IGNORECASE)
+                desc_html = re.sub(r'</p>', '\n\n', desc_html, flags=re.IGNORECASE)
+                soup = BeautifulSoup(desc_html, 'html.parser')
+                product_data['detailed_description'] = soup.get_text(strip=True)
+            else:
+                product_data['detailed_description'] = "Pas de description."
 
             available_variants = [v for v in prod.variants if v.inventory_quantity > 0 or v.inventory_policy == 'continue']
             product_data['is_sold_out'] = not available_variants
@@ -114,8 +115,8 @@ def get_site_data_from_api():
                 product_data['is_promo'] = compare_price > price
                 product_data['original_price'] = f"{compare_price:.2f} €".replace('.', ',') if product_data['is_promo'] else None
                 
-                price_prefix = "à partir de " if len(available_variants) > 1 else ""
-                product_data['price'] = f"{price_prefix}{price:.2f} €".replace('.', ',')
+                price_prefix = "à partir de " if len(available_variants) > 1 and price > 0 else ""
+                product_data['price'] = f"{price_prefix}{price:.2f} €".replace('.', ',') if price > 0 else "Cadeau !"
             else:
                 product_data['price'] = "N/A"
                 product_data['is_promo'] = False
@@ -136,11 +137,9 @@ def get_site_data_from_api():
     finally:
         if 'shopify' in locals() and shopify.ShopifyResource.get_session():
             shopify.ShopifyResource.clear_session()
-
-
-# --- La suite du code reste identique, car elle dépend du format des données, pas de la méthode de récupération ---
-
-
+            
+# ... Le reste du fichier catalogue_final.py reste identique ...
+# (post_weekly_selection, publish_menu, check_for_updates, etc. n'ont pas besoin de changer)
 async def post_weekly_selection(bot_instance: commands.Bot):
     Logger.info("Génération et publication de la sélection de la semaine...")
     
@@ -267,7 +266,6 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
     promos_list = site_data.get('general_promos', [])
     general_promos_text = "\n".join([f"• {promo.strip()}" for promo in promos_list if promo.strip()]) or "Aucune promotion générale en cours."
 
-    # Correction ici : on récupère toutes les catégories
     hash_count, weed_count, box_count, accessoire_count = get_product_counts(products)
 
     description_text = (
@@ -292,13 +290,12 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
         embed.set_thumbnail(url=main_logo_url)
     
     view = MenuView()
-    bot_instance.add_view(view)  # Ajoute la vue persistante à chaque publication
+    bot_instance.add_view(view)
 
     content = f"<@&{ROLE_ID_TO_MENTION}>" if mention and ROLE_ID_TO_MENTION else None
     last_message_id = await config_manager.get_state('last_message_id')
     
     try:
-        # Toujours supprimer l'ancien menu avant d'envoyer le nouveau
         if last_message_id:
             try:
                 old_message = await channel.fetch_message(int(last_message_id))
@@ -322,15 +319,12 @@ async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = Fa
         Logger.error("Récupération des données API échouée, la vérification s'arrête.")
         return False
 
-    # --- ÉTAPE 1 : ON ÉCRIT LE CACHE IMMÉDIATEMENT APRÈS LA RÉCUPÉRATION ---
-    # C'est la correction la plus importante.
     def write_cache():
         with open(CACHE_FILE, 'w', encoding='utf-8') as f:
             json.dump(site_data, f, indent=4, ensure_ascii=False)
     await asyncio.to_thread(write_cache)
     Logger.success(f"Cache de produits mis à jour sur le disque avec {len(site_data.get('products', []))} produits.")
 
-    # --- ÉTAPE 2 : On continue avec la logique de hash comme avant ---
     data_to_hash = {
         'products': site_data.get('products', []),
         'general_promos': sorted(site_data.get('general_promos', [])) 
@@ -341,9 +335,6 @@ async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = Fa
 
     if current_hash != last_hash or force_publish:
         Logger.info(f"Changement détecté (ou forcé). Publication du menu. Forcé: {force_publish}")
-        
-        # On n'a plus besoin d'écrire le cache ici, c'est déjà fait.
-        
         if await publish_menu(bot_instance, site_data, mention=True): 
             await config_manager.update_state('last_menu_hash', current_hash)
             return True
@@ -351,7 +342,6 @@ async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = Fa
             return False
     else:
         Logger.info("Aucun changement détecté.")
-        # On appelle quand même publish_menu pour s'assurer que le message est bien là, mais sans mention.
         await publish_menu(bot_instance, site_data, mention=False)
         return False
 async def force_republish_menu(bot_instance: commands.Bot):
@@ -359,7 +349,7 @@ async def force_republish_menu(bot_instance: commands.Bot):
 async def generate_and_send_ranking(bot_instance: commands.Bot, force_run: bool = False):
     Logger.info("Exécution de la logique de classement...")
     today = datetime.now(paris_tz)
-    if not force_run and today.weekday() != 6: # 6 = Dimanche
+    if not force_run and today.weekday() != 6:
         Logger.info("Aujourd'hui n'est pas dimanche, le classement hebdomadaire est sauté.")
         return
     ranking_channel_id = RANKING_CHANNEL_ID or CHANNEL_ID
@@ -410,7 +400,6 @@ bot.force_republish_menu = force_republish_menu
 bot.check_for_updates = check_for_updates
 bot.post_weekly_selection = post_weekly_selection
 
-# --- Tâches et Commandes ---
 @tasks.loop(time=update_time)
 async def scheduled_check(): await check_for_updates(bot)
 
@@ -421,34 +410,21 @@ async def post_weekly_ranking(): await generate_and_send_ranking(bot)
 async def scheduled_selection():
     if datetime.now(paris_tz).weekday() == 0: await post_weekly_selection(bot)
 
-# --- Événements et Gestionnaires d'erreur ---
 @bot.event
 async def on_ready():
-    # ... (toute la partie synchro est bonne)
     Logger.success("Commandes slash synchronisées sur la guilde de test.")
     
     await asyncio.to_thread(initialize_database)
 
-    # --- CORRECTION MAJEURE ICI ---
-    # On lance la vérification qui va obligatoirement remplir le cache ET récupérer les données
     Logger.info("Exécution de la vérification initiale au démarrage...")
-    await check_for_updates(bot, force_publish=False) # Cette ligne est déjà là, c'est bien
+    await check_for_updates(bot, force_publish=False)
 
-    # Maintenant, on lit le cache UNE SEULE FOIS et on stocke les produits dans le bot
     try:
-        bot.add_view(MenuView()) # <-- LA CORRECTION EST ICI !
+        bot.add_view(MenuView())
         Logger.success("Vue de menu persistante ré-enregistrée avec succès.")
-        
     except Exception as e:
         Logger.error(f"Échec critique du chargement de la vue persistante : {e}")
-            
-    except Exception as e:
-        Logger.error(f"Échec critique du chargement de la vue persistante : {e}")
-        bot.products = [] # Initialiser comme une liste vide en cas d'erreur
-        bot.general_promos = []
-        bot.data_timestamp = 0
 
-    # 3. On démarre les tâches programmées pour le futur
     if not scheduled_check.is_running(): scheduled_check.start()
     if not post_weekly_ranking.is_running(): post_weekly_ranking.start()
     if not scheduled_selection.is_running(): scheduled_selection.start()
