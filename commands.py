@@ -863,6 +863,42 @@ class SlashCommands(commands.Cog):
             Logger.error(f"Erreur API /confirm-verification : {e}")
             await interaction.followup.send("❌ Impossible de contacter le service de vérification. Merci de réessayer plus tard.", ephemeral=True)
 
+@app_commands.command(name="delier_compte", description="Supprime la liaison entre ton compte Discord et ton e-mail.")
+    async def delier_compte(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await log_user_action(interaction, "a demandé à délier son compte.")
+
+        api_url = f"{APP_URL}/api/unlink"
+        payload = {"discord_id": str(interaction.user.id)}
+
+        try:
+            import requests
+            response = requests.post(api_url, json=payload, timeout=15)
+
+            if response.status_code == 200:
+                data = response.json()
+                unlinked_email = data.get("unlinked_email", "votre e-mail")
+                await interaction.followup.send(
+                    f"✅ **Succès !** Votre compte Discord a été délié de l'adresse e-mail `{unlinked_email}`.\n"
+                    "Vous pouvez maintenant utiliser `/lier_compte` avec une autre adresse si vous le souhaitez.",
+                    ephemeral=True
+                )
+            elif response.status_code == 404:
+                await interaction.followup.send(
+                    "🤔 Votre compte Discord n'est actuellement lié à aucune adresse e-mail. "
+                    "Utilisez `/lier_compte` pour commencer.",
+                    ephemeral=True
+                )
+            else:
+                # Gérer d'autres erreurs potentielles de l'API
+                error_message = response.json().get("error", "Une erreur inconnue est survenue.")
+                await interaction.followup.send(f"❌ **Échec :** {error_message}", ephemeral=True)
+
+        except Exception as e:
+            Logger.error(f"Erreur API /unlink : {e}")
+            traceback.print_exc()
+            await interaction.followup.send("❌ Impossible de contacter le service de liaison. Merci de réessayer plus tard.", ephemeral=True)
+            
     @app_commands.command(name="selection", description="Publier immédiatement la sélection de la semaine (staff uniquement)")
     @app_commands.check(is_staff_or_owner)
     async def selection(self, interaction: discord.Interaction):

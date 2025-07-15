@@ -135,6 +135,33 @@ def confirm_verification():
     conn.close()
     return jsonify({"success": True}), 200
 
+@app.route('/api/unlink', methods=['POST'])
+def unlink_account():
+    data = request.json
+    discord_id = data.get('discord_id')
+
+    if not discord_id:
+        return jsonify({"error": "ID Discord manquant."}), 400
+
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+
+    # Vérifier si un lien existe avant de le supprimer
+    cursor.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (discord_id,))
+    result = cursor.fetchone()
+
+    if not result:
+        conn.close()
+        return jsonify({"error": "Aucun compte n'est lié à cet ID Discord."}), 404
+
+    # Supprimer la liaison
+    cursor.execute("DELETE FROM user_links WHERE discord_id = ?", (discord_id,))
+    conn.commit()
+    conn.close()
+
+    # Renvoyer l'e-mail qui a été délié pour le message de confirmation
+    return jsonify({"success": True, "unlinked_email": result[0]}), 200
+
 @app.route('/api/get_purchased_products/<discord_id>')
 def get_purchased_products(discord_id):
     conn = sqlite3.connect('database.db')
