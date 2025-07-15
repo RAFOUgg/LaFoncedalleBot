@@ -863,7 +863,7 @@ class SlashCommands(commands.Cog):
             Logger.error(f"Erreur API /confirm-verification : {e}")
             await interaction.followup.send("❌ Impossible de contacter le service de vérification. Merci de réessayer plus tard.", ephemeral=True)
 
-@app_commands.command(name="delier_compte", description="Supprime la liaison entre ton compte Discord et ton e-mail.")
+    @app_commands.command(name="delier_compte", description="Supprime la liaison entre ton compte Discord et ton e-mail.")
     async def delier_compte(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         await log_user_action(interaction, "a demandé à délier son compte.")
