@@ -215,28 +215,19 @@ class MenuView(discord.ui.View):
 class RatingModal(discord.ui.Modal, title="Noter un produit"):
     def __init__(self, product_name: str, user: discord.User):
         super().__init__(timeout=None)
-        self.product_name = product_name
-        self.user = user
-
-        # Création des 5 champs de saisie
+        self.product_name, self.user = product_name, user
         self.visual_score = discord.ui.TextInput(label="Note Visuel /10", placeholder="Ex: 8.5", required=True)
         self.smell_score = discord.ui.TextInput(label="Note Odeur /10", placeholder="Ex: 9", required=True)
         self.touch_score = discord.ui.TextInput(label="Note Toucher /10", placeholder="Ex: 7", required=True)
         self.taste_score = discord.ui.TextInput(label="Note Goût /10", placeholder="Ex: 8", required=True)
         self.effects_score = discord.ui.TextInput(label="Note Effets /10", placeholder="Ex: 9.5", required=True)
-
-        self.add_item(self.visual_score)
-        self.add_item(self.smell_score)
-        self.add_item(self.touch_score)
-        self.add_item(self.taste_score)
-        self.add_item(self.effects_score)
+        for item in [self.visual_score, self.smell_score, self.touch_score, self.taste_score, self.effects_score]:
+            self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        
         scores = {}
         try:
-            # Validation des entrées : elles doivent être des nombres entre 0 et 10
             scores['visual'] = float(self.visual_score.value.replace(',', '.'))
             scores['smell'] = float(self.smell_score.value.replace(',', '.'))
             scores['touch'] = float(self.touch_score.value.replace(',', '.'))
@@ -245,40 +236,23 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
 
             for key, value in scores.items():
                 if not (0 <= value <= 10):
-                    await interaction.followup.send(f"❌ La note pour '{key.capitalize()}' ({value}) doit être entre 0 et 10.", ephemeral=True)
-                    return
-
+                    await interaction.followup.send(f"❌ La note '{key.capitalize()}' ({value}) doit être entre 0 et 10.", ephemeral=True); return
         except ValueError:
-            await interaction.followup.send("❌ Veuillez n'entrer que des nombres pour les notes (ex: 8 ou 8.5).", ephemeral=True)
-            return
-
-        # Logique de sauvegarde en base de données
-        def _save_rating_sync():
-            conn = sqlite3.connect(DB_FILE)
-            cursor = conn.cursor()
-            timestamp = datetime.utcnow().isoformat()
-            
-            cursor.execute("""
-                INSERT OR REPLACE INTO ratings 
-                (user_id, user_name, product_name, visual_score, smell_score, touch_score, taste_score, effects_score, rating_timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                self.user.id, str(self.user), self.product_name,
-                scores['visual'], scores['smell'], scores['touch'],
-                scores['taste'], scores['effects'], timestamp
-            ))
-            conn.commit()
-            conn.close()
-
-        await asyncio.to_thread(_save_rating_sync)
-
-        avg_score = sum(scores.values()) / len(scores)
-        await interaction.followup.send(f"✅ Merci ! Votre note de **{avg_score:.2f}/10** pour **{self.product_name}** a bien été enregistrée.", ephemeral=True)
-
-    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
-        await interaction.followup.send('❌ Oups! Une erreur est survenue.', ephemeral=True)
-        traceback.print_exc()
+            await interaction.followup.send("❌ Veuillez n'entrer que des nombres pour les notes (ex: 8 ou 8.5).", ephemeral=True); return
         
+        def _save():
+            conn = sqlite3.connect(DB_FILE); c = conn.cursor()
+            c.execute("INSERT OR REPLACE INTO ratings (user_id, user_name, product_name, visual_score, smell_score, touch_score, taste_score, effects_score, rating_timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (self.user.id, str(self.user), self.product_name, scores['visual'], scores['smell'], scores['touch'], scores['taste'], scores['effects'], datetime.utcnow().isoformat()))
+            conn.commit(); conn.close()
+        
+        await asyncio.to_thread(_save)
+        avg = sum(scores.values()) / len(scores)
+        await interaction.followup.send(f"✅ Merci ! Note de **{avg:.2f}/10** pour **{self.product_name}** enregistrée.", ephemeral=True)
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception):
+        await interaction.followup.send('❌ Oups! Une erreur est survenue.', ephemeral=True); traceback.print_exc()
+
+# REMPLACEZ L'ANCIENNE CLASSE NOTATIONPRODUCTSELECTVIEW PAR CELLE-CI
 class NotationProductSelectView(discord.ui.View):
     def __init__(self, products: list, user: discord.User):
         super().__init__(timeout=180)
@@ -289,21 +263,9 @@ class NotationProductSelectView(discord.ui.View):
             self.user = user
             options = [discord.SelectOption(label=p, value=p) for p in products[:25]]
             super().__init__(placeholder="Choisissez un produit à noter...", options=options)
-
         async def callback(self, interaction: discord.Interaction):
-            # Ouvre le nouveau modal détaillé
             await interaction.response.send_modal(RatingModal(self.values[0], self.user))
-
-    class ProductSelect(discord.ui.Select):
-        def __init__(self, products: list, user: discord.User, bot: commands.Bot):
-            self.user = user
-            self.bot = bot
-            options = [discord.SelectOption(label=p, value=p) for p in products[:25]]
-            super().__init__(placeholder="Choisissez un produit à noter...", options=options)
-
-        async def callback(self, interaction: discord.Interaction):
-            product_name = self.values[0]
-            await interaction.response.send_modal(RatingModal(product_name, self.user, self.bot))
+        
 
 class TopRatersPaginatorView(discord.ui.View):
     def __init__(self, top_raters, guild, items_per_page=6):
@@ -633,28 +595,33 @@ class SlashCommands(commands.Cog):
 
     @app_commands.command(name="noter", description="Note un produit que tu as acheté sur la boutique.")
     async def noter(self, interaction: discord.Interaction):
+        # 1. DEFER IMMÉDIAT
         await interaction.response.defer(ephemeral=True, thinking=True)
+        
+        # 2. Le reste de la logique
         await log_user_action(interaction, "a initié la commande /noter")
-
-        api_url = f"{APP_URL}/api/get_purchased_products/{interaction.user.id}"
+        
         def fetch_purchased_products():
             import requests
             try:
-                response = requests.get(api_url, timeout=10)
-                if response.status_code == 404: return None
-                response.raise_for_status()
-                return response.json().get("products", [])
+                res = requests.get(f"{APP_URL}/api/get_purchased_products/{interaction.user.id}", timeout=10)
+                if res.status_code == 404: return None
+                res.raise_for_status()
+                return res.json().get("products", [])
             except Exception as e:
-                Logger.error(f"Erreur API Flask get_purchased_products: {e}"); return []
-
-        purchased_products = await asyncio.to_thread(fetch_purchased_products)
-
-        if purchased_products is None:
-            await interaction.followup.send("Ton compte Discord n'est pas lié. Utilise `/lier_compte`.", ephemeral=True); return
-        if not purchased_products:
-            await interaction.followup.send("Aucun produit trouvé dans ton historique d'achats.", ephemeral=True); return
+                Logger.error(f"Erreur API get_purchased_products: {e}"); return []
         
-        # L'argument `self.bot` a été supprimé de l'appel
+        purchased_products = await asyncio.to_thread(fetch_purchased_products)
+        
+        # 3. Réponses finales avec FOLLOWUP
+        if purchased_products is None:
+            await interaction.followup.send("Ton compte Discord n'est pas lié. Utilise `/lier_compte`.", ephemeral=True)
+            return
+        if not purchased_products:
+            await interaction.followup.send("Aucun produit trouvé dans ton historique d'achats.", ephemeral=True)
+            return
+        
+        # La correction du TypeError est ici : on n'envoie plus `self.bot`
         view = NotationProductSelectView(purchased_products, interaction.user)
         await interaction.followup.send("Veuillez choisir un produit à noter :", view=view, ephemeral=True)
 
