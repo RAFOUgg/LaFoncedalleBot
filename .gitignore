@@ -1,5 +1,5 @@
 # Fichiers secrets
-.env
+*.env
 
 # Fichiers de cache Python
 __pycache__/

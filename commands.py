@@ -998,7 +998,7 @@ class SlashCommands(commands.Cog):
     @app_commands.command(name="classement_general", description="Affiche la moyenne de tous les produits notés.")
     async def classement_general(self, interaction: discord.Interaction):
         """Affiche un classement complet et paginé de tous les produits ayant reçu une note."""
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         await log_user_action(interaction, "a demandé le classement général des produits.")
 
         # --- Début de la zone "protégée" ---
