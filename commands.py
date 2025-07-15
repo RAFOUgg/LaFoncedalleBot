@@ -11,12 +11,10 @@ import asyncio
 import os
 
 from shared_utils import (
-    log_user_action, Logger, executor, CACHE_FILE,
-    CATALOG_URL, DB_FILE, STAFF_ROLE_ID,
-    config_manager, create_styled_embed,
-    TIKTOK_EMOJI, LFONCEDALLE_EMOJI, TELEGRAM_EMOJI, INSTAGRAM_EMOJI,
-    SELECTION_CHANNEL_ID, SUCETTE_EMOJI, NITRO_CODES_FILE, CLAIMED_CODES_FILE, paris_tz, get_product_counts,
-    categorize_products, filter_catalog_products, APP_URL, get_general_promos
+    log_user_action, Logger, executor, CACHE_FILE, CATALOG_URL, DB_FILE, STAFF_ROLE_ID,
+    config_manager, create_styled_embed, TIKTOK_EMOJI, LFONCEDALLE_EMOJI, TELEGRAM_EMOJI, 
+    INSTAGRAM_EMOJI, SELECTION_CHANNEL_ID, SUCETTE_EMOJI, NITRO_CODES_FILE, CLAIMED_CODES_FILE, 
+    paris_tz, get_product_counts, categorize_products, filter_catalog_products, APP_URL, get_general_promos
 )
 
 
@@ -215,20 +213,86 @@ class MenuView(discord.ui.View):
         await self._handle_button_click(interaction, "accessoire", "Accessoires")
 
 class RatingModal(discord.ui.Modal, title="Noter un produit"):
-    def __init__(self, product_name: str, user: discord.User, bot: commands.Bot):
+    def __init__(self, product_name: str, user: discord.User):
         super().__init__(timeout=None)
         self.product_name = product_name
         self.user = user
-        self.bot = bot
-        self.add_item(discord.ui.TextInput(label="Note sur 10", placeholder="Ex: 8.5"))
+
+        # Création des 5 champs de saisie
+        self.visual_score = discord.ui.TextInput(label="Note Visuel /10", placeholder="Ex: 8.5", required=True)
+        self.smell_score = discord.ui.TextInput(label="Note Odeur /10", placeholder="Ex: 9", required=True)
+        self.touch_score = discord.ui.TextInput(label="Note Toucher /10", placeholder="Ex: 7", required=True)
+        self.taste_score = discord.ui.TextInput(label="Note Goût /10", placeholder="Ex: 8", required=True)
+        self.effects_score = discord.ui.TextInput(label="Note Effets /10", placeholder="Ex: 9.5", required=True)
+
+        self.add_item(self.visual_score)
+        self.add_item(self.smell_score)
+        self.add_item(self.touch_score)
+        self.add_item(self.taste_score)
+        self.add_item(self.effects_score)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.send_message("Merci pour votre note !", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        
+        scores = {}
+        try:
+            # Validation des entrées : elles doivent être des nombres entre 0 et 10
+            scores['visual'] = float(self.visual_score.value.replace(',', '.'))
+            scores['smell'] = float(self.smell_score.value.replace(',', '.'))
+            scores['touch'] = float(self.touch_score.value.replace(',', '.'))
+            scores['taste'] = float(self.taste_score.value.replace(',', '.'))
+            scores['effects'] = float(self.effects_score.value.replace(',', '.'))
+
+            for key, value in scores.items():
+                if not (0 <= value <= 10):
+                    await interaction.followup.send(f"❌ La note pour '{key.capitalize()}' ({value}) doit être entre 0 et 10.", ephemeral=True)
+                    return
+
+        except ValueError:
+            await interaction.followup.send("❌ Veuillez n'entrer que des nombres pour les notes (ex: 8 ou 8.5).", ephemeral=True)
+            return
+
+        # Logique de sauvegarde en base de données
+        def _save_rating_sync():
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            timestamp = datetime.utcnow().isoformat()
+            
+            cursor.execute("""
+                INSERT OR REPLACE INTO ratings 
+                (user_id, user_name, product_name, visual_score, smell_score, touch_score, taste_score, effects_score, rating_timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                self.user.id, str(self.user), self.product_name,
+                scores['visual'], scores['smell'], scores['touch'],
+                scores['taste'], scores['effects'], timestamp
+            ))
+            conn.commit()
+            conn.close()
+
+        await asyncio.to_thread(_save_rating_sync)
+
+        avg_score = sum(scores.values()) / len(scores)
+        await interaction.followup.send(f"✅ Merci ! Votre note de **{avg_score:.2f}/10** pour **{self.product_name}** a bien été enregistrée.", ephemeral=True)
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        await interaction.followup.send('❌ Oups! Une erreur est survenue.', ephemeral=True)
+        traceback.print_exc()
         
 class NotationProductSelectView(discord.ui.View):
-    def __init__(self, products: list, user: discord.User, bot: commands.Bot):
+    def __init__(self, products: list, user: discord.User):
         super().__init__(timeout=180)
-        self.add_item(self.ProductSelect(products, user, bot))
+        self.add_item(self.ProductSelect(products, user))
+
+    class ProductSelect(discord.ui.Select):
+        def __init__(self, products: list, user: discord.User):
+            self.user = user
+            options = [discord.SelectOption(label=p, value=p) for p in products[:25]]
+            super().__init__(placeholder="Choisissez un produit à noter...", options=options)
+
+        async def callback(self, interaction: discord.Interaction):
+            # Ouvre le nouveau modal détaillé
+            await interaction.response.send_modal(RatingModal(self.values[0], self.user))
 
     class ProductSelect(discord.ui.Select):
         def __init__(self, products: list, user: discord.User, bot: commands.Bot):
