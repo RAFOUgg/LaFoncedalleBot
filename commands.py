@@ -171,77 +171,151 @@ class ProductView(discord.ui.View):
 
 # Fichier : commands.py
 
-class MenuView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
+# --- Vues pour la commande /menu
+class ProductView(discord.ui.View):
+    def __init__(self, products: List[dict], category: str = None):
+        super().__init__(timeout=300)
+        self.products = products
+        self.current_index = 0
+        self.category = category
+        self.download_lab_url = None
+        self.download_terpen_url = None
+        self.update_buttons()
+        self.update_download_buttons()
 
-    # Cette fonction d'aide ne fait que charger les données.
-    # ELLE NE DOIT PAS ENVOYER DE RÉPONSE.
-    async def _load_and_categorize_products(self) -> dict:
-        try:
-            def _read_cache_sync():
-                with open(CACHE_FILE, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            site_data = await asyncio.to_thread(_read_cache_sync)
+    def update_buttons(self):
+        # On s'assure qu'il y a bien des boutons Précédent/Suivant à mettre à jour
+        nav_buttons = [item for item in self.children if isinstance(item, discord.ui.Button) and not hasattr(item, "is_download_button")]
+        if len(nav_buttons) >= 2:
+            nav_buttons[0].disabled = self.current_index == 0
+            nav_buttons[1].disabled = self.current_index >= len(self.products) - 1
+
+    # --- MÉTHODE CORRIGÉE ---
+    def update_download_buttons(self):
+        # D'abord, on supprime les anciens boutons de téléchargement s'ils existent
+        # On crée une copie de la liste pour pouvoir la modifier en toute sécurité pendant l'itération
+        items_to_remove = [item for item in self.children if hasattr(item, "is_download_button")]
+        for item in items_to_remove:
+            self.remove_item(item)
             
-            if not site_data or 'products' not in site_data:
-                raise ValueError("Les données des produits sont actuellement indisponibles.")
-            
-            return categorize_products(site_data['products'])
-            
-        except (FileNotFoundError, json.JSONDecodeError):
-            raise ValueError("Le menu est en cours de construction, veuillez réessayer dans quelques instants.")
-        except Exception as e:
-            Logger.error(f"Erreur en chargeant les produits pour MenuView: {e}")
-            raise ValueError("Une erreur est survenue lors de la récupération du menu.")
+        # Ensuite, on réinitialise les URLs
+        self.download_lab_url = None
+        self.download_terpen_url = None
 
-    # Les fonctions de boutons gèrent TOUTE la logique de réponse.
-    # C'est la correction la plus importante.
-    async def _handle_button_click(self, interaction: discord.Interaction, category_key: str, category_name: str):
-        # 1. On accuse réception IMMÉDIATEMENT.
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        # Le reste de la logique est inchangé et correct
+        product = self.products[self.current_index]
+        stats = product.get('stats', {})
+        for k, v in stats.items():
+            if "lab" in k.lower() and ("pdf" in k.lower() or str(v).startswith("http")):
+                self.download_lab_url = v
+            if "terpen" in k.lower() and ("pdf" in k.lower() or str(v).startswith("http")):
+                self.download_terpen_url = v
+        
+        # On ajoute les nouveaux boutons en utilisant add_item()
+        if self.download_lab_url and str(self.download_lab_url).startswith("http"):
+            self.add_item(self.DownloadButton("Télécharger Lab Test", self.download_lab_url, emoji="🧪"))
+        if self.download_terpen_url and str(self.download_terpen_url).startswith("http"):
+            self.add_item(self.DownloadButton("Télécharger Terpen Test", self.download_terpen_url, emoji="🌿"))
 
-        try:
-            # 2. On essaie de faire le travail.
-            categorized_products = await self._load_and_categorize_products()
-            products_for_category = categorized_products.get(category_key, [])
+    # ... (le reste de la classe ProductView est correct) ...
+    def get_category_emoji(self):
+        if self.category == "weed":
+            return "🍃"
+        if self.category == "hash":
+            return "🍫"
+        if self.category == "box":
+            return "📦"
+        if self.category == "accessoire":
+            return "🛠️"
+        return ""
 
-            if not products_for_category:
-                await interaction.followup.send(f"Désolé, aucun produit de type '{category_name}' n'est disponible en ce moment.", ephemeral=True)
-                return
+    def create_embed(self) -> discord.Embed:
+        product = self.products[self.current_index]
+        emoji = self.get_category_emoji()
+        embed_color = discord.Color.dark_red() if product.get('is_sold_out') else discord.Color.from_rgb(255, 204, 0)
+        title = f"{emoji} **{product.get('name', 'Produit inconnu')}**"
+        embed = discord.Embed(
+            title=title,
+            url=product.get('product_url', CATALOG_URL),
+            description=None,
+            color=embed_color
+        )
+        if product.get('image'):
+            embed.set_thumbnail(url=product['image'])
 
-            view = ProductView(products_for_category, category=category_key)
-            embed = view.create_embed()
-            
-            # 3. On envoie la réponse finale si tout a réussi.
-            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        # Description courte
+        description = product.get('detailed_description', "Aucune description.")
+        if description and len(description) > 220:
+            description = description[:220] + "..."
+        embed.add_field(name="Description", value=description, inline=False)
 
-        except ValueError as e:
-            # 4. On envoie un message d'erreur si une erreur contrôlée se produit.
-            await interaction.followup.send(str(e), ephemeral=True)
-        except Exception as e:
-            # 5. On envoie un message d'erreur générique pour tout le reste.
-            Logger.error(f"Erreur imprévue dans le clic du menu ({category_key}): {e}")
-            traceback.print_exc()
-            await interaction.followup.send("❌ Une erreur interne est survenue. Le staff a été notifié.", ephemeral=True)
+        # Prix et promo
+        price_text = ""
+        if product.get('is_sold_out'):
+            price_text = "❌ **ÉPUISÉ**"
+        elif product.get('is_promo'):
+            price_text = f"🏷️ **{product.get('price')}** ~~{product.get('original_price')}~~"
+        else:
+            price_text = f"💰 **{product.get('price', 'N/A')}**"
+        embed.add_field(name="Prix", value=price_text, inline=True)
 
-    # --- Les boutons appellent maintenant la fonction centralisée ---
+        # Stock
+        if not product.get('is_sold_out') and product.get('stats', {}).get('Stock'):
+            embed.add_field(name="Stock", value=f"{product['stats']['Stock']}", inline=True)
 
-    @discord.ui.button(label="Nos Fleurs 🍃", style=discord.ButtonStyle.success, custom_id="persistent_menu:fleurs")
-    async def weed_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._handle_button_click(interaction, "weed", "Fleurs")
+        # Caractéristiques stylisées
+        stats = product.get('stats', {})
+        char_lines = []
+        for k, v in stats.items():
+            if "pdf" in k.lower() or "lab" in k.lower() or "terpen" in k.lower():
+                continue
+            if "effet" in k.lower():
+                char_lines.append(f"**Effet :** {v}")
+            elif "gout" in k.lower():
+                char_lines.append(f"**Goût :** {v}")
+            elif "cbd" in k.lower():
+                char_lines.append(f"**CBD :** {v}")
+            elif "thc" in k.lower():
+                char_lines.append(f"**THC :** {v}")
+            elif "stock" in k.lower():
+                continue
+            else:
+                char_lines.append(f"**{k.capitalize()} :** {v}")
+        if char_lines:
+            embed.add_field(name="Caractéristiques", value="\n".join(char_lines), inline=False)
 
-    @discord.ui.button(label="Nos Résines 🍫", style=discord.ButtonStyle.primary, custom_id="persistent_menu:resines")
-    async def hash_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._handle_button_click(interaction, "hash", "Résines")
+        # Lien direct vers la fiche produit
+        embed.add_field(name="Voir sur le site", value=f"[Fiche produit]({product.get('product_url', CATALOG_URL)})", inline=False)
 
-    @discord.ui.button(label="Nos Box 📦", style=discord.ButtonStyle.success, custom_id="persistent_menu:box")
-    async def box_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._handle_button_click(interaction, "box", "Box")
+        # Lab test et terpen test affichés si non bouton
+        for k, v in stats.items():
+            if ("lab" in k.lower() or "terpen" in k.lower()) and not str(v).startswith("http"):
+                embed.add_field(name=k.replace("_", " ").capitalize(), value=v, inline=False)
 
-    @discord.ui.button(label="Accessoires 🛠️", style=discord.ButtonStyle.secondary, custom_id="persistent_menu:accessoires")
-    async def accessoire_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._handle_button_click(interaction, "accessoire", "Accessoires")
+        embed.set_footer(text=f"Produit {self.current_index + 1} sur {len(self.products)}")
+        return embed
+
+    async def update_message(self, interaction: discord.Interaction):
+        self.update_buttons()
+        self.update_download_buttons()
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    @discord.ui.button(label="⬅️ Précédent", style=discord.ButtonStyle.secondary)
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_index > 0:
+            self.current_index -= 1
+        await self.update_message(interaction)
+
+    @discord.ui.button(label="Suivant ➡️", style=discord.ButtonStyle.secondary)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_index < len(self.products) - 1:
+            self.current_index += 1
+        await self.update_message(interaction)
+
+    class DownloadButton(discord.ui.Button):
+        def __init__(self, label, url, emoji=None):
+            super().__init__(label=label, style=discord.ButtonStyle.link, url=url, emoji=emoji)
+            self.is_download_button = True
 
 class ProductSelectViewForGraph(discord.ui.View):
     def __init__(self, products, bot):
