@@ -171,59 +171,59 @@ class ProductView(discord.ui.View):
 
 class MenuView(discord.ui.View):
     def __init__(self, all_products: List[dict]):
-        super().__init__(timeout=None)  # Vue persistante
-
-        # --- Catégorisation des produits ---
+        super().__init__(timeout=None)
+        # ... (le __init__ reste identique)
         categorized = categorize_products(all_products)
         self.weed_products = categorized["weed"]
         self.hash_products = categorized["hash"]
         self.box_products = categorized["box"]
         self.accessoire_products = categorized["accessoire"]
 
-        # --- Ajout des boutons ---
-        # On ajoute les boutons qui sont toujours présents
         self.add_item(self.WeedButton(self))
         self.add_item(self.HashButton(self))
+        if self.box_products: self.add_item(self.BoxButton(self))
+        if self.accessoire_products: self.add_item(self.AccessoireButton(self))
 
-        # On ajoute les boutons conditionnels
-        if self.box_products:
-            self.add_item(self.BoxButton(self))
+    # --- FONCTION DE DEBUGGING MODIFIÉE ---
+    async def start_product_view(self, interaction: discord.Interaction, products: List[dict], category_name: str, start_time: float):
         
-        if self.accessoire_products:
-            self.add_item(self.AccessoireButton(self))
-
-    # --- Logique partagée pour afficher la vue du produit ---
-    async def start_product_view(self, interaction: discord.Interaction, products: List[dict], category_name: str):
-        # --- ÉTAPE 1 : DÉFÉRER L'INTERACTION IMMÉDIATEMENT ---
-        # On dit à Discord "j'ai reçu le clic", et on demande à ce que la réponse soit cachée (ephemeral).
-        await interaction.response.defer(ephemeral=True)
+        t1 = time.monotonic()
+        Logger.info(f"[DEBUG-TIMER] [T1] Appel de start_product_view. (Delta depuis T0: {(t1 - start_time) * 1000:.2f} ms)")
 
         if not products:
-            # --- ÉTAPE 2 : UTILISER .followup.send POUR LA RÉPONSE ---
             await interaction.followup.send(f"Désolé, aucun produit de type '{category_name}' trouvé.", ephemeral=True)
             return
+        
+        Logger.info("[DEBUG-TIMER] [T2] Tentative de DEFER (début de la zone de 3 secondes)...")
+        t2 = time.monotonic()
+        
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except Exception as e:
+            t_fail = time.monotonic()
+            Logger.error(f"[DEBUG-TIMER] [FAIL] Le DEFER a échoué après {(t_fail - t2) * 1000:.2f} ms. Erreur: {e}")
+            return
+
+        t3 = time.monotonic()
+        Logger.success(f"[DEBUG-TIMER] [T3] DEFER réussi ! (Durée du defer: {(t3 - t2) * 1000:.2f} ms)")
         
         view = ProductView(products, category=category_name.lower())
         embed = view.create_embed()
         
-        # --- ÉTAPE 2 : UTILISER .followup.send POUR LA RÉPONSE ---
-        # On envoie le nouveau menu en utilisant le "suivi" de l'interaction.
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        t4 = time.monotonic()
+        Logger.info(f"[DEBUG-TIMER] [T4] Réponse envoyée. (Durée totale depuis T0: {(t4 - start_time) * 1000:.2f} ms)")
 
-    # --- Sous-classes pour chaque bouton ---
-    # C'est la méthode la plus fiable pour les vues persistantes.
-    
+    # --- Bouton instrumenté pour le test ---
     class WeedButton(discord.ui.Button):
         def __init__(self, parent_view):
             super().__init__(label="Nos Fleurs 🍃", style=discord.ButtonStyle.success, emoji="🍃", custom_id="persistent_menu:fleurs")
             self.parent_view = parent_view
         
         async def callback(self, interaction: discord.Interaction):
-            # --- AJOUTEZ CETTE LIGNE ---
-            Logger.info(f"CLICK: Bouton '{self.label}' pressé par {interaction.user.name}. Tentative de defer...")
-            
-            # Le reste du code est identique
-            await self.parent_view.start_product_view(interaction, self.parent_view.weed_products, "weed")
+            start_time = time.monotonic()
+            Logger.info(f"[DEBUG-TIMER] [T0] Clic détecté pour '{self.label}' par {interaction.user.name}.")
+            await self.parent_view.start_product_view(interaction, self.parent_view.weed_products, "weed", start_time)
 
     class HashButton(discord.ui.Button):
         def __init__(self, parent_view):
@@ -534,7 +534,7 @@ class ContactButtonsView(discord.ui.View):
                 url=contact_info["tiktok"],
                 emoji=TIKTOK_EMOJI
             ))
-            
+
 # --- COMMANDES ---
 
 class SlashCommands(commands.Cog):
