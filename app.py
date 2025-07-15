@@ -96,28 +96,49 @@ def start_verification():
 
     return jsonify({"success": True}), 200
 
-@app.route('/api/confirm-verification', methods=['POST'])
-def confirm_verification():
+@app.route('/api/start-verification', methods=['POST'])
+def start_verification():
     data = request.json
     discord_id = data.get('discord_id')
-    code = data.get('code')
+    email = data.get('email')
 
+    if not all([discord_id, email]):
+        return jsonify({"error": "ID Discord ou e-mail manquant."}), 400
+
+    # --- CORRECTION : AJOUT DE LA VÉRIFICATION PRÉALABLE ---
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
-    cursor.execute("SELECT user_email, expires_at FROM verification_codes WHERE discord_id = ? AND code = ?", (discord_id, code))
-    result = cursor.fetchone()
+    cursor.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (discord_id,))
+    existing_link = cursor.fetchone()
 
-    if not result:
+    if existing_link:
         conn.close()
-        return jsonify({"error": "Code invalide ou expiré."}), 400
-    
-    user_email, expires_at = result
-    if time.time() > expires_at:
-        conn.close()
-        return jsonify({"error": "Le code de vérification a expiré."}), 400
-        
-    cursor.execute("INSERT OR REPLACE INTO user_links (discord_id, user_email) VALUES (?, ?)", (discord_id, user_email))
-    cursor.execute("DELETE FROM verification_codes WHERE discord_id = ?", (discord_id,))
+        # On utilise le code 409 Conflict pour indiquer que la ressource existe déjà
+        return jsonify({"error": f"Ce compte Discord est déjà lié à l'e-mail : {existing_link[0]}"}), 409
+
+    # Si aucun lien n'existe, on continue normalement...
+    code = str(random.randint(100000, 999999))
+    expires_at = int(time.time()) + 600
+
+    message = Mail(
+        from_email=SENDER_EMAIL,
+        to_emails=email,
+        subject='Votre code de vérification LaFoncedalle',
+        html_content=f'Bonjour !<br>Voici votre code de vérification : <strong>{code}</strong><br>Ce code expire dans 10 minutes.'
+    )
+    try:
+        sg = SendGridAPIClient(SENDGRID_API_KEY)
+        response = sg.send(message)
+        if response.status_code >= 300:
+             raise Exception(response.body)
+    except Exception as e:
+        print(f"Erreur SendGrid: {e}")
+        return jsonify({"error": "Impossible d'envoyer l'e-mail de vérification."}), 500
+
+    cursor.execute(
+        "INSERT OR REPLACE INTO verification_codes (discord_id, user_email, code, expires_at) VALUES (?, ?, ?, ?)",
+        (discord_id, email, code, expires_at)
+    )
     conn.commit()
     conn.close()
 

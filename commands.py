@@ -792,13 +792,20 @@ class SlashCommands(commands.Cog):
         try:
             import requests
             response = requests.post(api_url, json=payload, timeout=15)
-            response.raise_for_status()
+            
+            # --- CORRECTION : Gérer les différents cas de réponse ---
+            if response.status_code == 200:
+                await interaction.followup.send(
+                    f"✅ Un e-mail de vérification a été envoyé à **{email}**.\n"
+                    f"Consulte ta boîte de réception (et tes spams !) puis utilise la commande `/verifier` avec le code reçu.",
+                    ephemeral=True
+                )
+            elif response.status_code == 409:
+                error_message = response.json().get("error", "Vous êtes déjà lié à un compte.")
+                await interaction.followup.send(f"⚠️ **Déjà lié !** {error_message}", ephemeral=True)
+            else:
+                response.raise_for_status()
 
-            await interaction.followup.send(
-                f"✅ Un e-mail de vérification a été envoyé à **{email}**.\n"
-                f"Consulte ta boîte de réception **__(et tes spams !)__** puis utilise la commande `/verifier` avec le code reçu.",
-                ephemeral=True
-            )
         except requests.exceptions.RequestException as e:
             Logger.error(f"Erreur API /start-verification : {e}")
             await interaction.followup.send("❌ Impossible de contacter le service de vérification. Merci de réessayer plus tard.", ephemeral=True)
