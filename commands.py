@@ -898,7 +898,7 @@ class SlashCommands(commands.Cog):
             Logger.error(f"Erreur API /unlink : {e}")
             traceback.print_exc()
             await interaction.followup.send("❌ Impossible de contacter le service de liaison. Merci de réessayer plus tard.", ephemeral=True)
-            
+
     @app_commands.command(name="selection", description="Publier immédiatement la sélection de la semaine (staff uniquement)")
     @app_commands.check(is_staff_or_owner)
     async def selection(self, interaction: discord.Interaction):
@@ -910,20 +910,32 @@ class SlashCommands(commands.Cog):
     async def promos(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         await log_user_action(interaction, "a demandé la liste des promotions.")
+
         try:
+            # Récupérer les données du cache
             def _read_product_cache_sync():
                 try:
-                    with open(CACHE_FILE, 'r', encoding='utf-8') as f: return json.load(f)
-                except (FileNotFoundError, json.JSONDecodeError): return {}
+                    with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+                        return json.load(f)
+                except (FileNotFoundError, json.JSONDecodeError):
+                    return {}
+
             site_data = await asyncio.to_thread(_read_product_cache_sync)
             if not site_data:
-                await interaction.followup.send("Désolé, les informations ne sont pas disponibles.", ephemeral=True)
+                await interaction.followup.send("Désolé, les informations sur les promotions ne sont pas disponibles pour le moment.", ephemeral=True)
                 return
+
+            # Filtrer les produits en promotion
             promo_products = [p for p in site_data.get('products', []) if p.get('is_promo')]
+            
+            # Récupérer les promotions générales depuis la config
             general_promos = get_general_promos()
+
+            # Créer et envoyer le paginator
             paginator = PromoPaginatorView(promo_products, general_promos)
             embed = paginator.create_embed()
             await interaction.followup.send(embed=embed, view=paginator, ephemeral=True)
+
         except Exception as e:
             Logger.error(f"Erreur lors de l'exécution de la commande /promos : {e}")
             traceback.print_exc()
