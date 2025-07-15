@@ -43,17 +43,16 @@ selection_time = dt_time(hour=12, minute=0, tzinfo=paris_tz)
 def get_site_data_from_api():
     """
     Version FINALE : Récupère les produits, les catégorise via une méthode hybride
-    (Type, Tags, Titre) et détecte automatiquement les promotions.
+    (Type, Tags, Titre) et filtre intelligemment les articles non désirés.
     """
-    Logger.info("Démarrage de la récupération via API Shopify (Méthode Hybride)...")
+    Logger.info("Démarrage de la récupération via API Shopify (Méthode Hybride Finale)...")
     
     try:
         shop_url = os.getenv('SHOPIFY_SHOP_URL')
         api_version = os.getenv('SHOPIFY_API_VERSION')
         access_token = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
 
-        if not all([shop_url, api_version, access_token]):
-            return None
+        if not all([shop_url, api_version, access_token]): return None
 
         session = shopify.Session(shop_url, api_version, access_token)
         shopify.ShopifyResource.activate_session(session)
@@ -61,17 +60,12 @@ def get_site_data_from_api():
         all_products_api = shopify.Product.find(status='active', limit=250)
         final_products = []
 
-        # Listes de mots-clés pour la catégorisation
         hash_keywords = config_manager.get_config("categorization.hash_keywords", [])
         box_keywords = ["box", "pack"]
         accessoire_keywords = ["briquet", "feuille", "papier", "accessoire", "grinder"]
         
         for prod in all_products_api:
-            # FILTRE 1 : On ignore les produits sans prix ou à 0€
-            if not any(float(variant.price) > 0 for variant in prod.variants):
-                continue
-
-            # FILTRE 2 : Catégorisation intelligente
+            # Étape 1 : Catégorisation
             category = None
             title_lower = prod.title.lower()
             product_type_lower = prod.product_type.lower() if prod.product_type else ""
@@ -83,22 +77,28 @@ def get_site_data_from_api():
                 category = "hash"
             elif any(kw in title_lower for kw in accessoire_keywords) or "accessoire" in product_type_lower:
                 category = "accessoire"
-            else: # Par défaut, si ce n'est rien d'autre, c'est une fleur
+            else:
                 category = "weed"
 
-            # FILTRE 3 : On ignore les articles non-catégorisables ou non désirés explicitement
+            # Étape 2 : Filtrage Intelligent
+            is_free = not any(float(variant.price) > 0 for variant in prod.variants)
+
+            # On ignore les produits gratuits SAUF si ce sont des accessoires.
+            if is_free and category != "accessoire":
+                continue
+            
+            # On ignore les éléments non désirés explicitement.
             if "telegram" in title_lower:
                 continue
 
-            # --- Le reste du code est bon ---
+            # --- Le reste du code est maintenant correct ---
             product_data = {}
             product_data['name'] = prod.title
             product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
             product_data['image'] = prod.image.src if prod.image else None
-            # On stocke la catégorie trouvée. On la mappe vers nos clés internes.
-            category_map = {"fleurs": "weed", "résines": "hash", "box": "box", "accessoires": "accessoire"}
+            
+            category_map = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
             product_data['category'] = category_map.get(category, category)
-
 
             desc_html = prod.body_html
             product_data['detailed_description'] = BeautifulSoup(desc_html, 'html.parser').get_text(strip=True, separator='\n') if desc_html else "Pas de description."
