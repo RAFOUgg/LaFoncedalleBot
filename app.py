@@ -105,18 +105,25 @@ def start_verification():
     if not all([discord_id, email]):
         return jsonify({"error": "ID Discord ou e-mail manquant."}), 400
 
-    # --- CORRECTION : AJOUT DE LA VÉRIFICATION PRÉALABLE ---
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
+
+    # --- CORRECTION : AJOUT D'UNE VÉRIFICATION COMPLÈTE ---
+    # 1. Le compte Discord est-il déjà lié ?
     cursor.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (discord_id,))
     existing_link = cursor.fetchone()
-
     if existing_link:
         conn.close()
-        # On utilise le code 409 Conflict pour indiquer que la ressource existe déjà
-        return jsonify({"error": f"Ce compte Discord est déjà lié à l'e-mail : {existing_link[0]}"}), 409
+        return jsonify({"error": f"votre compte est déjà lié à l'adresse e-mail `{existing_link[0]}`."}), 409
 
-    # Si aucun lien n'existe, on continue normalement...
+    # 2. L'e-mail est-il déjà utilisé par un autre compte Discord ?
+    cursor.execute("SELECT discord_id FROM user_links WHERE user_email = ?", (email,))
+    email_taken = cursor.fetchone()
+    if email_taken:
+        conn.close()
+        return jsonify({"error": "cette adresse e-mail est déjà utilisée par un autre compte Discord."}), 409
+    
+    # --- Si tout est bon, on continue normalement ---
     code = str(random.randint(100000, 999999))
     expires_at = int(time.time()) + 600
 
@@ -124,7 +131,7 @@ def start_verification():
         from_email=SENDER_EMAIL,
         to_emails=email,
         subject='Votre code de vérification LaFoncedalle',
-        html_content=f'Bonjour !<br>Voici votre code de vérification : <strong>{code}</strong><br>Ce code expire dans 10 minutes.'
+        html_content=f'Bonjour !<br>Voici votre code de vérification pour lier votre compte Discord : <strong>{code}</strong><br>Ce code expire dans 10 minutes.'
     )
     try:
         sg = SendGridAPIClient(SENDGRID_API_KEY)
@@ -133,6 +140,7 @@ def start_verification():
              raise Exception(response.body)
     except Exception as e:
         print(f"Erreur SendGrid: {e}")
+        conn.close()
         return jsonify({"error": "Impossible d'envoyer l'e-mail de vérification."}), 500
 
     cursor.execute(
@@ -143,6 +151,7 @@ def start_verification():
     conn.close()
 
     return jsonify({"success": True}), 200
+
 
 @app.route('/api/get_purchased_products/<discord_id>')
 def get_purchased_products(discord_id):
