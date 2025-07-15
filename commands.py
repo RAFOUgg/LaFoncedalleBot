@@ -784,6 +784,7 @@ class SlashCommands(commands.Cog):
         payload = {"discord_id": str(interaction.user.id), "email": email}
         
         try:
+            import requests
             response = requests.post(api_url, json=payload, timeout=15)
             response.raise_for_status()
 
@@ -804,6 +805,7 @@ class SlashCommands(commands.Cog):
         payload = {"discord_id": str(interaction.user.id), "code": code.strip()}
 
         try:
+            import requests
             response = requests.post(api_url, json=payload, timeout=15)
             
             if response.ok:
