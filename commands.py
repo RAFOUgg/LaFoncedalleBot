@@ -21,7 +21,7 @@ from shared_utils import (
     config_manager, create_styled_embed,
     TIKTOK_EMOJI, LFONCEDALLE_EMOJI, TELEGRAM_EMOJI, INSTAGRAM_EMOJI,
     SELECTION_CHANNEL_ID, SUCETTE_EMOJI, NITRO_CODES_FILE, CLAIMED_CODES_FILE, paris_tz, get_product_counts,
-    categorize_products, filter_catalog_products, APP_URL # <-- Ajout ici
+    categorize_products, filter_catalog_products, APP_URL, get_general_promos # <-- Ajout ici
 )
 
 
@@ -548,18 +548,19 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, "a demandé le menu interactif (/menu)")
 
         try:
-            # --- CORRECTION MAJEURE ICI ---
-            # On ne lit plus le fichier, on utilise les données en mémoire
-            products = self.bot.products
-            
-            if not products:
+            def _read_cache_sync():
+                with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            site_data = await asyncio.to_thread(_read_cache_sync)
+
+            if not site_data or not (products := site_data.get('products')):
                 await interaction.followup.send("Désolé, le menu n'est pas disponible pour le moment. Réessayez dans un instant.", ephemeral=True)
                 return
 
-            promos_list = self.bot.general_promos
-            general_promos_text = "\n".join([f"• {promo.strip()}" for promo in promos_list if promo.strip()]) or "Aucune promotion générale en cours."
+            # Utilise la fonction utilitaire pour les promos générales
+            promos_list = get_general_promos()
+            general_promos_text = "\n".join([f"• {promo}" for promo in promos_list]) or "Aucune promotion générale en cours."
             hash_count, weed_count, box_count, accessoire_count = get_product_counts(products)
-            timestamp = self.bot.data_timestamp # <--- On utilise bien le timestamp du bot
 
             description_text = (
                 f"__**📦 Produits disponibles :**__\n\n"
@@ -568,8 +569,7 @@ class SlashCommands(commands.Cog):
                 f"**`Box 📦 :` {box_count}**\n"
                 f"**`Accessoires 🛠️ :` {accessoire_count}**\n\n"
                 f"__**💰 Promotions disponibles :**__\n\n{general_promos_text}\n\n"
-                # --- CORRECTION EXACTE ICI ---
-                f"*(Données mises à jour <t:{int(timestamp)}:R>)*"
+                f"*(Données mises à jour <t:{int(site_data.get('timestamp'))}:R>)*"
             )
 
             embed = discord.Embed(
@@ -1007,19 +1007,23 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, "a demandé la liste des promotions.")
 
         try:
-            # On utilise les données fiables stockées dans le bot
-            all_products = self.bot.products
-            general_promos = self.bot.general_promos
+            def _read_product_cache_sync():
+                try:
+                    with open(CACHE_FILE, 'r', encoding='utf-8') as f: return json.load(f)
+                except (FileNotFoundError, json.JSONDecodeError): return {}
 
-            if not all_products and not general_promos:
-                await interaction.followup.send("Désolé, aucune information sur les promotions n'est disponible pour le moment.", ephemeral=True)
+            site_data = await asyncio.to_thread(_read_product_cache_sync)
+            if not site_data:
+                await interaction.followup.send("Désolé, les informations ne sont pas disponibles.", ephemeral=True)
                 return
 
-            promo_products = [p for p in all_products if p.get('is_promo')]
-            
-            paginator = PromoPaginatorView(promo_products, general_promos)
+            promo_products = [p for p in site_data.get('products', []) if p.get('is_promo')]
+            # Utilise la fonction utilitaire pour les promos générales
+            general_promos = get_general_promos()
+            general_promos_text = "\n".join([f"• {promo}" for promo in general_promos]) if general_promos else ""
+
+            paginator = PromoPaginatorView(promo_products, general_promos_text)
             embed = paginator.create_embed()
-            
             await interaction.followup.send(embed=embed, view=paginator, ephemeral=True)
 
         except Exception as e:

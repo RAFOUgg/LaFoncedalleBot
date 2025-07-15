@@ -66,7 +66,8 @@ class Logger:
 
 def categorize_products(products: list):
     """
-    Catégorise les produits en se basant sur la clé 'category' déjà assignée.
+    VERSION FINALE : Catégorise les produits en se basant sur la clé 'category' 
+    qui a déjà été assignée lors de la récupération des données.
     """
     categorized = {
         "weed": [],
@@ -75,7 +76,8 @@ def categorize_products(products: list):
         "accessoire": []
     }
     
-    # Dictionnaire inversé pour faire correspondre 'fleurs' -> 'weed', etc.
+    # Dictionnaire pour mapper les noms de catégorie du produit ('fleurs')
+    # vers nos clés internes ('weed').
     category_map = {
         "fleurs": "weed",
         "résines": "hash",
@@ -84,20 +86,27 @@ def categorize_products(products: list):
     }
     
     for p in products:
-        product_category = p.get('category') # ex: "fleurs"
-        internal_key = category_map.get(product_category) # ex: "weed"
+        product_category = p.get('category')  # ex: "fleurs"
+        internal_key = category_map.get(product_category)
         
-        if internal_key:
+        if internal_key and internal_key in categorized:
             categorized[internal_key].append(p)
             
     return categorized
 
 def get_product_counts(products: list):
-    counts = {"hash": 0, "weed": 0, "box": 0, "accessoire": 0}
-    for p in products:
-        if p.get('category') in counts:
-            counts[p['category']] += 1
-    return counts['hash'], counts['weed'], counts['box'], counts['accessoire']
+    """
+    VERSION FINALE : Compte les produits en utilisant la même logique de catégorisation.
+    """
+    # On réutilise la fonction ci-dessus pour être 100% cohérent.
+    categorized = categorize_products(products)
+    
+    return (
+        len(categorized["hash"]),
+        len(categorized["weed"]),
+        len(categorized["box"]),
+        len(categorized["accessoire"])
+    )
 
 class ConfigManager:
     def __init__(self, config_path, state_path):
@@ -184,43 +193,6 @@ def filter_catalog_products(products: list) -> list:
         filtered.append(p)
     return filtered
 
-def categorize_products(products: list):
-    """
-    Catégorise les produits en fleurs, résines, box, accessoires.
-    Retourne un dict : {"weed": [...], "hash": [...], "box": [...], "accessoire": [...]}
-    """
-    hash_keywords = config_manager.get_config("categorization.hash_keywords", [])
-    box_keywords = ["box", "pack"]
-    accessoire_keywords = ["briquet", "feuille", "papier", "accessoire"]
-    exclude_keywords = ["telegram", "instagram", "tiktok", "promo", "offre"]
-
-    categorized = {"weed": [], "hash": [], "box": [], "accessoire": []}
-    for p in products:
-        name = p.get('name', '').lower()
-        if any(kw in name for kw in exclude_keywords):
-            continue
-        if any(kw in name for kw in box_keywords):
-            categorized["box"].append(p)
-        elif any(kw in name for kw in accessoire_keywords):
-            categorized["accessoire"].append(p)
-        elif any(kw in name for kw in hash_keywords):
-            categorized["hash"].append(p)
-        else:
-            categorized["weed"].append(p)
-    return categorized
-
-def get_product_counts(products: list):
-    """
-    Retourne le nombre de produits par catégorie (weed/hash/box/accessoire).
-    """
-    categorized = categorize_products(products)
-    return (
-        len(categorized["hash"]),
-        len(categorized["weed"]),
-        len(categorized["box"]),
-        len(categorized["accessoire"])
-    )
-
 def create_styled_embed(title: str, description: str, color=discord.Color.blurple(), show_logo: bool = True) -> discord.Embed:
     """Crée un embed Discord avec un style prédéfini."""
     embed = discord.Embed(
@@ -236,3 +208,9 @@ def create_styled_embed(title: str, description: str, color=discord.Color.blurpl
     else:
         embed.set_footer(text="LaFoncedalle")
     return embed
+
+def get_general_promos():
+    """Retourne la liste des promos générales depuis la config."""
+    promos = config_manager.get_config("general.general_promos", [])
+    # Nettoie les éventuels '\n' ou chaînes vides
+    return [p.strip() for p in promos if p.strip()]
