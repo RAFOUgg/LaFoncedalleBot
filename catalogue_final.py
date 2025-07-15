@@ -43,18 +43,18 @@ selection_time = dt_time(hour=12, minute=0, tzinfo=paris_tz)
 def get_site_data_from_api():
     """
     Récupère les données des produits directement depuis l'API Admin de Shopify.
-    Cette fonction remplace complètement l'ancien scraping.
     """
     Logger.info("Démarrage de la récupération des données via l'API Shopify Admin...")
     
     try:
-        # 1. Configuration de la session API avec le jeton d'accès Admin
         shop_url = os.getenv('SHOPIFY_SHOP_URL')
         api_version = os.getenv('SHOPIFY_API_VERSION')
         access_token = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
 
         if not all([shop_url, api_version, access_token]):
             Logger.error("CRITIQUE : Les informations d'API Shopify Admin sont manquantes dans le .env.")
+            # Log pour voir ce qui manque exactement
+            Logger.error(f"URL: {'OK' if shop_url else 'MANQUANT'}, Version: {'OK' if api_version else 'MANQUANT'}, Token: {'OK' if access_token else 'MANQUANT'}")
             return None
 
         session = shopify.Session(shop_url, api_version, access_token)

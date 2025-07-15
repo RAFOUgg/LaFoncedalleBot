@@ -5,7 +5,7 @@ SHOPIFY_API_VERSION = "2024-04" # ou la version la plus récente
 SHOP_URL = "http://e0tsuh-bc.myshopify.com"
 
 
-APP_URL = "https://votre-app-hebergee.com" # L'URL où votre app Flask sera hébergée
+APP_URL = "https://lafoncedallebot.onrender.com/" # L'URL où votre app Flask sera hébergée
 
 
 DISCORD_CLIENT_ID = "1392192580267147274"

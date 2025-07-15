@@ -595,7 +595,7 @@ class SlashCommands(commands.Cog):
     @app_commands.command(name="lier_compte", description="Lie ton compte Discord à ton compte sur la boutique pour noter tes achats.")
     async def lier_compte(self, interaction: discord.Interaction):
         # L'URL de base de votre application pont. Doit être accessible publiquement.
-        app_url = "https://votre-app-hebergee.com" 
+        app_url = "https://lafoncedallebot.onrender.com/" 
         
         link = f"{app_url}/connect/{interaction.user.id}"
         
@@ -1013,38 +1013,8 @@ class ContactButtonsView(discord.ui.View):
 
 
 # Classe pour les boutons de contact (à placer avant SlashCommands)
-class ContactButtonsView(discord.ui.View):
-    def __init__(self, contact_info):
-        super().__init__(timeout=120)
-        # Vérifiez que les IDs sont bien des entiers et que le bot a accès aux emojis personnalisés
-        if contact_info.get("site"):
-            self.add_item(discord.ui.Button(
-                label="Boutique", 
-                style=discord.ButtonStyle.link, 
-                url=contact_info["site"],
-                emoji=LFONCEDALLE_EMOJI
-            ))
-        if contact_info.get("instagram"):
-            self.add_item(discord.ui.Button(
-                label="Instagram", 
-                style=discord.ButtonStyle.link, 
-                url=contact_info["instagram"],
-                emoji=INSTAGRAM_EMOJI
-            ))
-        if contact_info.get("telegram"):
-            self.add_item(discord.ui.Button(
-                label="Telegram", 
-                style=discord.ButtonStyle.link, 
-                url=contact_info["telegram"],
-                emoji=TELEGRAM_EMOJI
-            ))
-        if contact_info.get("tiktok"):
-            self.add_item(discord.ui.Button(
-                label="TikTok", 
-                style=discord.ButtonStyle.link, 
-                url=contact_info["tiktok"],
-                emoji=TIKTOK_EMOJI
-            ))
+
+
 class RankingPaginatorView(discord.ui.View):
     """Vue pour paginer le classement général des produits."""
     # MODIFICATION 1 : Le constructeur accepte maintenant une map de produits pour les URLs
