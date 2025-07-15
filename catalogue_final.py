@@ -4,6 +4,7 @@ import hashlib
 import asyncio
 import traceback
 import time as a_time
+from discord.ext import commands, tasks
 from datetime import time as dt_time, datetime, timedelta
 from typing import List
 import sqlite3
