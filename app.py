@@ -1,115 +1,154 @@
 # app.py
-from flask import Flask, request, redirect, session, url_for
-import shopify
-import requests
+# --- NOUVELLE VERSION COMPLÈTE ---
+
+import os
 import sqlite3
+import random
+import time
+from flask import Flask, request, jsonify
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
+import shopify
+from dotenv import load_dotenv
 
-# Importer la configuration
-from config import *
+# Charger les variables d'environnement
+load_dotenv()
 
+# Importer la configuration simple
+from config import SHOP_URL, SHOPIFY_API_VERSION, FLASK_SECRET_KEY
+
+# --- Configuration ---
 app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY
 
-# Configuration de l'API Shopify
-shopify.Session.setup(api_key=SHOPIFY_API_KEY, secret=SHOPIFY_API_SECRET)
+# Clés secrètes depuis l'environnement
+SENDGRID_API_KEY = os.getenv('SENDGRID_API_KEY')
+SENDER_EMAIL = os.getenv('SENDER_EMAIL')
+SHOPIFY_ADMIN_ACCESS_TOKEN = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
 
+# --- Base de données ---
 def initialize_db():
-    # Crée la DB pour lier les comptes
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
+    # Table pour les liens permanents (Discord ID <-> Email)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS user_links (
             discord_id TEXT PRIMARY KEY,
-            shopify_customer_id TEXT,
-            shopify_access_token TEXT
+            user_email TEXT NOT NULL UNIQUE
+        );
+    """)
+    # Table pour les codes de vérification temporaires
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS verification_codes (
+            discord_id TEXT PRIMARY KEY,
+            user_email TEXT NOT NULL,
+            code TEXT NOT NULL,
+            expires_at INTEGER NOT NULL
         );
     """)
     conn.commit()
     conn.close()
+
+# Initialiser la DB au démarrage de l'app
 initialize_db()
 
-@app.route('/connect/<discord_id>')
+# --- Routes API ---
 
-# 1. Point d'entrée depuis Discord
-@app.route('/connect/<discord_id>')
-def connect_user(discord_id):
-    session['discord_id'] = discord_id
-    
-    # Création de la permission URL pour Shopify
-    permission_url = shopify.Session(SHOP_URL, SHOPIFY_API_VERSION).create_permission_url(
-        scope=['read_customers', 'read_orders'], # On demande la permission de lire les clients et les commandes
-        redirect_uri=f"{APP_URL}/callback/shopify"
+@app.route('/')
+def health_check():
+    return "L'application pont Shopify-Discord est en ligne et prête pour la vérification par e-mail.", 200
+
+@app.route('/api/start-verification', methods=['POST'])
+def start_verification():
+    data = request.json
+    discord_id = data.get('discord_id')
+    email = data.get('email')
+
+    if not all([discord_id, email]):
+        return jsonify({"error": "ID Discord ou e-mail manquant."}), 400
+
+    code = str(random.randint(100000, 999999))
+    expires_at = int(time.time()) + 600  # Le code expire dans 10 minutes
+
+    message = Mail(
+        from_email=SENDER_EMAIL,
+        to_emails=email,
+        subject='Votre code de vérification LaFoncedalle',
+        html_content=f'Bonjour !<br>Voici votre code de vérification pour lier votre compte Discord : <strong>{code}</strong><br>Ce code expire dans 10 minutes.'
     )
-    return redirect(permission_url)
+    try:
+        sg = SendGridAPIClient(SENDGRID_API_KEY)
+        response = sg.send(message)
+        if response.status_code >= 300:
+             raise Exception(response.body)
+    except Exception as e:
+        print(f"Erreur SendGrid: {e}")
+        return jsonify({"error": "Impossible d'envoyer l'e-mail de vérification."}), 500
 
-# 2. Shopify redirige l'utilisateur ici après autorisation
-@app.route('/callback/shopify')
-def shopify_callback():
-    if 'discord_id' not in session:
-        return "Erreur: ID Discord non trouvé. Veuillez recommencer depuis Discord.", 400
-
-    # On échange le code temporaire contre un vrai token d'accès
-    shop_session = shopify.Session(SHOP_URL, SHOPIFY_API_VERSION)
-    access_token = shop_session.request_token(request.args.to_dict())
-
-    # On stocke le token et on active la session
-    shopify.ShopifyResource.activate_session(shop_session)
-
-    # On récupère les infos du client Shopify
-    customer = shopify.Customer.current()
-    shopify_customer_id = customer.id
-    discord_id = session['discord_id']
-
-    # On enregistre le lien dans notre DB
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT OR REPLACE INTO user_links (discord_id, shopify_customer_id, shopify_access_token) VALUES (?, ?, ?)",
-        (discord_id, str(shopify_customer_id), access_token)
+        "INSERT OR REPLACE INTO verification_codes (discord_id, user_email, code, expires_at) VALUES (?, ?, ?, ?)",
+        (discord_id, email, code, expires_at)
     )
     conn.commit()
     conn.close()
-    
-    # On désactive la session Shopify pour être propre
-    shopify.ShopifyResource.clear_session()
 
-    return "<h1>✅ Compte Shopify lié !</h1><p>Vous pouvez maintenant fermer cette fenêtre et retourner sur Discord.</p>"
+    return jsonify({"success": True}), 200
 
-# 3. API sécurisée que le bot Discord va appeler
-@app.route('/api/get_purchased_products/<discord_id>')
-def get_purchased_products(discord_id):
-    # (Dans une vraie app, ajoutez une clé d'API pour sécuriser cet endpoint)
+@app.route('/api/confirm-verification', methods=['POST'])
+def confirm_verification():
+    data = request.json
+    discord_id = data.get('discord_id')
+    code = data.get('code')
+
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
-    cursor.execute("SELECT shopify_access_token FROM user_links WHERE discord_id = ?", (discord_id,))
+    cursor.execute("SELECT user_email, expires_at FROM verification_codes WHERE discord_id = ? AND code = ?", (discord_id, code))
+    result = cursor.fetchone()
+
+    if not result:
+        conn.close()
+        return jsonify({"error": "Code invalide ou expiré."}), 400
+    
+    user_email, expires_at = result
+    if time.time() > expires_at:
+        conn.close()
+        return jsonify({"error": "Le code de vérification a expiré."}), 400
+        
+    cursor.execute("INSERT OR REPLACE INTO user_links (discord_id, user_email) VALUES (?, ?)", (discord_id, user_email))
+    cursor.execute("DELETE FROM verification_codes WHERE discord_id = ?", (discord_id,))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True}), 200
+
+@app.route('/api/get_purchased_products/<discord_id>')
+def get_purchased_products(discord_id):
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (discord_id,))
     result = cursor.fetchone()
     conn.close()
 
     if not result:
-        return {"error": "user_not_linked"}, 404
+        return jsonify({"error": "user_not_linked"}), 404
 
-    access_token = result[0]
+    user_email = result[0]
     
-    # On active une session Shopify avec le token de l'utilisateur
-    shop_session = shopify.Session(SHOP_URL, SHOPIFY_API_VERSION, token=access_token)
-    shopify.ShopifyResource.activate_session(shop_session)
+    session = shopify.Session(SHOP_URL, SHOPIFY_API_VERSION, SHOPIFY_ADMIN_ACCESS_TOKEN)
+    shopify.ShopifyResource.activate_session(session)
     
-    # On récupère les commandes
-    orders = shopify.Order.find()
-    
-    # On extrait tous les noms de produits uniques
-    purchased_products = set()
-    for order in orders:
-        for item in order.line_items:
-            purchased_products.add(item.title)
-    
-    shopify.ShopifyResource.clear_session()
+    try:
+        orders = shopify.Order.find(email=user_email, status='any', limit=250)
+        purchased_products = {item.title for order in orders for item in order.line_items}
+    except Exception as e:
+        print(f"Erreur API Shopify: {e}")
+        return jsonify({"error": "Erreur lors de la récupération des commandes."}), 500
+    finally:
+        shopify.ShopifyResource.clear_session()
 
-    return {"products": list(purchased_products)}
-
-@app.route('/')
-def health_check():
-    return "L'application pont Shopify-Discord est en ligne.", 200
+    return jsonify({"products": list(purchased_products)})
 
 if __name__ == '__main__':
-    app.run(port=5000, debug=True) # Pour le test en local
+    app.run(port=5000, debug=True)

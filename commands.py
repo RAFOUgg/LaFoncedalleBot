@@ -747,28 +747,46 @@ class SlashCommands(commands.Cog):
 
 # commands.py
 
-    @app_commands.command(name="lier_compte", description="Lie ton compte Discord à ton compte sur la boutique pour noter tes achats.")
-    async def lier_compte(self, interaction: discord.Interaction):
-        # L'URL de base de votre application pont. Doit être accessible publiquement.
-        app_url = "https://lafoncedallebot.onrender.com/" 
+    @app_commands.command(name="lier_compte", description="Démarre la liaison de ton compte via ton e-mail de commande.")
+    @app_commands.describe(email="L'adresse e-mail que tu utilises pour tes commandes sur la boutique.")
+    async def lier_compte(self, interaction: discord.Interaction, email: str):
+        await interaction.response.defer(ephemeral=True)
+        api_url = f"{APP_URL}/api/start-verification"
+        payload = {"discord_id": str(interaction.user.id), "email": email}
         
-        link = f"{app_url}/connect/{interaction.user.id}"
-        
-        embed = discord.Embed(
-            title="🔗 Lier votre compte",
-            description="Pour pouvoir noter les produits que tu as achetés, nous devons lier ton compte Discord à ton compte client sur la boutique.\n\n"
-                        "**Le processus est simple et sécurisé :**\n"
-                        "1. Clique sur le bouton ci-dessous.\n"
-                        "2. Connecte-toi à ton compte sur notre boutique.\n"
-                        "3. Autorise l'accès à tes commandes (en lecture seule).\n\n"
-                        "*Nous ne stockons aucune information personnelle sensible.*",
-            color=discord.Color.blue()
-        )
-        
-        view = discord.ui.View()
-        view.add_item(discord.ui.Button(label="Lier mon compte Shopify", url=link, emoji="🔗"))
-        
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        try:
+            response = requests.post(api_url, json=payload, timeout=15)
+            response.raise_for_status()
+
+            await interaction.followup.send(
+                f"✅ Un e-mail de vérification a été envoyé à **{email}**.\n"
+                f"Consulte ta boîte de réception (et tes spams !) puis utilise la commande `/verifier` avec le code reçu.",
+                ephemeral=True
+            )
+        except requests.exceptions.RequestException as e:
+            Logger.error(f"Erreur API /start-verification : {e}")
+            await interaction.followup.send("❌ Impossible de contacter le service de vérification. Merci de réessayer plus tard.", ephemeral=True)
+
+    @app_commands.command(name="verifier", description="Valide ton adresse e-mail avec le code reçu.")
+    @app_commands.describe(code="Le code à 6 chiffres reçu par e-mail.")
+    async def verifier(self, interaction: discord.Interaction, code: str):
+        await interaction.response.defer(ephemeral=True)
+        api_url = f"{APP_URL}/api/confirm-verification"
+        payload = {"discord_id": str(interaction.user.id), "code": code.strip()}
+
+        try:
+            response = requests.post(api_url, json=payload, timeout=15)
+            
+            if response.ok:
+                 await interaction.followup.send("🎉 **Félicitations !** Ton compte est maintenant lié. Tu peux utiliser la commande `/noter`.", ephemeral=True)
+            else:
+                error_message = response.json().get("error", "Une erreur inconnue est survenue.")
+                await interaction.followup.send(f"❌ **Échec de la vérification :** {error_message}", ephemeral=True)
+
+        except requests.exceptions.RequestException as e:
+            Logger.error(f"Erreur API /confirm-verification : {e}")
+            await interaction.followup.send("❌ Impossible de contacter le service de vérification. Merci de réessayer plus tard.", ephemeral=True)
+
     @app_commands.command(name="top_noteurs", description="Affiche le classement des membres qui ont noté le plus de produits.")
     @app_commands.guild_only()
     async def top_noteurs(self, interaction: discord.Interaction):

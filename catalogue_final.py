@@ -179,6 +179,7 @@ async def post_weekly_selection(bot_instance: commands.Bot):
 
         if not top_products or not site_data.get("products"):
             Logger.warning("Données insuffisantes pour générer la sélection. Annulation.")
+            await channel.send("⚠️ Aucune sélection de la semaine à publier, pas assez de données.")
             return
 
         week_number = datetime.utcnow().isocalendar()[1]
