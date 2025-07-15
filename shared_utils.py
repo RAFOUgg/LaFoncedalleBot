@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from colorama import init, Fore
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor
+from config import APP_URL as FLASK_APP_URL
 import threading
 import asyncio
 
@@ -18,6 +19,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
 # --- Constantes & Secrets (depuis .env) ---
+TOKEN = os.getenv('DISCORD_TOKEN')
+APP_URL = FLASK_APP_URL
 TOKEN = os.getenv('DISCORD_TOKEN')
 CHANNEL_ID = int(os.getenv('CHANNEL_ID')) if os.getenv('CHANNEL_ID') else None
 RANKING_CHANNEL_ID = int(os.getenv('RANKING_CHANNEL_ID')) if os.getenv('RANKING_CHANNEL_ID') else None
