@@ -409,32 +409,37 @@ async def scheduled_selection():
 # --- Événements et Gestionnaires d'erreur ---
 @bot.event
 async def on_ready():
-    Logger.success(f'Connecté en tant que {bot.user.name}')
-    
-    # --- MODIFICATION TEMPORAIRE POUR FORCER LA SYNCHRO ---
-    # Remplacez l'ID par celui de votre serveur de test
-    guild_id_pour_test = VOTRE_ID_DE_SERVEUR 
-    guild_object = discord.Object(id=guild_id_pour_test)
-    bot.tree.copy_global_to(guild=guild_object)
-    await bot.tree.sync(guild=guild_object)
-    
+    # ... (toute la partie synchro est bonne)
     Logger.success("Commandes slash synchronisées sur la guilde de test.")
     
     await asyncio.to_thread(initialize_database)
-    
-    # 2. Maintenant que le cache est rempli, on charge la vue persistante
+
+    # --- CORRECTION MAJEURE ICI ---
+    # On lance la vérification qui va obligatoirement remplir le cache ET récupérer les données
+    Logger.info("Exécution de la vérification initiale au démarrage...")
+    await check_for_updates(bot, force_publish=False) # Cette ligne est déjà là, c'est bien
+
+    # Maintenant, on lit le cache UNE SEULE FOIS et on stocke les produits dans le bot
     try:
         with open(CACHE_FILE, 'r', encoding='utf-8') as f:
             site_data = json.load(f)
-        products = site_data.get('products', [])
-        if products:
-            bot.add_view(MenuView(products))
-            Logger.success("Vue de menu persistante ré-enregistrée avec succès.")
+        
+        # ON ATTACHE LES DONNÉES À L'OBJET BOT
+        bot.products = site_data.get('products', [])
+        bot.general_promos = site_data.get('general_promos', [])
+        bot.data_timestamp = site_data.get('timestamp', 0)
+        
+        if bot.products:
+            bot.add_view(MenuView(bot.products))
+            Logger.success(f"Vue de menu persistante ré-enregistrée avec {len(bot.products)} produits.")
         else:
-            # Ce cas ne devrait plus arriver, mais c'est une sécurité
-            Logger.warning("Le cache est valide mais ne contient aucun produit. La vue persistante n'a pas été chargée.")
+            Logger.warning("Le cache est valide mais ne contient aucun produit.")
+            
     except Exception as e:
-        Logger.error(f"Échec critique du chargement de la vue persistante après la mise à jour : {e}")
+        Logger.error(f"Échec critique du chargement de la vue persistante : {e}")
+        bot.products = [] # Initialiser comme une liste vide en cas d'erreur
+        bot.general_promos = []
+        bot.data_timestamp = 0
 
     # 3. On démarre les tâches programmées pour le futur
     if not scheduled_check.is_running(): scheduled_check.start()

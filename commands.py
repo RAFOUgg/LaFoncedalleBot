@@ -277,7 +277,7 @@ class ProductSelectForGraph(discord.ui.Select):
             os.remove(chart_path)
         else:
             await interaction.followup.send("Impossible de générer le graphique (pas assez de données ?).", ephemeral=True)
-            
+
 class ProfilePaginatorView(discord.ui.View):
     def __init__(self, target_user, user_stats, user_ratings, can_reset, bot, items_per_page=3):
         super().__init__(timeout=300)
@@ -444,18 +444,18 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, "a demandé le menu interactif (/menu)")
 
         try:
-            def _read_cache_sync():
-                with open(CACHE_FILE, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            site_data = await asyncio.to_thread(_read_cache_sync)
-
-            if not site_data or not (products := site_data.get('products')):
+            # --- CORRECTION MAJEURE ICI ---
+            # On ne lit plus le fichier, on utilise les données en mémoire
+            products = self.bot.products
+            
+            if not products:
                 await interaction.followup.send("Désolé, le menu n'est pas disponible pour le moment. Réessayez dans un instant.", ephemeral=True)
                 return
 
-            promos_list = site_data.get('general_promos', [])
+            promos_list = self.bot.general_promos
             general_promos_text = "\n".join([f"• {promo.strip()}" for promo in promos_list if promo.strip()]) or "Aucune promotion générale en cours."
             hash_count, weed_count, box_count, accessoire_count = get_product_counts(products)
+            timestamp = self.bot.data_timestamp
 
             description_text = (
                 f"__**📦 Produits disponibles :**__\n\n"
