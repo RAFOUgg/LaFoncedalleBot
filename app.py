@@ -1,6 +1,3 @@
-# app.py
-# --- VERSION FINALE ET VALIDÉE ---
-
 import os
 import sqlite3
 import random
@@ -10,12 +7,15 @@ from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 import shopify
 from dotenv import load_dotenv
+import threading
+import asyncio
+
+# Importer la configuration simple et le point d'entrée du bot
+from config import SHOP_URL, SHOPIFY_API_VERSION, FLASK_SECRET_KEY
+import catalogue_final # On importe le module du bot
 
 # Charger les variables d'environnement
 load_dotenv()
-
-# Importer la configuration simple
-from config import SHOP_URL, SHOPIFY_API_VERSION, FLASK_SECRET_KEY
 
 # --- Configuration ---
 app = Flask(__name__)
@@ -26,24 +26,25 @@ SENDGRID_API_KEY = os.getenv('SENDGRID_API_KEY')
 SENDER_EMAIL = os.getenv('SENDER_EMAIL')
 SHOPIFY_ADMIN_ACCESS_TOKEN = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
 
+# --- Lancement du Bot Discord en arrière-plan ---
+def run_bot():
+    # Crée une nouvelle boucle d'événements pour le thread du bot
+    asyncio.set_event_loop(asyncio.new_event_loop())
+    # Utilise la fonction main() de catalogue_final.py pour démarrer le bot
+    asyncio.run(catalogue_final.main())
+
+# On s'assure que le bot ne se lance qu'une seule fois
+if not os.environ.get("WERKZEUG_RUN_MAIN"):
+    bot_thread = threading.Thread(target=run_bot)
+    bot_thread.daemon = True
+    bot_thread.start()
+
 # --- Base de données ---
 def initialize_db():
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS user_links (
-            discord_id TEXT PRIMARY KEY,
-            user_email TEXT NOT NULL UNIQUE
-        );
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS verification_codes (
-            discord_id TEXT PRIMARY KEY,
-            user_email TEXT NOT NULL,
-            code TEXT NOT NULL,
-            expires_at INTEGER NOT NULL
-        );
-    """)
+    cursor.execute("CREATE TABLE IF NOT EXISTS user_links (discord_id TEXT PRIMARY KEY, user_email TEXT NOT NULL UNIQUE);")
+    cursor.execute("CREATE TABLE IF NOT EXISTS verification_codes (discord_id TEXT PRIMARY KEY, user_email TEXT NOT NULL, code TEXT NOT NULL, expires_at INTEGER NOT NULL);")
     conn.commit()
     conn.close()
 
@@ -54,47 +55,6 @@ initialize_db()
 @app.route('/')
 def health_check():
     return "L'application pont Shopify-Discord est en ligne et prête pour la vérification par e-mail.", 200
-
-@app.route('/api/start-verification', methods=['POST'])
-def start_verification():
-    data = request.json
-    discord_id = data.get('discord_id')
-    email = data.get('email')
-
-    if not all([discord_id, email]):
-        return jsonify({"error": "ID Discord ou e-mail manquant."}), 400
-
-    conn = sqlite3.connect('database.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (discord_id,))
-    if cursor.fetchone():
-        conn.close()
-        return jsonify({"error": "Ce compte Discord est déjà lié."}), 409
-
-    cursor.execute("SELECT discord_id FROM user_links WHERE user_email = ?", (email,))
-    if cursor.fetchone():
-        conn.close()
-        return jsonify({"error": "Cette adresse e-mail est déjà utilisée par un autre compte."}), 409
-
-    code = str(random.randint(100000, 999999))
-    expires_at = int(time.time()) + 600
-
-    message = Mail(
-        from_email=SENDER_EMAIL, to_emails=email,
-        subject='Votre code de vérification LaFoncedalle',
-        html_content=f'Bonjour !<br>Voici votre code de vérification : <strong>{code}</strong><br>Ce code expire dans 10 minutes.'
-    )
-    try:
-        SendGridAPIClient(SENDGRID_API_KEY).send(message)
-    except Exception as e:
-        print(f"Erreur SendGrid: {e}")
-        conn.close()
-        return jsonify({"error": "Impossible d'envoyer l'e-mail de vérification."}), 500
-
-    cursor.execute("INSERT OR REPLACE INTO verification_codes (discord_id, user_email, code, expires_at) VALUES (?, ?, ?, ?)", (discord_id, email, code, expires_at))
-    conn.commit()
-    conn.close()
-    return jsonify({"success": True}), 200
 
 # --- CETTE FONCTION MANQUAIT ---
 @app.route('/api/start-verification', methods=['POST'])
