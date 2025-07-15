@@ -58,43 +58,6 @@ initialize_db()
 def health_check():
     return "L'application pont Shopify-Discord est en ligne et prête pour la vérification par e-mail.", 200
 
-@app.route('/api/start-verification', methods=['POST'])
-def start_verification():
-    data = request.json
-    discord_id = data.get('discord_id')
-    email = data.get('email')
-
-    if not all([discord_id, email]):
-        return jsonify({"error": "ID Discord ou e-mail manquant."}), 400
-
-    code = str(random.randint(100000, 999999))
-    expires_at = int(time.time()) + 600  # Le code expire dans 10 minutes
-
-    message = Mail(
-        from_email=SENDER_EMAIL,
-        to_emails=email,
-        subject='Votre code de vérification LaFoncedalle',
-        html_content=f'Bonjour !<br>Voici votre code de vérification pour lier votre compte Discord : <strong>{code}</strong><br>Ce code expire dans 10 minutes.'
-    )
-    try:
-        sg = SendGridAPIClient(SENDGRID_API_KEY)
-        response = sg.send(message)
-        if response.status_code >= 300:
-             raise Exception(response.body)
-    except Exception as e:
-        print(f"Erreur SendGrid: {e}")
-        return jsonify({"error": "Impossible d'envoyer l'e-mail de vérification."}), 500
-
-    conn = sqlite3.connect('database.db')
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT OR REPLACE INTO verification_codes (discord_id, user_email, code, expires_at) VALUES (?, ?, ?, ?)",
-        (discord_id, email, code, expires_at)
-    )
-    conn.commit()
-    conn.close()
-
-    return jsonify({"success": True}), 200
 
 @app.route('/api/start-verification', methods=['POST'])
 def start_verification():
