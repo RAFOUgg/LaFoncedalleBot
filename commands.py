@@ -1,3 +1,5 @@
+--- START OF FILE commands.py ---
+
 # commands.py
 
 import discord
@@ -858,12 +860,9 @@ class SlashCommands(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         api_url = f"{APP_URL}/api/start-verification"
         payload = {"discord_id": str(interaction.user.id), "email": email}
-        
         try:
             import requests
             response = requests.post(api_url, json=payload, timeout=15)
-            
-            # --- CORRECTION : Gérer les différents cas de réponse ---
             if response.status_code == 200:
                 await interaction.followup.send(
                     f"✅ Un e-mail de vérification a été envoyé à **{email}**.\n"
@@ -875,8 +874,7 @@ class SlashCommands(commands.Cog):
                 await interaction.followup.send(f"⚠️ **Déjà lié !** {error_message}", ephemeral=True)
             else:
                 response.raise_for_status()
-
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             Logger.error(f"Erreur API /start-verification : {e}")
             await interaction.followup.send("❌ Impossible de contacter le service de vérification. Merci de réessayer plus tard.", ephemeral=True)
 
@@ -886,18 +884,15 @@ class SlashCommands(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         api_url = f"{APP_URL}/api/confirm-verification"
         payload = {"discord_id": str(interaction.user.id), "code": code.strip()}
-
         try:
             import requests
             response = requests.post(api_url, json=payload, timeout=15)
-            
             if response.ok:
-                 await interaction.followup.send("🎉 **Félicitations !** Ton compte est maintenant lié. Tu peux utiliser la commande `/noter`.", ephemeral=True)
+                await interaction.followup.send("🎉 **Félicitations !** Ton compte est maintenant lié. Tu peux utiliser la commande `/noter`.", ephemeral=True)
             else:
                 error_message = response.json().get("error", "Une erreur inconnue est survenue.")
                 await interaction.followup.send(f"❌ **Échec de la vérification :** {error_message}", ephemeral=True)
-
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             Logger.error(f"Erreur API /confirm-verification : {e}")
             await interaction.followup.send("❌ Impossible de contacter le service de vérification. Merci de réessayer plus tard.", ephemeral=True)
 
@@ -1054,42 +1049,11 @@ class SlashCommands(commands.Cog):
             # 5. On envoie le résultat si tout a réussi
             await interaction.followup.send(embed=embed, view=paginator)
 
-
         except Exception as e:
             Logger.error(f"Erreur lors de la génération du classement général : {e}")
             traceback.print_exc()
             await interaction.followup.send("❌ Une erreur est survenue lors de la récupération du classement.", ephemeral=True)
 
-async def setup(bot: commands.Bot):
-    await bot.add_cog(SlashCommands(bot))
-    all_products_ratings, site_data = await asyncio.gather(
-        asyncio.to_thread(_fetch_all_ratings_sync),
-        asyncio.to_thread(_read_product_cache_sync)
-        )
-
-            # 2. On vérifie les données
-    if not all_products_ratings:
-        await interaction.followup.send("Aucun produit n'a encore été noté sur le serveur.", ephemeral=True)
-        return
-
-        # 3. On traite les données (création de la map)
-        # CETTE PARTIE EST MAINTENANT CORRECTEMENT INDENTÉE DANS LE 'TRY'
-    product_map = {
-        p['name'].strip().lower(): p 
-        for p in site_data.get('products', [])
-    }
-
-            # 4. On prépare l'affichage
-            # CETTE PARTIE EST AUSSI DANS LE 'TRY'
-    paginator = RankingPaginatorView(all_products_ratings, product_map, items_per_page=5)
-    embed = paginator.create_embed_for_page()
-            
-        # 5. On envoie le résultat si tout a réussi
-    await interaction.followup.send(embed=embed, view=paginator)
-except Exception as e:
-    Logger.error(f"Erreur lors de la génération du classement général : {e}")
-    traceback.print_exc()
-    await interaction.followup.send("❌ Une erreur est survenue lors de la récupération du classement.", ephemeral=True)
-
+# The setup function must be at the top level (no indentation)
 async def setup(bot: commands.Bot):
     await bot.add_cog(SlashCommands(bot))
