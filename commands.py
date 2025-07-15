@@ -220,6 +220,10 @@ class MenuView(discord.ui.View):
             self.parent_view = parent_view
         
         async def callback(self, interaction: discord.Interaction):
+            # --- AJOUTEZ CETTE LIGNE ---
+            Logger.info(f"CLICK: Bouton '{self.label}' pressé par {interaction.user.name}. Tentative de defer...")
+            
+            # Le reste du code est identique
             await self.parent_view.start_product_view(interaction, self.parent_view.weed_products, "weed")
 
     class HashButton(discord.ui.Button):
