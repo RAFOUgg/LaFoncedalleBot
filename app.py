@@ -26,6 +26,9 @@ def initialize_db():
     """)
     conn.commit()
     conn.close()
+initialize_db()
+
+@app.route('/connect/<discord_id>')
 
 # 1. Point d'entrée depuis Discord
 @app.route('/connect/<discord_id>')

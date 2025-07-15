@@ -5,7 +5,6 @@ from discord.ext import commands
 from discord import app_commands
 import json
 import time
-import requests
 from typing import List, Optional, Tuple 
 import sqlite3
 from datetime import datetime, timedelta
@@ -14,7 +13,7 @@ import asyncio
 import os
 
 # --- Imports depuis les fichiers du projet ---
-import graph_generator
+
 # ON IMPORTE DEPUIS shared_utils MAINTENANT
 from shared_utils import (
     log_user_action, Logger, executor, CACHE_FILE,
@@ -250,6 +249,159 @@ class MenuView(discord.ui.View):
         async def callback(self, interaction: discord.Interaction):
             await self.parent_view.start_product_view(interaction, self.parent_view.accessoire_products, "accessoire")
 
+class ProfilePaginatorView(discord.ui.View):
+    def __init__(self, target_user, user_stats, user_ratings, can_reset, bot, items_per_page=3):
+        super().__init__(timeout=300)
+        self.target_user = target_user
+        self.user_stats = user_stats
+        self.user_ratings = user_ratings
+        self.can_reset = can_reset
+        self.bot = bot
+        self.items_per_page = items_per_page
+        
+        # Pagination pour les notes
+        self.current_page = 0
+        self.total_pages = (len(self.user_ratings) - 1) // self.items_per_page
+        
+        # On ajoute les boutons
+        self.update_buttons()
+
+    def update_buttons(self):
+        # On vide les boutons pour les recréer proprement
+        self.clear_items()
+        
+        # Bouton pour la page de profil
+        self.add_item(self.ProfileButton(self))
+
+        # Boutons de pagination des notes, si nécessaire
+        if self.total_pages > 0:
+            self.add_item(self.PrevButton(self))
+            self.add_item(self.NextButton(self))
+            
+        # Bouton de réinitialisation pour le staff
+        if self.can_reset:
+            self.add_item(self.ResetButton(self))
+            
+        # Mise à jour de l'état des boutons
+        for item in self.children:
+            if isinstance(item, self.PrevButton):
+                item.disabled = self.current_page == 0
+            if isinstance(item, self.NextButton):
+                item.disabled = self.current_page >= self.total_pages
+
+    def create_embed(self) -> discord.Embed:
+        if self.current_page == -1: # Page de profil
+            return self.create_profile_embed()
+        else: # Pages de notes
+            return self.create_ratings_embed()
+
+    def create_profile_embed(self) -> discord.Embed:
+        # ... (Logique pour l'embed du profil principal)
+        embed = discord.Embed(title=f"Profil de {self.target_user.display_name}", color=discord.Color.blue())
+        embed.set_thumbnail(url=self.target_user.display_avatar.url)
+
+        rank = self.user_stats.get('rank', 'Non classé')
+        count = self.user_stats.get('count', 0)
+        avg = f"{self.user_stats.get('avg', 0):.2f}/10"
+        
+        embed.add_field(name="🏆 Classement", value=f"**#{rank}**", inline=True)
+        embed.add_field(name="📝 Notations", value=f"**{count}** produits", inline=True)
+        embed.add_field(name="📊 Moyenne", value=f"**{avg}**", inline=True)
+        
+        if self.user_stats.get('is_top_3_monthly'):
+             embed.add_field(name="Badge", value="🏅 Top Noteur du Mois", inline=False)
+        
+        footer_text = f"Cliquez sur les boutons pour voir les notes."
+        embed.set_footer(text=footer_text)
+        return embed
+
+    def create_ratings_embed(self) -> discord.Embed:
+        # ... (Logique pour l'embed des notes paginées)
+        embed = discord.Embed(title=f"Notes de {self.target_user.display_name}", color=discord.Color.green())
+        embed.set_thumbnail(url=self.target_user.display_avatar.url)
+
+        start_index = self.current_page * self.items_per_page
+        end_index = start_index + self.items_per_page
+        page_ratings = self.user_ratings[start_index:end_index]
+
+        if not page_ratings:
+            embed.description = "Aucune note à afficher sur cette page."
+        else:
+            for rating in page_ratings:
+                avg_score = (rating.get('visual_score',0) + rating.get('smell_score',0) + rating.get('touch_score',0) + rating.get('taste_score',0) + rating.get('effects_score',0)) / 5
+                date = datetime.fromisoformat(rating['rating_timestamp']).strftime('%d/%m/%Y')
+                embed.add_field(
+                    name=f"**{rating['product_name']}** - Noté le {date}",
+                    value=f"> **Note moyenne : {avg_score:.2f}/10**",
+                    inline=False
+                )
+        
+        if self.total_pages >= 0:
+            embed.set_footer(text=f"Page de notes {self.current_page + 1}/{self.total_pages + 1}")
+        return embed
+
+    async def update_view(self, interaction: discord.Interaction):
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    class ProfileButton(discord.ui.Button):
+        def __init__(self, parent_view):
+            super().__init__(label="Profil", style=discord.ButtonStyle.primary, emoji="👤")
+            self.parent_view = parent_view
+        async def callback(self, interaction: discord.Interaction):
+            self.parent_view.current_page = -1
+            await self.parent_view.update_view(interaction)
+
+    class PrevButton(discord.ui.Button):
+        def __init__(self, parent_view):
+            super().__init__(label="⬅️ Préc.", style=discord.ButtonStyle.secondary)
+            self.parent_view = parent_view
+        async def callback(self, interaction: discord.Interaction):
+            if self.parent_view.current_page > 0:
+                self.parent_view.current_page -= 1
+            await self.parent_view.update_view(interaction)
+            
+    class NextButton(discord.ui.Button):
+        def __init__(self, parent_view):
+            super().__init__(label="Suiv. ➡️", style=discord.ButtonStyle.secondary)
+            self.parent_view = parent_view
+        async def callback(self, interaction: discord.Interaction):
+            if self.parent_view.current_page < self.parent_view.total_pages:
+                self.parent_view.current_page += 1
+            await self.parent_view.update_view(interaction)
+
+    class ResetButton(discord.ui.Button):
+        def __init__(self, parent_view):
+            super().__init__(label="Réinitialiser", style=discord.ButtonStyle.danger, emoji="🗑️")
+            self.parent_view = parent_view
+        async def callback(self, interaction: discord.Interaction):
+            # Logique pour confirmer la suppression, qui utilise ConfirmResetNotesView
+            await interaction.response.send_message(
+                f"Êtes-vous sûr de vouloir supprimer **toutes** les notes de {self.parent_view.target_user.mention} ?",
+                view=ConfirmResetNotesView(self.parent_view.target_user, self.parent_view.bot),
+                ephemeral=True
+            )
+
+class ConfirmResetNotesView(discord.ui.View):
+    def __init__(self, user, bot):
+        super().__init__(timeout=60)
+        self.user = user
+        self.bot = bot
+    @discord.ui.button(label="Confirmer la suppression", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Logique de suppression
+        def _delete_notes_sync(user_id):
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM ratings WHERE user_id = ?", (user_id,))
+            conn.commit()
+            conn.close()
+        await asyncio.to_thread(_delete_notes_sync, self.user.id)
+        await interaction.response.edit_message(content=f"✅ Toutes les notes de {self.user.mention} ont été supprimées.", view=None)
+    @discord.ui.button(label="Annuler", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Opération annulée.", view=None)
+
 # --- COMMANDES ---
 
 class SlashCommands(commands.Cog):
@@ -427,6 +579,7 @@ class SlashCommands(commands.Cog):
     @app_commands.command(name="graph", description="Voir un graphique radar des moyennes du serveur pour un produit")
     @app_commands.check(is_staff_or_owner)
     async def graph(self, interaction: discord.Interaction):
+        import graph_generator 
         await interaction.response.defer(ephemeral=True)
         await log_user_action(interaction, "Commande /graph")
         # Récupère tous les produits ayant au moins une note
