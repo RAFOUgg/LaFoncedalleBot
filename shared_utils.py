@@ -65,11 +65,31 @@ class Logger:
 # shared_utils.py
 
 def categorize_products(products: list):
-    categorized = {"weed": [], "hash": [], "box": [], "accessoire": []}
+    """
+    Catégorise les produits en se basant sur la clé 'category' déjà assignée.
+    """
+    categorized = {
+        "weed": [],
+        "hash": [],
+        "box": [],
+        "accessoire": []
+    }
+    
+    # Dictionnaire inversé pour faire correspondre 'fleurs' -> 'weed', etc.
+    category_map = {
+        "fleurs": "weed",
+        "résines": "hash",
+        "box": "box",
+        "accessoires": "accessoire"
+    }
+    
     for p in products:
-        # La catégorie est déjà définie, on n'a plus besoin de deviner !
-        if p.get('category') in categorized:
-            categorized[p['category']].append(p)
+        product_category = p.get('category') # ex: "fleurs"
+        internal_key = category_map.get(product_category) # ex: "weed"
+        
+        if internal_key:
+            categorized[internal_key].append(p)
+            
     return categorized
 
 def get_product_counts(products: list):
