@@ -410,16 +410,17 @@ async def scheduled_selection():
 @bot.event
 async def on_ready():
     Logger.success(f'Connecté en tant que {bot.user.name}')
-    await bot.tree.sync()
-    Logger.success("Commandes slash synchronisées.")
+    
+    # --- MODIFICATION TEMPORAIRE POUR FORCER LA SYNCHRO ---
+    # Remplacez l'ID par celui de votre serveur de test
+    guild_id_pour_test = VOTRE_ID_DE_SERVEUR 
+    guild_object = discord.Object(id=guild_id_pour_test)
+    bot.tree.copy_global_to(guild=guild_object)
+    await bot.tree.sync(guild=guild_object)
+    
+    Logger.success("Commandes slash synchronisées sur la guilde de test.")
     
     await asyncio.to_thread(initialize_database)
-
-    # --- NOUVEL ORDRE DE DÉMARRAGE ---
-
-    # 1. On lance la vérification qui va obligatoirement remplir le cache
-    Logger.info("Exécution de la vérification initiale au démarrage pour remplir le cache...")
-    await check_for_updates(bot, force_publish=False)
     
     # 2. Maintenant que le cache est rempli, on charge la vue persistante
     try:

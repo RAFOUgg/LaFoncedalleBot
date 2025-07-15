@@ -249,6 +249,35 @@ class MenuView(discord.ui.View):
         async def callback(self, interaction: discord.Interaction):
             await self.parent_view.start_product_view(interaction, self.parent_view.accessoire_products, "accessoire")
 
+class ProductSelectViewForGraph(discord.ui.View):
+    def __init__(self, products, bot):
+        super().__init__(timeout=60)
+        self.add_item(ProductSelectForGraph(products, bot))
+
+class ProductSelectForGraph(discord.ui.Select):
+    def __init__(self, products, bot):
+        self.bot = bot
+        options = [discord.SelectOption(label=p, value=p) for p in products]
+        super().__init__(placeholder="Choisissez un produit pour voir son graphique...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        import graph_generator
+        product_name = self.values[0]
+        await interaction.response.send_message(f"Génération du graphique pour **{product_name}**...", ephemeral=True, delete_after=10)
+        
+        chart_path = await asyncio.to_thread(graph_generator.create_radar_chart, product_name)
+        if chart_path:
+            file = discord.File(chart_path, filename="radar_chart.png")
+            embed = discord.Embed(
+                title=f"Graphique Radar pour {product_name}",
+                description="Moyenne des notes de la communauté pour ce produit.",
+                color=discord.Color.green()
+            ).set_image(url="attachment://radar_chart.png")
+            await interaction.followup.send(embed=embed, file=file, ephemeral=True)
+            os.remove(chart_path)
+        else:
+            await interaction.followup.send("Impossible de générer le graphique (pas assez de données ?).", ephemeral=True)
+            
 class ProfilePaginatorView(discord.ui.View):
     def __init__(self, target_user, user_stats, user_ratings, can_reset, bot, items_per_page=3):
         super().__init__(timeout=300)
