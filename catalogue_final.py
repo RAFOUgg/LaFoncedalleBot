@@ -436,7 +436,7 @@ async def on_ready():
 
     # Maintenant, on lit le cache UNE SEULE FOIS et on stocke les produits dans le bot
     try:
-        bot.add_view(MenuView())
+        bot.add_view(MenuView()) # <-- LA CORRECTION EST ICI !
         Logger.success("Vue de menu persistante ré-enregistrée avec succès.")
         
     except Exception as e:

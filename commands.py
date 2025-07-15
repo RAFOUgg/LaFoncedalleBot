@@ -169,13 +169,15 @@ class ProductView(discord.ui.View):
 
 # Fichier : commands.py
 
+# Fichier : commands.py
+
 class MenuView(discord.ui.View):
     def __init__(self):
-        # La vue est persistante et ne stocke AUCUNE donnée (stateless)
         super().__init__(timeout=None)
 
-    # Fonction d'aide pour charger les données à la demande
-    async def _load_products(self, interaction: discord.Interaction) -> Optional[dict]:
+    # Cette fonction d'aide ne fait que charger les données.
+    # ELLE NE DOIT PAS ENVOYER DE RÉPONSE.
+    async def _load_and_categorize_products(self) -> dict:
         try:
             def _read_cache_sync():
                 with open(CACHE_FILE, 'r', encoding='utf-8') as f:
@@ -183,58 +185,63 @@ class MenuView(discord.ui.View):
             site_data = await asyncio.to_thread(_read_cache_sync)
             
             if not site_data or 'products' not in site_data:
-                await interaction.followup.send("Désolé, les données des produits sont actuellement indisponibles. Réessayez plus tard.", ephemeral=True)
-                return None
+                raise ValueError("Les données des produits sont actuellement indisponibles.")
             
             return categorize_products(site_data['products'])
             
         except (FileNotFoundError, json.JSONDecodeError):
-            await interaction.followup.send("Le menu est en cours de construction, veuillez réessayer dans quelques instants.", ephemeral=True)
-            return None
+            raise ValueError("Le menu est en cours de construction, veuillez réessayer dans quelques instants.")
         except Exception as e:
             Logger.error(f"Erreur en chargeant les produits pour MenuView: {e}")
-            await interaction.followup.send("Une erreur est survenue lors de la récupération du menu.", ephemeral=True)
-            return None
+            raise ValueError("Une erreur est survenue lors de la récupération du menu.")
 
-    # Fonction d'aide pour afficher la vue du produit (inchangée)
-    async def start_product_view(self, interaction: discord.Interaction, products: List[dict], category_name: str):
-        if not products:
-            await interaction.followup.send(f"Désolé, aucun produit de type '{category_name}' n'est disponible en ce moment.", ephemeral=True)
-            return
-        
-        view = ProductView(products, category=category_name.lower())
-        embed = view.create_embed()
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+    # Les fonctions de boutons gèrent TOUTE la logique de réponse.
+    # C'est la correction la plus importante.
+    async def _handle_button_click(self, interaction: discord.Interaction, category_key: str, category_name: str):
+        # 1. On accuse réception IMMÉDIATEMENT.
+        await interaction.response.defer(ephemeral=True, thinking=True)
 
-    # --- GESTION DES BOUTONS (ROBUSTE ET STATELESS) ---
+        try:
+            # 2. On essaie de faire le travail.
+            categorized_products = await self._load_and_categorize_products()
+            products_for_category = categorized_products.get(category_key, [])
+
+            if not products_for_category:
+                await interaction.followup.send(f"Désolé, aucun produit de type '{category_name}' n'est disponible en ce moment.", ephemeral=True)
+                return
+
+            view = ProductView(products_for_category, category=category_key)
+            embed = view.create_embed()
+            
+            # 3. On envoie la réponse finale si tout a réussi.
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+        except ValueError as e:
+            # 4. On envoie un message d'erreur si une erreur contrôlée se produit.
+            await interaction.followup.send(str(e), ephemeral=True)
+        except Exception as e:
+            # 5. On envoie un message d'erreur générique pour tout le reste.
+            Logger.error(f"Erreur imprévue dans le clic du menu ({category_key}): {e}")
+            traceback.print_exc()
+            await interaction.followup.send("❌ Une erreur interne est survenue. Le staff a été notifié.", ephemeral=True)
+
+    # --- Les boutons appellent maintenant la fonction centralisée ---
 
     @discord.ui.button(label="Nos Fleurs 🍃", style=discord.ButtonStyle.success, custom_id="persistent_menu:fleurs")
     async def weed_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True, thinking=True) # Confirme la réception du clic
-        categorized_products = await self._load_products(interaction)
-        if categorized_products:
-            await self.start_product_view(interaction, categorized_products.get("weed", []), "weed")
+        await self._handle_button_click(interaction, "weed", "Fleurs")
 
     @discord.ui.button(label="Nos Résines 🍫", style=discord.ButtonStyle.primary, custom_id="persistent_menu:resines")
     async def hash_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        categorized_products = await self._load_products(interaction)
-        if categorized_products:
-            await self.start_product_view(interaction, categorized_products.get("hash", []), "hash")
+        await self._handle_button_click(interaction, "hash", "Résines")
 
     @discord.ui.button(label="Nos Box 📦", style=discord.ButtonStyle.success, custom_id="persistent_menu:box")
     async def box_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        categorized_products = await self._load_products(interaction)
-        if categorized_products:
-            await self.start_product_view(interaction, categorized_products.get("box", []), "box")
+        await self._handle_button_click(interaction, "box", "Box")
 
     @discord.ui.button(label="Accessoires 🛠️", style=discord.ButtonStyle.secondary, custom_id="persistent_menu:accessoires")
     async def accessoire_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        categorized_products = await self._load_products(interaction)
-        if categorized_products:
-            await self.start_product_view(interaction, categorized_products.get("accessoire", []), "accessoire")
+        await self._handle_button_click(interaction, "accessoire", "Accessoires")
 
 class ProductSelectViewForGraph(discord.ui.View):
     def __init__(self, products, bot):
