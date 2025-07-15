@@ -1,19 +1,24 @@
+# catalogue_final.py
+
+# --- Imports ---
 import os
 import json
 import hashlib
 import asyncio
 import traceback
 import time as a_time
-from discord.ext import commands, tasks
 from datetime import time as dt_time, datetime, timedelta
 from typing import List
 import sqlite3
-import re # Importez 're' si ce n'est pas déjà fait
+import re
 
 # Imports des librairies nécessaires
 import shopify
 import discord
-# ... (le reste des imports)
+from discord.ext import commands, tasks # <--- CORRECTION : 'commands' et 'tasks' importés ici
+from discord import app_commands
+from bs4 import BeautifulSoup
+
 # Imports depuis vos fichiers de projet
 from commands import MenuView
 from shared_utils import (
@@ -24,7 +29,16 @@ from shared_utils import (
 )
 from graph_generator import create_radar_chart
 
-# ... (Initialisation du bot et configuration des heures - inchangé)
+# --- Initialisation du bot ---
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+# Configuration des heures pour les tâches programmées
+update_time = dt_time(hour=8, minute=0, tzinfo=paris_tz)
+ranking_time = dt_time(hour=16, minute=0, tzinfo=paris_tz)
+selection_time = dt_time(hour=12, minute=0, tzinfo=paris_tz)
 
 # --- NOUVEAU : Requête GraphQL pour résoudre les URLs des fichiers ---
 RESOLVE_FILES_QUERY = """
@@ -46,7 +60,7 @@ query getFiles($ids: [ID!]!) {
 
 def get_site_data_from_api():
     """
-    Version FINALE : Récupère les produits, catégorise, filtre, et résout les GIDs des fichiers en URLs publiques.
+    Version FINALE : Récupère, catégorise, filtre, et résout les GIDs des fichiers en URLs publiques.
     """
     Logger.info("Démarrage de la récupération via API Shopify (Avec résolution GraphQL)...")
     
@@ -62,17 +76,14 @@ def get_site_data_from_api():
 
         all_products_api = shopify.Product.find(status='active', limit=250)
         
-        # --- ÉTAPE 1 : Préparation des données et identification des GIDs ---
         raw_products_data = []
         gids_to_resolve = set()
 
-        # (Logique de catégorisation et filtrage similaire à la réponse précédente)
         hash_keywords = config_manager.get_config("categorization.hash_keywords", []) + ["hash", "résine", "resin", "resine"]
         box_keywords = ["box", "pack", "coffret", "gustative"]
         accessoire_keywords = ["briquet", "feuille", "papier", "accessoire", "grinder", "plateau", "clipper", "ocb"]
 
         for prod in all_products_api:
-            # ... (Logique de catégorisation et filtrage inchangée) ...
             category = "weed"
             title_lower = prod.title.lower()
             product_type_lower = prod.product_type.lower() if prod.product_type else ""
@@ -83,11 +94,13 @@ def get_site_data_from_api():
             elif any(kw in title_lower for kw in accessoire_keywords) or "accessoire" in product_type_lower: category = "accessoire"
             
             is_free = not any(float(variant.price) > 0 for variant in prod.variants)
-            if is_free and category != "accessoire": continue
-            if any(kw in title_lower for kw in ["telegram", "instagram", "tiktok"]): continue
+            if is_free and category != "accessoire":
+                Logger.info(f"Produit gratuit '{prod.title}' ignoré car non-accessoire.")
+                continue
+            if any(kw in title_lower for kw in ["telegram", "instagram", "tiktok"]):
+                continue
 
             product_data = {}
-            # ... (Extraction des données de base : name, product_url, image, category, description, variants, prices - inchangée) ...
             product_data['name'] = prod.title
             product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
             product_data['image'] = prod.image.src if prod.image else None
@@ -95,7 +108,6 @@ def get_site_data_from_api():
             category_map = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
             product_data['category'] = category_map.get(category, category)
 
-            # Description (avec gestion des sauts de ligne)
             desc_html = prod.body_html
             if desc_html:
                 desc_html = re.sub(r'<br\s*/?>', '\n', desc_html, flags=re.IGNORECASE)
@@ -105,7 +117,6 @@ def get_site_data_from_api():
             else:
                 product_data['detailed_description'] = "Pas de description."
 
-            # Prix et disponibilité
             available_variants = [v for v in prod.variants if v.inventory_quantity > 0 or v.inventory_policy == 'continue']
             product_data['is_sold_out'] = not available_variants
             
@@ -124,20 +135,17 @@ def get_site_data_from_api():
                 product_data['is_promo'] = False
                 product_data['original_price'] = None
 
-            # Traitement des méta-champs (stats) et identification des GIDs
             product_data['stats'] = {}
             for meta in prod.metafields():
                 key = meta.key.replace('_', ' ').capitalize()
                 value = meta.value
                 product_data['stats'][key] = value
 
-                # Si la valeur est un GID, on l'ajoute à la liste à résoudre
                 if isinstance(value, str) and value.startswith("gid://shopify/"):
                     gids_to_resolve.add(value)
             
             raw_products_data.append(product_data)
 
-        # --- ÉTAPE 2 : Résolution des GIDs via GraphQL ---
         gid_url_map = {}
         if gids_to_resolve:
             Logger.info(f"Résolution de {len(gids_to_resolve)} GIDs de fichiers via GraphQL...")
@@ -149,7 +157,6 @@ def get_site_data_from_api():
                 for node in result.get('data', {}).get('nodes', []):
                     if node:
                         gid = node.get('id')
-                        # Handle GenericFile or MediaImage
                         url = node.get('url') or (node.get('image', {}).get('url') if 'image' in node else None)
                         if gid and url:
                             gid_url_map[gid] = url
@@ -157,10 +164,8 @@ def get_site_data_from_api():
             except Exception as e:
                 Logger.error(f"Erreur lors de la résolution GraphQL des fichiers : {e}")
 
-        # --- ÉTAPE 3 : Finalisation des données produits ---
         final_products = []
         for product_data in raw_products_data:
-            # Remplacer les GIDs par les URLs résolues dans les stats
             for key, value in product_data['stats'].items():
                 if isinstance(value, str) and value in gid_url_map:
                     Logger.info(f"URL résolue pour {product_data['name']} ({key})")
@@ -180,6 +185,8 @@ def get_site_data_from_api():
     finally:
         if 'shopify' in locals() and shopify.ShopifyResource.get_session():
             shopify.ShopifyResource.clear_session()
+
+
 async def post_weekly_selection(bot_instance: commands.Bot):
     Logger.info("Génération et publication de la sélection de la semaine...")
     
@@ -299,31 +306,23 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
     Logger.info(f"Publication du menu (mention: {mention})...")
     channel = bot_instance.get_channel(CHANNEL_ID)
     if not channel:
-        Logger.error(f"Salon avec l'ID {CHANNEL_ID} non trouvé pour la publication. Vérifiez que CHANNEL_ID correspond bien au salon #nouveaux-drop.")
+        Logger.error(f"Salon avec l'ID {CHANNEL_ID} non trouvé pour la publication.")
         return False
 
     products = site_data.get('products', [])
     promos_list = site_data.get('general_promos', [])
     general_promos_text = "\n".join([f"• {promo.strip()}" for promo in promos_list if promo.strip()]) or "Aucune promotion générale en cours."
-
     hash_count, weed_count, box_count, accessoire_count = get_product_counts(products)
 
-    description_text = (
-        f"__**📦 Produits disponibles :**__\n\n"
-        f"**`Fleurs 🍃 :` {weed_count}**\n"
-        f"**`Résines 🍫 :` {hash_count}**\n"
-        f"**`Box 📦 :` {box_count}**\n"
-        f"**`Accessoires 🛠️ :` {accessoire_count}**\n\n"
-        f"__**💰 Promotions disponibles :**__\n\n{general_promos_text}\n\n"
-        f"*(Mise à jour <t:{int(site_data.get('timestamp'))}:R>)*"
-    )
+    description_text = (f"__**📦 Produits disponibles :**__\n\n"
+                      f"**`Fleurs 🍃 :` {weed_count}**\n"
+                      f"**`Résines 🍫 :` {hash_count}**\n"
+                      f"**`Box 📦 :` {box_count}**\n"
+                      f"**`Accessoires 🛠️ :` {accessoire_count}**\n\n"
+                      f"__**💰 Promotions disponibles :**__\n\n{general_promos_text}\n\n"
+                      f"*(Mise à jour <t:{int(site_data.get('timestamp'))}:R>)*")
     
-    embed = discord.Embed(
-        title="📢 Nouveautés et Promotions !", 
-        url=CATALOG_URL, 
-        description=description_text, 
-        color=discord.Color.from_rgb(0, 102, 204)
-    )
+    embed = discord.Embed(title="📢 Nouveautés et Promotions !", url=CATALOG_URL, description=description_text, color=discord.Color.from_rgb(0, 102, 204))
     
     main_logo_url = config_manager.get_config("contact_info.main_logo_url")
     if main_logo_url:
@@ -340,8 +339,7 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
             try:
                 old_message = await channel.fetch_message(int(last_message_id))
                 await old_message.delete()
-            except (discord.NotFound, discord.Forbidden):
-                pass
+            except (discord.NotFound, discord.Forbidden): pass
         new_message = await channel.send(content=content, embed=embed, view=view)
         await config_manager.update_state('last_message_id', str(new_message.id))
         Logger.success(f"Nouveau menu publié (ID: {new_message.id}).")
@@ -378,14 +376,15 @@ async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = Fa
         if await publish_menu(bot_instance, site_data, mention=True): 
             await config_manager.update_state('last_menu_hash', current_hash)
             return True
-        else:
-            return False
+        else: return False
     else:
         Logger.info("Aucun changement détecté.")
         await publish_menu(bot_instance, site_data, mention=False)
         return False
+
 async def force_republish_menu(bot_instance: commands.Bot):
     Logger.info("Publication forcée du menu demandée..."); await check_for_updates(bot_instance, force_publish=True)
+
 async def generate_and_send_ranking(bot_instance: commands.Bot, force_run: bool = False):
     Logger.info("Exécution de la logique de classement...")
     today = datetime.now(paris_tz)
@@ -402,9 +401,7 @@ async def generate_and_send_ranking(bot_instance: commands.Bot, force_run: bool 
         cursor = conn.cursor()
         seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
         cursor.execute("SELECT product_name, AVG((visual_score + smell_score + touch_score + taste_score + effects_score) / 5.0), COUNT(id) FROM ratings WHERE rating_timestamp >= ? GROUP BY product_name HAVING COUNT(id) > 0 ORDER BY AVG((visual_score + smell_score + touch_score + taste_score + effects_score) / 5.0) DESC LIMIT 3", (seven_days_ago,))
-        results = cursor.fetchall()
-        conn.close()
-        return results
+        return cursor.fetchall()
     try:
         top_products = await asyncio.to_thread(_get_top_products_sync)
     except Exception as e:
@@ -421,15 +418,15 @@ async def generate_and_send_ranking(bot_instance: commands.Bot, force_run: bool 
         with open(CACHE_FILE, 'r', encoding='utf-8') as f: site_data = json.load(f)
         product_details_map = {p['name'].strip().lower(): p for p in site_data.get('products', [])}
     except (FileNotFoundError, json.JSONDecodeError) as e:
-        Logger.warning(f"Cache des produits non trouvé pour classement : {e}. Le classement sera publié sans images.")
-    embed = discord.Embed(title=title_prefix, description="Voici les 3 produits les mieux notés par la communauté ces 7 derniers jours. Bravo à eux !", color=discord.Color.gold())
+        Logger.warning(f"Cache des produits non trouvé pour classement : {e}.")
+    embed = discord.Embed(title=title_prefix, description="Voici les 3 produits les mieux notés par la communauté ces 7 derniers jours.", color=discord.Color.gold())
     winner_name = top_products[0][0]
     if (winner_details := product_details_map.get(winner_name.strip().lower())) and (winner_image := winner_details.get('image')):
         embed.set_thumbnail(url=winner_image)
     medals = ["🥇", "🥈", "🥉"]
     for i, (name, avg_score, count) in enumerate(top_products):
         embed.add_field(name=f"{medals[i]} {name}", value=f"**Note moyenne : {avg_score:.2f}/10**\n*sur la base de {count} notation(s)*", inline=False)
-    embed.set_footer(text=f"Classement du {today.strftime('%d/%m/%Y')}. Continuez de noter !")
+    embed.set_footer(text=f"Classement du {today.strftime('%d/%m/%Y')}.")
     try:
         await channel.send(embed=embed)
         Logger.success(f"Classement (Forcé: {force_run}) publié avec succès.")
@@ -453,12 +450,9 @@ async def scheduled_selection():
 @bot.event
 async def on_ready():
     Logger.success("Commandes slash synchronisées sur la guilde de test.")
-    
     await asyncio.to_thread(initialize_database)
-
     Logger.info("Exécution de la vérification initiale au démarrage...")
     await check_for_updates(bot, force_publish=False)
-
     try:
         bot.add_view(MenuView())
         Logger.success("Vue de menu persistante ré-enregistrée avec succès.")
@@ -475,18 +469,14 @@ async def on_ready():
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.CheckFailure):
         embed = discord.Embed(title="🚫 Accès Refusé", description="Désolé, mais tu n'as pas les permissions nécessaires pour utiliser cette commande.", color=discord.Color.red())
-        if THUMBNAIL_LOGO_URL:
-            embed.set_thumbnail(url=THUMBNAIL_LOGO_URL)
+        if THUMBNAIL_LOGO_URL: embed.set_thumbnail(url=THUMBNAIL_LOGO_URL)
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return
-    
     Logger.error(f"Erreur non gérée dans la commande /{interaction.command.name}: {error}")
     traceback.print_exc()
     error_message = "❌ Oups ! Une erreur inattendue est survenue. Le staff a été notifié."
-    if interaction.response.is_done():
-        await interaction.followup.send(error_message, ephemeral=True)
-    else:
-        await interaction.response.send_message(error_message, ephemeral=True)
+    if interaction.response.is_done(): await interaction.followup.send(error_message, ephemeral=True)
+    else: await interaction.response.send_message(error_message, ephemeral=True)
 
 
 async def main():
@@ -496,14 +486,11 @@ async def main():
 
 if __name__ == "__main__":
     if TOKEN and CHANNEL_ID:
-        try:
-            asyncio.run(main())
-        except KeyboardInterrupt:
-            Logger.warning("Arrêt du bot demandé.")
+        try: asyncio.run(main())
+        except KeyboardInterrupt: Logger.warning("Arrêt du bot demandé.")
         finally:
             if not executor._shutdown:
                 Logger.info("Fermeture de l'exécuteur...")
                 executor.shutdown(wait=True)
                 Logger.success("Exécuteur fermé.")
-    else:
-        Logger.error("Le DISCORD_TOKEN ou le CHANNEL_ID ne sont pas définis dans le fichier .env")
+    else: Logger.error("Le DISCORD_TOKEN ou le CHANNEL_ID ne sont pas définis dans le fichier .env")
