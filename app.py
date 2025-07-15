@@ -112,5 +112,4 @@ def health_check():
     return "L'application pont Shopify-Discord est en ligne.", 200
 
 if __name__ == '__main__':
-    initialize_db()
     app.run(port=5000, debug=True) # Pour le test en local
