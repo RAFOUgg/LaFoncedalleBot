@@ -1,5 +1,3 @@
---- START OF FILE commands.py ---
-
 # commands.py
 
 import discord
