@@ -633,8 +633,9 @@ class SlashCommands(commands.Cog):
 
     @app_commands.command(name="noter", description="Note un produit que tu as acheté sur la boutique.")
     async def noter(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=True, thinking=True)
         await log_user_action(interaction, "a initié la commande /noter")
+
         api_url = f"{APP_URL}/api/get_purchased_products/{interaction.user.id}"
         def fetch_purchased_products():
             import requests
@@ -644,16 +645,17 @@ class SlashCommands(commands.Cog):
                 response.raise_for_status()
                 return response.json().get("products", [])
             except Exception as e:
-                Logger.error(f"Erreur API Flask get_purchased_products: {e}")
-                return None
+                Logger.error(f"Erreur API Flask get_purchased_products: {e}"); return []
+
         purchased_products = await asyncio.to_thread(fetch_purchased_products)
+
         if purchased_products is None:
-            await interaction.followup.send("Ton compte Discord n'est pas encore lié. Utilise `/lier_compte`.", ephemeral=True)
-            return
+            await interaction.followup.send("Ton compte Discord n'est pas lié. Utilise `/lier_compte`.", ephemeral=True); return
         if not purchased_products:
-            await interaction.followup.send("Aucun produit trouvé dans ton historique d'achats.", ephemeral=True)
-            return
-        view = NotationProductSelectView(purchased_products, interaction.user, self.bot)
+            await interaction.followup.send("Aucun produit trouvé dans ton historique d'achats.", ephemeral=True); return
+        
+        # L'argument `self.bot` a été supprimé de l'appel
+        view = NotationProductSelectView(purchased_products, interaction.user)
         await interaction.followup.send("Veuillez choisir un produit à noter :", view=view, ephemeral=True)
 
     @app_commands.command(name="top_noteurs", description="Affiche le classement des membres qui ont noté le plus de produits.")
@@ -848,11 +850,16 @@ class SlashCommands(commands.Cog):
     @app_commands.command(name="profil", description="Affiche le profil et les notations d'un membre.")
     @app_commands.describe(membre="Le membre dont vous voulez voir le profil (optionnel).")
     async def profil(self, interaction: discord.Interaction, membre: Optional[discord.Member] = None):
+        # 1. Defer IMMÉDIATEMENT
         await interaction.response.defer(ephemeral=True)
+        
         target_user = membre or interaction.user
         await log_user_action(interaction, f"a consulté le profil de {target_user.display_name}")
+
         can_reset = False
-        if membre and membre.id != interaction.user.id and await is_staff_or_owner(interaction): can_reset = True
+        if membre and membre.id != interaction.user.id and await is_staff_or_owner(interaction):
+            can_reset = True
+
         def _fetch_user_data_sync(user_id):
             import requests
             conn = sqlite3.connect(DB_FILE)
@@ -860,7 +867,12 @@ class SlashCommands(commands.Cog):
             cursor = conn.cursor()
             cursor.execute("SELECT product_name, visual_score, smell_score, touch_score, taste_score, effects_score, rating_timestamp FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC", (user_id,))
             user_ratings = [dict(row) for row in cursor.fetchall()]
-            cursor.execute("""WITH AllRanks AS (SELECT user_id, COUNT(id) as rating_count, AVG((COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0) as avg_note, RANK() OVER (ORDER BY COUNT(id) DESC, AVG((COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0) DESC) as user_rank FROM ratings GROUP BY user_id) SELECT user_rank, rating_count, avg_note FROM AllRanks WHERE user_id = ?""", (user_id,))
+            cursor.execute("""
+                WITH AllRanks AS (
+                    SELECT user_id, COUNT(id) as rating_count, AVG((COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0) as avg_note, RANK() OVER (ORDER BY COUNT(id) DESC, AVG((COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0) DESC) as user_rank
+                    FROM ratings GROUP BY user_id
+                ) SELECT user_rank, rating_count, avg_note FROM AllRanks WHERE user_id = ?
+            """, (user_id,))
             stats = cursor.fetchone()
             user_stats = {'rank': stats['user_rank'], 'count': stats['rating_count'], 'avg': stats['avg_note']} if stats else {}
             one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
@@ -876,11 +888,15 @@ class SlashCommands(commands.Cog):
             except requests.exceptions.RequestException as e:
                 Logger.error(f"API Flask inaccessible pour le profil de {user_id}: {e}")
             return user_stats, user_ratings, shopify_data
+
         try:
+            # 2. Le long travail est fait APRÈS le defer
             user_stats, user_ratings, shopify_data = await asyncio.to_thread(_fetch_user_data_sync, target_user.id)
+
             if not user_stats and not shopify_data.get('purchase_count'):
-                await interaction.followup.send("Cet utilisateur n'a aucune activité enregistrée (ni notation, ni compte lié avec achats).", ephemeral=True)
+                await interaction.followup.send("Cet utilisateur n'a aucune activité enregistrée.", ephemeral=True)
                 return
+
             paginator = ProfilePaginatorView(target_user, user_stats, user_ratings, shopify_data, can_reset, self.bot)
             embed = paginator.create_embed()
             await interaction.followup.send(embed=embed, view=paginator, ephemeral=True)
