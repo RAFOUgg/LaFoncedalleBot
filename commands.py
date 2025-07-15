@@ -1062,36 +1062,34 @@ class SlashCommands(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SlashCommands(bot))
-            all_products_ratings, site_data = await asyncio.gather(
-                asyncio.to_thread(_fetch_all_ratings_sync),
-                asyncio.to_thread(_read_product_cache_sync)
-            )
+    all_products_ratings, site_data = await asyncio.gather(
+        asyncio.to_thread(_fetch_all_ratings_sync),
+        asyncio.to_thread(_read_product_cache_sync)
+        )
 
             # 2. On vérifie les données
-            if not all_products_ratings:
-                await interaction.followup.send("Aucun produit n'a encore été noté sur le serveur.", ephemeral=True)
-                return
+    if not all_products_ratings:
+        await interaction.followup.send("Aucun produit n'a encore été noté sur le serveur.", ephemeral=True)
+        return
 
-            # 3. On traite les données (création de la map)
-            # CETTE PARTIE EST MAINTENANT CORRECTEMENT INDENTÉE DANS LE 'TRY'
-            product_map = {
-                p['name'].strip().lower(): p 
-                for p in site_data.get('products', [])
-            }
+        # 3. On traite les données (création de la map)
+        # CETTE PARTIE EST MAINTENANT CORRECTEMENT INDENTÉE DANS LE 'TRY'
+    product_map = {
+        p['name'].strip().lower(): p 
+        for p in site_data.get('products', [])
+    }
 
             # 4. On prépare l'affichage
             # CETTE PARTIE EST AUSSI DANS LE 'TRY'
-            paginator = RankingPaginatorView(all_products_ratings, product_map, items_per_page=5)
-            embed = paginator.create_embed_for_page()
+    paginator = RankingPaginatorView(all_products_ratings, product_map, items_per_page=5)
+    embed = paginator.create_embed_for_page()
             
-            # 5. On envoie le résultat si tout a réussi
-            await interaction.followup.send(embed=embed, view=paginator)
-
-
-        except Exception as e:
-            Logger.error(f"Erreur lors de la génération du classement général : {e}")
-            traceback.print_exc()
-            await interaction.followup.send("❌ Une erreur est survenue lors de la récupération du classement.", ephemeral=True)
+        # 5. On envoie le résultat si tout a réussi
+    await interaction.followup.send(embed=embed, view=paginator)
+except Exception as e:
+    Logger.error(f"Erreur lors de la génération du classement général : {e}")
+    traceback.print_exc()
+    await interaction.followup.send("❌ Une erreur est survenue lors de la récupération du classement.", ephemeral=True)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SlashCommands(bot))
