@@ -22,7 +22,7 @@ from shared_utils import (
     config_manager, create_styled_embed,
     TIKTOK_EMOJI, LFONCEDALLE_EMOJI, TELEGRAM_EMOJI, INSTAGRAM_EMOJI,
     SELECTION_CHANNEL_ID, SUCETTE_EMOJI, NITRO_CODES_FILE, CLAIMED_CODES_FILE, paris_tz, get_product_counts,
-    categorize_products, filter_catalog_products # <-- Ajout ici
+    categorize_products, filter_catalog_products, APP_URL # <-- Ajout ici
 )
 
 
@@ -324,8 +324,6 @@ class SlashCommands(commands.Cog):
             await log_user_action(interaction, "a initié la commande /noter")
             Logger.info("[NOTER DEBUG] Log réussi. Récupération des achats Shopify...")
 
-            # --- CORRECTION CRITIQUE ICI ---
-            # On utilise la variable APP_URL pour appeler notre API Flask
             api_url = f"{APP_URL}/api/get_purchased_products/{interaction.user.id}"
 
             def fetch_purchased_products():
@@ -769,9 +767,7 @@ class SlashCommands(commands.Cog):
             # 5. On envoie le résultat si tout a réussi
             await interaction.followup.send(embed=embed, view=paginator)
 
-        # --- Fin de la zone "protégée" ---
-        
-        # Si n'importe quelle ligne dans le 'try' échoue, on arrive ici.
+
         except Exception as e:
             Logger.error(f"Erreur lors de la génération du classement général : {e}")
             traceback.print_exc()

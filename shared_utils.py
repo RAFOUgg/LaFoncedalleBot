@@ -20,14 +20,13 @@ CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
 # --- Constantes & Secrets (depuis .env) ---
 TOKEN = os.getenv('DISCORD_TOKEN')
-APP_URL = FLASK_APP_URL
-TOKEN = os.getenv('DISCORD_TOKEN')
+APP_URL = FLASK_APP_URL # On la récupère depuis l'import de config.py
 CHANNEL_ID = int(os.getenv('CHANNEL_ID')) if os.getenv('CHANNEL_ID') else None
 RANKING_CHANNEL_ID = int(os.getenv('RANKING_CHANNEL_ID')) if os.getenv('RANKING_CHANNEL_ID') else None
 ROLE_ID_TO_MENTION = os.getenv('ROLE_ID_TO_MENTION')
 STAFF_ROLE_ID = os.getenv('STAFF_ROLE_ID')
 SELECTION_CHANNEL_ID = int(os.getenv('SELECTION_CHANNEL_ID')) if os.getenv('SELECTION_CHANNEL_ID') else None
-GUILD_ID = int(os.getenv('GUILD_ID')) if os.getenv('GUILD_ID') else None # Ajouté pour post_weekly_selection
+GUILD_ID = int(os.getenv('GUILD_ID')) if os.getenv('GUILD_ID') else None
 
 # --- Fichiers de données ---
 CACHE_FILE = os.path.join(BASE_DIR, 'scrape_cache.json')
