@@ -47,27 +47,31 @@ class ProductView(discord.ui.View):
 
     # --- CORRECTION POUR LES BOUTONS DE TÉLÉCHARGEMENT ---
     def update_download_buttons(self):
+        # 1. Supprimer les anciens boutons
         items_to_remove = [item for item in self.children if hasattr(item, "is_download_button")]
         for item in items_to_remove:
             self.remove_item(item)
             
         product = self.products[self.current_index]
-        product_url = product.get('product_url', CATALOG_URL)
         stats = product.get('stats', {})
 
+        # 2. Ajouter les nouveaux boutons si une URL HTTP valide est trouvée
         for key, value in stats.items():
             if not value or not isinstance(value, str): continue
 
-            # Gère les URL publiques directes
-            if ("lab" in key.lower() or "terpen" in key.lower()) and "http" in value:
-                label = "Télécharger Lab Test" if "lab" in key.lower() else "Télécharger Terpènes"
-                emoji = "🧪" if "lab" in key.lower() else "🌿"
+            key_lower = key.lower()
+            
+            # On vérifie uniquement si c'est une URL HTTP, car catalogue_final.py a déjà résolu les GIDs.
+            if ("lab" in key_lower or "terpen" in key_lower) and value.startswith("http"):
+                
+                if "lab" in key_lower:
+                    label = "Télécharger Lab Test"
+                    emoji = "🧪"
+                else:
+                    label = "Télécharger Terpènes"
+                    emoji = "🌿"
+                
                 self.add_item(self.DownloadButton(label, value, emoji))
-            # Gère les GID de Shopify en redirigeant vers la page produit
-            elif ("lab" in key.lower() or "terpen" in key.lower()) and "gid://shopify" in value:
-                label = "Voir Lab Test (sur site)" if "lab" in key.lower() else "Voir Terpènes (sur site)"
-                emoji = "🧪" if "lab" in key.lower() else "🌿"
-                self.add_item(self.DownloadButton(label, product_url, emoji))
 
 
     def get_category_emoji(self):
@@ -78,6 +82,7 @@ class ProductView(discord.ui.View):
         return ""
 
     def create_embed(self) -> discord.Embed:
+        # ... (Début de create_embed inchangé) ...
         product = self.products[self.current_index]
         emoji = self.get_category_emoji()
         embed_color = discord.Color.dark_red() if product.get('is_sold_out') else discord.Color.from_rgb(255, 204, 0)
@@ -87,9 +92,11 @@ class ProductView(discord.ui.View):
             embed.set_thumbnail(url=product['image'])
 
         description = product.get('detailed_description', "Aucune description.")
-        if description: # On ne tronque que s'il y a une description
-            embed.add_field(name="Description", value=description[:1000], inline=False) # Augmentation de la limite
+        if description:
+            # Afficher la description complète jusqu'à la limite de Discord (1024 caractères par champ)
+            embed.add_field(name="Description", value=description[:1024], inline=False)
 
+        # ... (Prix et Stock inchangés) ...
         price_text = ""
         if product.get('is_sold_out'): price_text = "❌ **ÉPUISÉ**"
         elif product.get('is_promo'): price_text = f"🏷️ **{product.get('price')}** ~~{product.get('original_price')}~~"
@@ -101,23 +108,28 @@ class ProductView(discord.ui.View):
 
         stats = product.get('stats', {})
         char_lines = []
-        # --- CORRECTION POUR LE FILTRAGE DES DONNÉES ---
-        ignore_keys = ["pdf", "lab", "terpen", "stock", "description"] # Ignorer la description aussi
-        ignore_values = ["livraison", "offert"]
+        
+        # --- FILTRAGE DES CARACTÉRISTIQUES (Pour éviter "Goût : Livraison offerte") ---
+        ignore_keys = ["pdf", "lab", "terpen", "stock", "description"] 
+        ignore_values = ["livraison", "offert"] # Ignorer si la valeur contient ces mots
 
         for k, v in stats.items():
             k_lower = k.lower()
-            v_lower = str(v).lower()
+            v_str = str(v) # S'assurer que v est une chaîne pour la comparaison
+            v_lower = v_str.lower()
             
-            if any(key in k_lower for key in ignore_keys) or any(val in v_lower for val in ignore_values):
+            # Si la clé est à ignorer, OU si la valeur est un lien/GID, OU si la valeur contient des mots interdits :
+            if (any(key in k_lower for key in ignore_keys) or 
+                v_str.startswith("http") or v_str.startswith("gid://") or 
+                any(val in v_lower for val in ignore_values)):
                 continue
             
             # Formattage spécifique
-            if "effet" in k_lower: char_lines.append(f"**Effet :** {v}")
-            elif "gout" in k_lower: char_lines.append(f"**Goût :** {v}")
-            elif "cbd" in k_lower: char_lines.append(f"**CBD :** {v}")
-            elif "thc" in k_lower: char_lines.append(f"**THC :** {v}")
-            else: char_lines.append(f"**{k.strip().capitalize()} :** {v}")
+            if "effet" in k_lower: char_lines.append(f"**Effet :** {v_str}")
+            elif "gout" in k_lower: char_lines.append(f"**Goût :** {v_str}")
+            elif "cbd" in k_lower: char_lines.append(f"**CBD :** {v_str}")
+            elif "thc" in k_lower: char_lines.append(f"**THC :** {v_str}")
+            else: char_lines.append(f"**{k.strip().capitalize()} :** {v_str}")
 
         if char_lines:
             embed.add_field(name="Caractéristiques", value="\n".join(char_lines), inline=False)
