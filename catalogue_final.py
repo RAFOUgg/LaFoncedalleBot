@@ -301,10 +301,19 @@ async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = Fa
     Logger.info("Vérification programmée du menu...")
     site_data = await bot_instance.loop.run_in_executor(executor, get_site_data_from_api)
     
-    if not site_data or 'products' not in site_data: # On vérifie 'products' car c'est la clé essentielle
+    if not site_data or 'products' not in site_data:
         Logger.error("Récupération des données API échouée, la vérification s'arrête.")
         return False
 
+    # --- ÉTAPE 1 : ON ÉCRIT LE CACHE IMMÉDIATEMENT APRÈS LA RÉCUPÉRATION ---
+    # C'est la correction la plus importante.
+    def write_cache():
+        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(site_data, f, indent=4, ensure_ascii=False)
+    await asyncio.to_thread(write_cache)
+    Logger.success(f"Cache de produits mis à jour sur le disque avec {len(site_data.get('products', []))} produits.")
+
+    # --- ÉTAPE 2 : On continue avec la logique de hash comme avant ---
     data_to_hash = {
         'products': site_data.get('products', []),
         'general_promos': sorted(site_data.get('general_promos', [])) 
@@ -316,11 +325,7 @@ async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = Fa
     if current_hash != last_hash or force_publish:
         Logger.info(f"Changement détecté (ou forcé). Publication du menu. Forcé: {force_publish}")
         
-        def write_cache():
-            with open(CACHE_FILE, 'w', encoding='utf-8') as f:
-                json.dump(site_data, f, indent=4, ensure_ascii=False)
-        await asyncio.to_thread(write_cache)
-        Logger.success(f"Nouveau hash {current_hash} et cache sauvegardés.")
+        # On n'a plus besoin d'écrire le cache ici, c'est déjà fait.
         
         if await publish_menu(bot_instance, site_data, mention=True): 
             await config_manager.update_state('last_menu_hash', current_hash)
@@ -329,6 +334,7 @@ async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = Fa
             return False
     else:
         Logger.info("Aucun changement détecté.")
+        # On appelle quand même publish_menu pour s'assurer que le message est bien là, mais sans mention.
         await publish_menu(bot_instance, site_data, mention=False)
         return False
 async def force_republish_menu(bot_instance: commands.Bot):
@@ -407,17 +413,27 @@ async def on_ready():
     
     await asyncio.to_thread(initialize_database)
 
-    try:
-        with open(CACHE_FILE, 'r', encoding='utf-8') as f: site_data = json.load(f)
-        products = site_data.get('products', [])
-        if products:
-            bot.add_view(MenuView(products))  # Ajoute la vue persistante au démarrage
-            Logger.success("Vue de menu persistante ré-enregistrée.")
-    except Exception as e:
-        Logger.warning(f"Impossible de charger la vue persistante: {e}")
+    # --- NOUVEL ORDRE DE DÉMARRAGE ---
 
+    # 1. On lance la vérification qui va obligatoirement remplir le cache
+    Logger.info("Exécution de la vérification initiale au démarrage pour remplir le cache...")
     await check_for_updates(bot, force_publish=False)
     
+    # 2. Maintenant que le cache est rempli, on charge la vue persistante
+    try:
+        with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+            site_data = json.load(f)
+        products = site_data.get('products', [])
+        if products:
+            bot.add_view(MenuView(products))
+            Logger.success("Vue de menu persistante ré-enregistrée avec succès.")
+        else:
+            # Ce cas ne devrait plus arriver, mais c'est une sécurité
+            Logger.warning("Le cache est valide mais ne contient aucun produit. La vue persistante n'a pas été chargée.")
+    except Exception as e:
+        Logger.error(f"Échec critique du chargement de la vue persistante après la mise à jour : {e}")
+
+    # 3. On démarre les tâches programmées pour le futur
     if not scheduled_check.is_running(): scheduled_check.start()
     if not post_weekly_ranking.is_running(): post_weekly_ranking.start()
     if not scheduled_selection.is_running(): scheduled_selection.start()
