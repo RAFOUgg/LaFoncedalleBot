@@ -136,19 +136,30 @@ def get_purchased_products(discord_id):
 
     user_email = result[0]
     
+    # On se connecte à Shopify avec la clé ADMIN
     session = shopify.Session(SHOP_URL, SHOPIFY_API_VERSION, SHOPIFY_ADMIN_ACCESS_TOKEN)
     shopify.ShopifyResource.activate_session(session)
     
     try:
         orders = shopify.Order.find(email=user_email, status='any', limit=250)
+        
+        # On calcule les nouvelles statistiques
         purchased_products = {item.title for order in orders for item in order.line_items}
+        purchase_count = len(orders)
+        total_spent = sum(float(order.total_price) for order in orders)
+
     except Exception as e:
         print(f"Erreur API Shopify: {e}")
         return jsonify({"error": "Erreur lors de la récupération des commandes."}), 500
     finally:
         shopify.ShopifyResource.clear_session()
 
-    return jsonify({"products": list(purchased_products)})
+    # On renvoie un objet JSON beaucoup plus riche
+    return jsonify({
+        "products": list(purchased_products),
+        "purchase_count": purchase_count,
+        "total_spent": total_spent
+    })
 
 if __name__ == '__main__':
     app.run(port=5000, debug=True)
