@@ -62,6 +62,32 @@ class Logger:
     @staticmethod
     def warning(message): print(f"{Fore.YELLOW}WARNING: {message}")
 
+# shared_utils.py
+
+def categorize_products(products: list):
+    """
+    Catégorise les produits en se basant sur la clé 'category'
+    assignée lors de la récupération via l'API des Collections.
+    """
+    categorized = {"weed": [], "hash": [], "box": [], "accessoire": []}
+    
+    # Mapping des noms de collection vers nos clés internes
+    category_map = {
+        "fleurs": "weed",
+        "résines": "hash",
+        "box": "box",
+        "accessoires": "accessoire"
+    }
+    
+    for p in products:
+        product_category = p.get('category', '').lower()
+        internal_category = category_map.get(product_category)
+        
+        if internal_category:
+            categorized[internal_category].append(p)
+            
+    return categorized
+
 class ConfigManager:
     def __init__(self, config_path, state_path):
         self.config_path = config_path

@@ -43,9 +43,10 @@ selection_time = dt_time(hour=12, minute=0, tzinfo=paris_tz)
 # --- NOUVELLE FONCTION BASÉE UNIQUEMENT SUR L'API SHOPIFY ---
 def get_site_data_from_api():
     """
-    Récupère les données des produits directement depuis l'API Admin de Shopify.
+    Récupère les données des produits en se basant sur les Collections Shopify
+    pour un filtrage propre et efficace.
     """
-    Logger.info("Démarrage de la récupération des données via l'API Shopify Admin...")
+    Logger.info("Démarrage de la récupération des données via l'API Shopify (Collections)...")
     
     try:
         shop_url = os.getenv('SHOPIFY_SHOP_URL')
@@ -54,72 +55,71 @@ def get_site_data_from_api():
 
         if not all([shop_url, api_version, access_token]):
             Logger.error("CRITIQUE : Les informations d'API Shopify Admin sont manquantes dans le .env.")
-            # Log pour voir ce qui manque exactement
-            Logger.error(f"URL: {'OK' if shop_url else 'MANQUANT'}, Version: {'OK' if api_version else 'MANQUANT'}, Token: {'OK' if access_token else 'MANQUANT'}")
             return None
 
         session = shopify.Session(shop_url, api_version, access_token)
         shopify.ShopifyResource.activate_session(session)
 
-        # 2. Récupérer tous les produits publiés
-        all_products_api = shopify.Product.find(status='active', limit=250)
+        collection_names_to_fetch = ["Fleurs", "Résines", "Box", "Accessoires"]
+        all_products = []  # CORRECTION : On utilise ce nom de variable partout
+
+        custom_collections = shopify.CustomCollection.find()
         
-        products = []
-        for prod in all_products_api:
-            product_data = {}
-            
-            # --- Mappage des données ---
-            product_data['name'] = prod.title
-            product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
-            product_data['image'] = prod.image.src if prod.image else None
-            
-            desc_html = prod.body_html
-            product_data['detailed_description'] = BeautifulSoup(desc_html, 'html.parser').get_text(strip=True, separator='\n') if desc_html else "Pas de description."
-
-            # Gestion des variants (prix, stock)
-            available_variants = [v for v in prod.variants if v.inventory_quantity > 0 or v.inventory_policy == 'continue']
-            
-            if not available_variants:
-                product_data['is_sold_out'] = True
-                product_data['price'] = "N/A"
-                product_data['is_promo'] = False
-                product_data['original_price'] = None
-            else:
-                product_data['is_sold_out'] = False
-                min_price_variant = min(available_variants, key=lambda v: float(v.price))
+        for collection in custom_collections:
+            if collection.title in collection_names_to_fetch:
+                Logger.info(f"Récupération des produits de la collection : '{collection.title}'")
                 
-                price = float(min_price_variant.price)
-                compare_price = float(min_price_variant.compare_at_price) if min_price_variant.compare_at_price else 0.0
+                products_in_collection = shopify.Product.find(collection_id=collection.id, status='active')
                 
-                price_prefix = "à partir de " if len(available_variants) > 1 else ""
-                product_data['price'] = f"{price_prefix}{price:.2f} €".replace('.', ',')
-                
-                product_data['is_promo'] = compare_price > price
-                product_data['original_price'] = f"{compare_price:.2f} €".replace('.', ',') if product_data['is_promo'] else None
+                for prod in products_in_collection:
+                    if not any(float(v.price) > 0 for v in prod.variants):
+                        continue
 
-            # Récupérer les metafields (taux CBD, etc.)
-            product_data['stats'] = {}
-            metafields = prod.metafields()
-            for meta in metafields:
-                # Vous pouvez affiner ici si vous connaissez les 'namespace' et 'key' exacts
-                label = meta.key.replace('_', ' ').capitalize()
-                product_data['stats'][label] = meta.value
+                    product_data = {}
+                    product_data['name'] = prod.title
+                    product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
+                    product_data['image'] = prod.image.src if prod.image else None
+                    product_data['category'] = collection.title.lower() # Assigne la catégorie
 
-            products.append(product_data)
+                    desc_html = prod.body_html
+                    product_data['detailed_description'] = BeautifulSoup(desc_html, 'html.parser').get_text(strip=True, separator='\n') if desc_html else "Pas de description."
+
+                    available_variants = [v for v in prod.variants if v.inventory_quantity > 0 or v.inventory_policy == 'continue']
+            
+                    if not available_variants:
+                        product_data['is_sold_out'] = True
+                        product_data['price'] = "N/A"
+                        product_data['is_promo'] = False
+                        product_data['original_price'] = None
+                    else:
+                        product_data['is_sold_out'] = False
+                        min_price_variant = min(available_variants, key=lambda v: float(v.price))
+                        price = float(min_price_variant.price)
+                        compare_price = float(min_price_variant.compare_at_price) if min_price_variant.compare_at_price else 0.0
+                        price_prefix = "à partir de " if len(available_variants) > 1 else ""
+                        product_data['price'] = f"{price_prefix}{price:.2f} €".replace('.', ',')
+                        product_data['is_promo'] = compare_price > price
+                        product_data['original_price'] = f"{compare_price:.2f} €".replace('.', ',') if product_data['is_promo'] else None
+
+                    product_data['stats'] = {}
+                    metafields = prod.metafields()
+                    for meta in metafields:
+                        label = meta.key.replace('_', ' ').capitalize()
+                        product_data['stats'][label] = meta.value
+
+                    # CORRECTION : On ajoute à la bonne liste
+                    all_products.append(product_data)
         
-        Logger.success(f"Récupération API terminée. {len(products)} produits trouvés.")
-        
-        # NOTE: La récupération des "general_promos" (bandeaux, popups) n'est pas possible via l'API.
-        # Cette partie est maintenant vide. Vous pouvez gérer les promotions générales manuellement
-        # dans votre config.json si nécessaire.
-        return {"timestamp": a_time.time(), "products": products, "general_promos": []}
+        # CORRECTION : Le log de succès et le return sont DÉPLACÉS en dehors de toutes les boucles
+        Logger.success(f"Récupération API terminée. {len(all_products)} produits valides trouvés.")
+        return {"timestamp": a_time.time(), "products": all_products, "general_promos": []}
 
+    # CORRECTION : Le except et le finally sont maintenant correctement indentés
     except Exception as e:
         Logger.error(f"CRITIQUE lors de la récupération via API Shopify : {repr(e)}")
         traceback.print_exc()
         return None
     finally:
-        # S'assurer de toujours nettoyer la session
         shopify.ShopifyResource.clear_session()
 
 
