@@ -171,50 +171,53 @@ class ProductView(discord.ui.View):
 
 class MenuView(discord.ui.View):
     def __init__(self, all_products: List[dict]):
-        super().__init__(timeout=None)
+        super().__init__(timeout=None) # La vue est persistante
         categorized = categorize_products(all_products)
-        self.weed_products = categorized["weed"]
-        self.hash_products = categorized["hash"]
-        self.box_products = categorized["box"]
-        self.accessoire_products = categorized["accessoire"]
+        self.weed_products = categorized.get("weed", [])
+        self.hash_products = categorized.get("hash", [])
+        self.box_products = categorized.get("box", [])
+        self.accessoire_products = categorized.get("accessoire", [])
 
-        self.children[0].custom_id = "menu_view_fleurs_button"
-        self.children[1].custom_id = "menu_view_resines_button"
-        btn_idx = 2
-        if self.box_products:
-            self.add_item(discord.ui.Button(label="Nos Box 📦", style=discord.ButtonStyle.success, emoji="📦", custom_id="menu_view_box_button"))
-        if self.accessoire_products:
-            self.add_item(discord.ui.Button(label="Accessoires 🛠️", style=discord.ButtonStyle.secondary, emoji="🛠️", custom_id="menu_view_accessoire_button"))
+        # Logique simplifiée : les boutons sont définis ci-dessous avec des décorateurs.
+        # On supprime simplement les boutons des catégories qui n'ont aucun produit.
+        if not self.box_products:
+            self.remove_item(self.box_button)
+        if not self.accessoire_products:
+            self.remove_item(self.accessoire_button)
 
+    # Cette fonction d'aide ne change pas
     async def start_product_view(self, interaction: discord.Interaction, products: List[dict], category_name: str):
         if not products:
-            # Pour une vue persistente, il faut utiliser interaction.response.defer() puis interaction.followup.send()
             if not interaction.response.is_done():
                 await interaction.response.defer(ephemeral=True)
             await interaction.followup.send(f"Désolé, aucun produit de type '{category_name}' trouvé.", ephemeral=True)
             return
+        
         view = ProductView(products, category=category_name.lower())
         embed = view.create_embed()
+
+        # Répondre à l'interaction de manière éphémère
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
-    @discord.ui.button(label="Nos Fleurs 🍃", style=discord.ButtonStyle.success, emoji="🍃")
+    # --- NOUVELLE GESTION DES BOUTONS (PROPRE ET ROBUSTE) ---
+
+    @discord.ui.button(label="Nos Fleurs 🍃", style=discord.ButtonStyle.success, custom_id="persistent_menu:fleurs")
     async def weed_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.start_product_view(interaction, self.weed_products, "weed")
 
-    @discord.ui.button(label="Nos Résines 🍫", style=discord.ButtonStyle.primary, emoji="🍫")
+    @discord.ui.button(label="Nos Résines 🍫", style=discord.ButtonStyle.primary, custom_id="persistent_menu:resines")
     async def hash_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.start_product_view(interaction, self.hash_products, "hash")
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.data.get("custom_id") == "menu_view_box_button":
-            await self.start_product_view(interaction, self.box_products, "box")
-            return False
-        if interaction.data.get("custom_id") == "menu_view_accessoire_button":
-            await self.start_product_view(interaction, self.accessoire_products, "accessoire")
-            return False
-        return True
+    @discord.ui.button(label="Nos Box 📦", style=discord.ButtonStyle.success, custom_id="persistent_menu:box")
+    async def box_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.start_product_view(interaction, self.box_products, "box")
+
+    @discord.ui.button(label="Accessoires 🛠️", style=discord.ButtonStyle.secondary, custom_id="persistent_menu:accessoires")
+    async def accessoire_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.start_product_view(interaction, self.accessoire_products, "accessoire")
 
 class ProductSelectViewForGraph(discord.ui.View):
     def __init__(self, products, bot):
