@@ -436,19 +436,11 @@ async def on_ready():
 
     # Maintenant, on lit le cache UNE SEULE FOIS et on stocke les produits dans le bot
     try:
-        with open(CACHE_FILE, 'r', encoding='utf-8') as f:
-            site_data = json.load(f)
+        bot.add_view(MenuView())
+        Logger.success("Vue de menu persistante ré-enregistrée avec succès.")
         
-        # ON ATTACHE LES DONNÉES À L'OBJET BOT
-        bot.products = site_data.get('products', [])
-        bot.general_promos = site_data.get('general_promos', [])
-        bot.data_timestamp = site_data.get('timestamp', 0)
-        
-        if bot.products:
-            bot.add_view(MenuView(bot.products))
-            Logger.success(f"Vue de menu persistante ré-enregistrée avec {len(bot.products)} produits.")
-        else:
-            Logger.warning("Le cache est valide mais ne contient aucun produit.")
+    except Exception as e:
+        Logger.error(f"Échec critique du chargement de la vue persistante : {e}")
             
     except Exception as e:
         Logger.error(f"Échec critique du chargement de la vue persistante : {e}")
