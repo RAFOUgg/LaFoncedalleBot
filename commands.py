@@ -503,6 +503,38 @@ class ConfirmResetNotesView(discord.ui.View):
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(content="Opération annulée.", view=None)
 
+class ContactButtonsView(discord.ui.View):
+    def __init__(self, contact_info):
+        super().__init__(timeout=120)
+        if contact_info.get("site"):
+            self.add_item(discord.ui.Button(
+                label="Boutique", 
+                style=discord.ButtonStyle.link, 
+                url=contact_info["site"],
+                emoji=LFONCEDALLE_EMOJI
+            ))
+        if contact_info.get("instagram"):
+            self.add_item(discord.ui.Button(
+                label="Instagram", 
+                style=discord.ButtonStyle.link, 
+                url=contact_info["instagram"],
+                emoji=INSTAGRAM_EMOJI
+            ))
+        if contact_info.get("telegram"):
+            self.add_item(discord.ui.Button(
+                label="Telegram", 
+                style=discord.ButtonStyle.link, 
+                url=contact_info["telegram"],
+                emoji=TELEGRAM_EMOJI
+            ))
+        if contact_info.get("tiktok"):
+            self.add_item(discord.ui.Button(
+                label="TikTok", 
+                style=discord.ButtonStyle.link, 
+                url=contact_info["tiktok"],
+                emoji=TIKTOK_EMOJI
+            ))
+            
 # --- COMMANDES ---
 
 class SlashCommands(commands.Cog):

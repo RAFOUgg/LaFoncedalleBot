@@ -109,6 +109,32 @@ def start_verification():
 
     return jsonify({"success": True}), 200
 
+@app.route('/api/confirm-verification', methods=['POST'])
+def confirm_verification():
+    data = request.json
+    discord_id = data.get('discord_id')
+    code = data.get('code')
+
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_email, expires_at FROM verification_codes WHERE discord_id = ? AND code = ?", (discord_id, code))
+    result = cursor.fetchone()
+
+    if not result:
+        conn.close()
+        return jsonify({"error": "Code invalide ou expiré."}), 400
+    
+    user_email, expires_at = result
+    if time.time() > expires_at:
+        conn.close()
+        return jsonify({"error": "Le code de vérification a expiré."}), 400
+        
+    cursor.execute("INSERT OR REPLACE INTO user_links (discord_id, user_email) VALUES (?, ?)", (discord_id, user_email))
+    cursor.execute("DELETE FROM verification_codes WHERE discord_id = ?", (discord_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True}), 200
+
 @app.route('/api/get_purchased_products/<discord_id>')
 def get_purchased_products(discord_id):
     conn = sqlite3.connect('database.db')
