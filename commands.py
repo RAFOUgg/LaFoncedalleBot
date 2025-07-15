@@ -527,7 +527,7 @@ class SlashCommands(commands.Cog):
             promos_list = self.bot.general_promos
             general_promos_text = "\n".join([f"• {promo.strip()}" for promo in promos_list if promo.strip()]) or "Aucune promotion générale en cours."
             hash_count, weed_count, box_count, accessoire_count = get_product_counts(products)
-            timestamp = self.bot.data_timestamp
+            timestamp = self.bot.data_timestamp # <--- On utilise bien le timestamp du bot
 
             description_text = (
                 f"__**📦 Produits disponibles :**__\n\n"
@@ -536,7 +536,8 @@ class SlashCommands(commands.Cog):
                 f"**`Box 📦 :` {box_count}**\n"
                 f"**`Accessoires 🛠️ :` {accessoire_count}**\n\n"
                 f"__**💰 Promotions disponibles :**__\n\n{general_promos_text}\n\n"
-                f"*(Données mises à jour <t:{int(site_data.get('timestamp'))}:R>)*"
+                # --- CORRECTION EXACTE ICI ---
+                f"*(Données mises à jour <t:{int(timestamp)}:R>)*"
             )
 
             embed = discord.Embed(
