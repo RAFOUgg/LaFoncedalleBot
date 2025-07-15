@@ -172,82 +172,49 @@ class ProductView(discord.ui.View):
 class MenuView(discord.ui.View):
     def __init__(self, all_products: List[dict]):
         super().__init__(timeout=None)
-        # ... (le __init__ reste identique)
         categorized = categorize_products(all_products)
         self.weed_products = categorized["weed"]
         self.hash_products = categorized["hash"]
         self.box_products = categorized["box"]
         self.accessoire_products = categorized["accessoire"]
 
-        self.add_item(self.WeedButton(self))
-        self.add_item(self.HashButton(self))
-        if self.box_products: self.add_item(self.BoxButton(self))
-        if self.accessoire_products: self.add_item(self.AccessoireButton(self))
+        self.children[0].custom_id = "menu_view_fleurs_button"
+        self.children[1].custom_id = "menu_view_resines_button"
+        btn_idx = 2
+        if self.box_products:
+            self.add_item(discord.ui.Button(label="Nos Box 📦", style=discord.ButtonStyle.success, emoji="📦", custom_id="menu_view_box_button"))
+        if self.accessoire_products:
+            self.add_item(discord.ui.Button(label="Accessoires 🛠️", style=discord.ButtonStyle.secondary, emoji="🛠️", custom_id="menu_view_accessoire_button"))
 
-    # --- FONCTION DE DEBUGGING MODIFIÉE ---
-    async def start_product_view(self, interaction: discord.Interaction, products: List[dict], category_name: str, start_time: float):
-        
-        t1 = time.monotonic()
-        Logger.info(f"[DEBUG-TIMER] [T1] Appel de start_product_view. (Delta depuis T0: {(t1 - start_time) * 1000:.2f} ms)")
-
+    async def start_product_view(self, interaction: discord.Interaction, products: List[dict], category_name: str):
         if not products:
+            # Pour une vue persistente, il faut utiliser interaction.response.defer() puis interaction.followup.send()
+            if not interaction.response.is_done():
+                await interaction.response.defer(ephemeral=True)
             await interaction.followup.send(f"Désolé, aucun produit de type '{category_name}' trouvé.", ephemeral=True)
             return
-        
-        Logger.info("[DEBUG-TIMER] [T2] Tentative de DEFER (début de la zone de 3 secondes)...")
-        t2 = time.monotonic()
-        
-        try:
-            await interaction.response.defer(ephemeral=True)
-        except Exception as e:
-            t_fail = time.monotonic()
-            Logger.error(f"[DEBUG-TIMER] [FAIL] Le DEFER a échoué après {(t_fail - t2) * 1000:.2f} ms. Erreur: {e}")
-            return
-
-        t3 = time.monotonic()
-        Logger.success(f"[DEBUG-TIMER] [T3] DEFER réussi ! (Durée du defer: {(t3 - t2) * 1000:.2f} ms)")
-        
         view = ProductView(products, category=category_name.lower())
         embed = view.create_embed()
-        
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-        t4 = time.monotonic()
-        Logger.info(f"[DEBUG-TIMER] [T4] Réponse envoyée. (Durée totale depuis T0: {(t4 - start_time) * 1000:.2f} ms)")
 
-    # --- Bouton instrumenté pour le test ---
-    class WeedButton(discord.ui.Button):
-        def __init__(self, parent_view):
-            super().__init__(label="Nos Fleurs 🍃", style=discord.ButtonStyle.success, emoji="🍃", custom_id="persistent_menu:fleurs")
-            self.parent_view = parent_view
-        
-        async def callback(self, interaction: discord.Interaction):
-            start_time = time.monotonic()
-            Logger.info(f"[DEBUG-TIMER] [T0] Clic détecté pour '{self.label}' par {interaction.user.name}.")
-            await self.parent_view.start_product_view(interaction, self.parent_view.weed_products, "weed", start_time)
+    @discord.ui.button(label="Nos Fleurs 🍃", style=discord.ButtonStyle.success, emoji="🍃")
+    async def weed_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.start_product_view(interaction, self.weed_products, "weed")
 
-    class HashButton(discord.ui.Button):
-        def __init__(self, parent_view):
-            super().__init__(label="Nos Résines 🍫", style=discord.ButtonStyle.primary, emoji="🍫", custom_id="persistent_menu:resines")
-            self.parent_view = parent_view
+    @discord.ui.button(label="Nos Résines 🍫", style=discord.ButtonStyle.primary, emoji="🍫")
+    async def hash_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.start_product_view(interaction, self.hash_products, "hash")
 
-        async def callback(self, interaction: discord.Interaction):
-            await self.parent_view.start_product_view(interaction, self.parent_view.hash_products, "hash")
-
-    class BoxButton(discord.ui.Button):
-        def __init__(self, parent_view):
-            super().__init__(label="Nos Box 📦", style=discord.ButtonStyle.success, emoji="📦", custom_id="persistent_menu:box")
-            self.parent_view = parent_view
-
-        async def callback(self, interaction: discord.Interaction):
-            await self.parent_view.start_product_view(interaction, self.parent_view.box_products, "box")
-
-    class AccessoireButton(discord.ui.Button):
-        def __init__(self, parent_view):
-            super().__init__(label="Accessoires 🛠️", style=discord.ButtonStyle.secondary, emoji="🛠️", custom_id="persistent_menu:accessoires")
-            self.parent_view = parent_view
-            
-        async def callback(self, interaction: discord.Interaction):
-            await self.parent_view.start_product_view(interaction, self.parent_view.accessoire_products, "accessoire")
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.data.get("custom_id") == "menu_view_box_button":
+            await self.start_product_view(interaction, self.box_products, "box")
+            return False
+        if interaction.data.get("custom_id") == "menu_view_accessoire_button":
+            await self.start_product_view(interaction, self.accessoire_products, "accessoire")
+            return False
+        return True
 
 class ProductSelectViewForGraph(discord.ui.View):
     def __init__(self, products, bot):
@@ -1062,6 +1029,39 @@ class SlashCommands(commands.Cog):
                     return {}
 
             # 1. On récupère les données
+            all_products_ratings, site_data = await asyncio.gather(
+                asyncio.to_thread(_fetch_all_ratings_sync),
+                asyncio.to_thread(_read_product_cache_sync)
+            )
+
+            # 2. On vérifie les données
+            if not all_products_ratings:
+                await interaction.followup.send("Aucun produit n'a encore été noté sur le serveur.", ephemeral=True)
+                return
+
+            # 3. On traite les données (création de la map)
+            # CETTE PARTIE EST MAINTENANT CORRECTEMENT INDENTÉE DANS LE 'TRY'
+            product_map = {
+                p['name'].strip().lower(): p 
+                for p in site_data.get('products', [])
+            }
+
+            # 4. On prépare l'affichage
+            # CETTE PARTIE EST AUSSI DANS LE 'TRY'
+            paginator = RankingPaginatorView(all_products_ratings, product_map, items_per_page=5)
+            embed = paginator.create_embed_for_page()
+            
+            # 5. On envoie le résultat si tout a réussi
+            await interaction.followup.send(embed=embed, view=paginator)
+
+
+        except Exception as e:
+            Logger.error(f"Erreur lors de la génération du classement général : {e}")
+            traceback.print_exc()
+            await interaction.followup.send("❌ Une erreur est survenue lors de la récupération du classement.", ephemeral=True)
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(SlashCommands(bot))
             all_products_ratings, site_data = await asyncio.gather(
                 asyncio.to_thread(_fetch_all_ratings_sync),
                 asyncio.to_thread(_read_product_cache_sync)
