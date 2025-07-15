@@ -291,7 +291,7 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
     if main_logo_url:
         embed.set_thumbnail(url=main_logo_url)
     
-    view = MenuView(products)
+    view = MenuView()
     bot_instance.add_view(view)  # Ajoute la vue persistante à chaque publication
 
     content = f"<@&{ROLE_ID_TO_MENTION}>" if mention and ROLE_ID_TO_MENTION else None
