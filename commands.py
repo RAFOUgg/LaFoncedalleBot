@@ -727,8 +727,10 @@ class SlashCommands(commands.Cog):
     @app_commands.check(is_staff_or_owner)
     async def debug(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        await self.bot.force_republish_menu(self.bot) 
-        await interaction.followup.send("Menu republication forcée.", ephemeral=True)
+        Logger.info("Publication forcée du menu demandée via /debug...")
+    # On appelle directement la fonction de vérification avec le flag pour forcer la publication.
+        await self.bot.check_for_updates(self.bot, force_publish=True) 
+        await interaction.followup.send("Vérification et republication forcée du menu en cours...", ephemeral=True)
 
     @app_commands.command(name="check", description="Vérifie si de nouveaux produits sont disponibles (cooldown de 12h).")
     async def check(self, interaction: discord.Interaction):

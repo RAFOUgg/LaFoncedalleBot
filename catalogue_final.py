@@ -350,7 +350,7 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
 
 
 async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = False):
-    Logger.info("Vérification programmée du menu...")
+    Logger.info(f"Vérification du menu... (Forcé: {force_publish})")
     site_data = await bot_instance.loop.run_in_executor(executor, get_site_data_from_api)
     
     if not site_data or 'products' not in site_data:
@@ -372,18 +372,15 @@ async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = Fa
     last_hash = await config_manager.get_state('last_menu_hash', "")
 
     if current_hash != last_hash or force_publish:
-        Logger.info(f"Changement détecté (ou forcé). Publication du menu. Forcé: {force_publish}")
+        Logger.info(f"Changement détecté (ou forcé). Publication du menu.")
         if await publish_menu(bot_instance, site_data, mention=True): 
             await config_manager.update_state('last_menu_hash', current_hash)
             return True
         else: return False
     else:
-        Logger.info("Aucun changement détecté.")
+        Logger.info("Aucun changement détecté. Mise à jour du message existant sans mention.")
         await publish_menu(bot_instance, site_data, mention=False)
         return False
-
-async def force_republish_menu(bot_instance: commands.Bot):
-    Logger.info("Publication forcée du menu demandée..."); await check_for_updates(bot_instance, force_publish=True)
 
 async def generate_and_send_ranking(bot_instance: commands.Bot, force_run: bool = False):
     Logger.info("Exécution de la logique de classement...")
@@ -433,7 +430,6 @@ async def generate_and_send_ranking(bot_instance: commands.Bot, force_run: bool 
     except Exception as e:
         Logger.error(f"Impossible d'envoyer le message de classement : {e}")
 
-bot.force_republish_menu = force_republish_menu
 bot.check_for_updates = check_for_updates
 bot.post_weekly_selection = post_weekly_selection
 
