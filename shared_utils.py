@@ -112,7 +112,7 @@ class ConfigManager:
     def __init__(self, config_path, state_path):
         self.config_path = config_path
         self.state_path = state_path
-        self._lock = threading.Lock()
+        self._lock = asyncio.Lock()
         self.config = self._sync_load_json(self.config_path)
         if self.config:
             Logger.success(f"Configuration chargée depuis '{self.config_path}'.")

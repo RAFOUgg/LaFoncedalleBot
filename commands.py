@@ -559,7 +559,7 @@ class ContactButtonsView(discord.ui.View):
 class SlashCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-
+    
     @app_commands.command(name="menu", description="Affiche le menu interactif des produits disponibles.")
     async def menu(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -592,6 +592,7 @@ class SlashCommands(commands.Cog):
             Logger.error(f"Erreur dans /menu : {e}")
             traceback.print_exc()
             await interaction.followup.send("❌ Une erreur est survenue lors de l'affichage du menu.", ephemeral=True)
+
 
     @app_commands.command(name="noter", description="Note un produit que tu as acheté sur la boutique.")
     async def noter(self, interaction: discord.Interaction):
