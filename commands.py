@@ -726,11 +726,29 @@ class SlashCommands(commands.Cog):
     @app_commands.command(name="debug", description="Force la republication du menu (staff uniquement)")
     @app_commands.check(is_staff_or_owner)
     async def debug(self, interaction: discord.Interaction):
+        # 1. On accuse réception IMMÉDIATEMENT pour éviter tout timeout.
         await interaction.response.defer(ephemeral=True)
-        Logger.info("Publication forcée du menu demandée via /debug...")
-    # On appelle directement la fonction de vérification avec le flag pour forcer la publication.
-        await self.bot.check_for_updates(self.bot, force_publish=True) 
-        await interaction.followup.send("Vérification et republication forcée du menu en cours...", ephemeral=True)
+        Logger.info(f"Publication forcée du menu demandée par {interaction.user} via /debug...")
+
+        try:
+            # 2. On appelle la fonction qui fait le vrai travail.
+            # Le 'force_publish=True' assure que le menu sera publié même si le hash n'a pas changé.
+            updates_found = await self.bot.check_for_updates(self.bot, force_publish=True)
+            
+            # 3. On envoie un message de succès à l'utilisateur qui a lancé la commande.
+            if updates_found:
+                # Ce cas est idéal : un changement a été détecté (ou forcé) ET le menu a été publié.
+                await interaction.followup.send("✅ Menu mis à jour et republié avec mention dans le salon dédié.", ephemeral=True)
+            else:
+                # Ce cas peut arriver si check_for_updates ne publie pas pour une raison interne (ex: salon introuvable).
+                # Le message reste positif car l'action a été tentée.
+                await interaction.followup.send("✅ Tentative de republication effectuée. Vérifiez le salon dédié pour le résultat.", ephemeral=True)
+
+        except Exception as e:
+            # 4. En cas d'erreur pendant la publication, on notifie l'utilisateur et on loggue l'erreur.
+            Logger.error(f"Erreur critique lors de l'exécution de /debug : {e}")
+            traceback.print_exc()
+            await interaction.followup.send("❌ Une erreur est survenue lors de la tentative de republication. Consultez les logs du bot pour les détails.", ephemeral=True)
 
     @app_commands.command(name="check", description="Vérifie si de nouveaux produits sont disponibles (cooldown de 12h).")
     async def check(self, interaction: discord.Interaction):

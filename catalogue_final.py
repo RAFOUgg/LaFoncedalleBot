@@ -461,6 +461,8 @@ async def on_ready():
     Logger.success("Toutes les tâches programmées ont démarré.")
 
 
+# Dans catalogue_final.py
+
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.CheckFailure):
@@ -468,11 +470,19 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         if THUMBNAIL_LOGO_URL: embed.set_thumbnail(url=THUMBNAIL_LOGO_URL)
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return
+        
     Logger.error(f"Erreur non gérée dans la commande /{interaction.command.name}: {error}")
     traceback.print_exc()
     error_message = "❌ Oups ! Une erreur inattendue est survenue. Le staff a été notifié."
-    if interaction.response.is_done(): await interaction.followup.send(error_message, ephemeral=True)
-    else: await interaction.response.send_message(error_message, ephemeral=True)
+    
+    # --- LA CORRECTION EST ICI ---
+    # On vérifie si une réponse a déjà été envoyée (ex: defer())
+    if interaction.response.is_done():
+        # Si oui, on utilise followup pour envoyer un nouveau message
+        await interaction.followup.send(error_message, ephemeral=True)
+    else:
+        # Sinon, on envoie la réponse initiale
+        await interaction.response.send_message(error_message, ephemeral=True)
 
 
 async def main():
