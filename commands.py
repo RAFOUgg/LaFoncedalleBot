@@ -962,16 +962,27 @@ class SlashCommands(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         api_url = f"{APP_URL}/api/start-verification"
         payload = {"discord_id": str(interaction.user.id), "email": email}
+        
         try:
             import requests
             response = requests.post(api_url, json=payload, timeout=15)
+            
+            # --- CORRECTION DE LA GESTION DE RÉPONSE ---
             if response.status_code == 200:
                 await interaction.followup.send(f"✅ Un e-mail de vérification a été envoyé à **{email}**.\nConsulte ta boîte de réception (et tes spams !) puis utilise la commande `/verifier` avec le code reçu.", ephemeral=True)
-            elif response.status_code == 409:
+            elif response.status_code == 409: # Conflit (déjà lié)
                 error_message = response.json().get("error", "Vous êtes déjà lié à un compte.")
                 await interaction.followup.send(f"⚠️ **Déjà lié !** {error_message}", ephemeral=True)
             else:
-                response.raise_for_status()
+                # Gère toutes les autres erreurs, y compris notre erreur 500 personnalisée
+                # On tente de lire le message d'erreur, sinon on met un message par défaut.
+                try:
+                    error_details = response.json().get("error", "une erreur inconnue est survenue.")
+                except requests.exceptions.JSONDecodeError:
+                    error_details = "le serveur a renvoyé une réponse invalide."
+
+                await interaction.followup.send(f"❌ **L'envoi de l'e-mail a échoué.** Raison : {error_details}\nCela peut être dû à une adresse e-mail invalide. Si le problème persiste, contacte le staff.", ephemeral=True)
+
         except Exception as e:
             Logger.error(f"Erreur API /start-verification : {e}")
             await interaction.followup.send("❌ Impossible de contacter le service de vérification. Merci de réessayer plus tard.", ephemeral=True)

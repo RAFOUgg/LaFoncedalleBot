@@ -69,7 +69,7 @@ def start_verification():
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
 
-    # --- VÉRIFICATION COMPLÈTE ---
+    # Vérification complète de l'existence
     cursor.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (discord_id,))
     existing_link = cursor.fetchone()
     if existing_link:
@@ -82,8 +82,6 @@ def start_verification():
         conn.close()
         return jsonify({"error": "cette adresse e-mail est déjà utilisée par un autre compte Discord."}), 409
     
-    # --- Si tout est bon, on continue ---
-    # ... (le reste de la fonction pour envoyer le code est identique et correct) ...
     code = str(random.randint(100000, 999999))
     expires_at = int(time.time()) + 600
 
@@ -93,14 +91,18 @@ def start_verification():
         subject='Votre code de vérification LaFoncedalle',
         html_content=f'Bonjour !<br>Voici votre code de vérification pour lier votre compte Discord : <strong>{code}</strong><br>Ce code expire dans 10 minutes.'
     )
+    
+    # --- CORRECTION DE LA GESTION D'ERREUR SENDGRID ---
     try:
         sg = SendGridAPIClient(SENDGRID_API_KEY)
         response = sg.send(message)
+        # On vérifie explicitement si l'API a renvoyé une erreur
         if response.status_code >= 300:
-             raise Exception(response.body)
+             raise Exception(f"SendGrid a retourné une erreur: {response.status_code} {response.body}")
     except Exception as e:
-        print(f"Erreur SendGrid: {e}")
+        print(f"Erreur SendGrid: {e}") # Pour vos logs
         conn.close()
+        # On renvoie une erreur 500 que notre bot pourra intercepter
         return jsonify({"error": "Impossible d'envoyer l'e-mail de vérification."}), 500
 
     cursor.execute("INSERT OR REPLACE INTO verification_codes (discord_id, user_email, code, expires_at) VALUES (?, ?, ?, ?)",(discord_id, email, code, expires_at))
