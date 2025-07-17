@@ -81,6 +81,8 @@ class ProductView(discord.ui.View):
 
     # Dans commands.py, à l'intérieur de la classe ProductView
 
+    # Dans commands.py, à l'intérieur de la classe ProductView
+
     def create_embed(self) -> discord.Embed:
         product = self.products[self.current_index]
         emoji = self.get_category_emoji()
@@ -107,27 +109,24 @@ class ProductView(discord.ui.View):
         stats = product.get('stats', {})
         char_lines = []
         
-        # --- CORRECTION DU FILTRAGE DES CARACTÉRISTIQUES ---
-        # Clés de champs méta à toujours ignorer dans cette section
+        # --- CORRECTION FINALE DU FILTRAGE DES CARACTÉRISTIQUES ---
+        # Clés de champs méta à toujours ignorer
         ignore_keys = ["pdf", "lab", "terpen", "stock", "description"] 
-        # Mots-clés dans la valeur qui indiquent que ce n'est pas une caractéristique pertinente
-        ignore_values = ["livraison", "offert"]
+        # Mots-clés dans la VALEUR qui indiquent une info et non une caractéristique
+        ignore_values = ["livraison", "offert", "derniers", "grammes", "lots"]
 
         for k, v in stats.items():
             k_lower = k.lower()
-            v_str = str(v) # S'assurer que v est une chaîne pour la comparaison
+            v_str = str(v)
             v_lower = v_str.lower()
             
-            # Condition de filtrage : on saute cette caractéristique si...
-            # ... la clé est dans la liste d'ignorés (ex: 'stock')
-            # ... la valeur est un lien http ou un gid Shopify
-            # ... la valeur contient un mot-clé à ignorer (ex: 'livraison offerte')
+            # Condition de filtrage améliorée
             if (any(key in k_lower for key in ignore_keys) or 
                 v_str.startswith("http") or v_str.startswith("gid://") or 
                 any(val in v_lower for val in ignore_values)):
                 continue
             
-            # Si le filtrage est passé, on formate l'affichage
+            # Formatage spécifique
             if "effet" in k_lower: char_lines.append(f"**Effet :** {v_str}")
             elif "gout" in k_lower: char_lines.append(f"**Goût :** {v_str}")
             elif "cbd" in k_lower: char_lines.append(f"**CBD :** {v_str}")
