@@ -9,8 +9,7 @@ from colorama import init, Fore
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from config import APP_URL as FLASK_APP_URL
-import threading
-import asyncio
+import asyncio # <--- asyncio a été importé mais pas threading, c'est mieux
 
 # --- Initialisation ---
 init(autoreset=True)
@@ -130,22 +129,26 @@ class ConfigManager:
         return val if val is not None else default
 
     async def get_state(self, key, default=None):
-        with self._lock:
+        async with self._lock: # --- CORRECTION 1/2 : "with" devient "async with" ---
             current_state = await self._async_load_json(self.state_path)
             return current_state.get(key, default)
+
     async def update_state(self, key, value):
-        with self._lock:
+        async with self._lock: # --- CORRECTION 2/2 : "with" devient "async with" ---
             current_state = await self._async_load_json(self.state_path)
             current_state[key] = value
             success = await asyncio.to_thread(self._sync_save_json, current_state, self.state_path)
             if not success:
                 Logger.error(f"Échec de la mise à jour de l'état pour la clé '{key}'.")
+
     def _sync_load_json(self, file_path):
         try:
             with open(file_path, 'r', encoding='utf-8') as f: return json.load(f)
         except (FileNotFoundError, json.JSONDecodeError): return {}
+
     async def _async_load_json(self, file_path):
         return await asyncio.to_thread(self._sync_load_json, file_path)
+
     def _sync_save_json(self, data, file_path):
         try:
             with open(file_path, 'w', encoding='utf-8') as f: json.dump(data, f, indent=2)
