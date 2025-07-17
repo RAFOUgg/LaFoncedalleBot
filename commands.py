@@ -850,26 +850,61 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, f"a consulté le profil de {target_user.display_name}")
 
         def _fetch_user_data_sync(user_id):
-        # Cette fonction interne est bien conçue, nous la gardons telle quelle.
             import requests
             conn = sqlite3.connect(DB_FILE)
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
+
+            # --- CORRECTION DE LA REQUÊTE SQL POUR INCLURE MIN/MAX ---
+            # D'abord, on récupère la liste complète des notes
             cursor.execute("SELECT product_name, visual_score, smell_score, touch_score, taste_score, effects_score, rating_timestamp FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC", (user_id,))
             user_ratings = [dict(row) for row in cursor.fetchall()]
+
+            # Ensuite, on calcule toutes les statistiques, y compris le rang, en une seule requête plus lisible
             cursor.execute("""
-                WITH AllRanks AS (
-                    SELECT user_id, COUNT(id) as rating_count, AVG((COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0) as avg_note, RANK() OVER (ORDER BY COUNT(id) DESC, AVG((COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0) DESC) as user_rank
-                    FROM ratings GROUP BY user_id
-                ) SELECT user_rank, rating_count, avg_note FROM AllRanks WHERE user_id = ?
+                WITH UserAverageNotes AS (
+                    SELECT
+                        user_id,
+                        (COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0 AS avg_note
+                    FROM ratings
+                ),
+                AllRanks AS (
+                    SELECT
+                        user_id,
+                        COUNT(user_id) as rating_count,
+                        AVG(avg_note) as global_avg,
+                        MIN(avg_note) as min_note,
+                        MAX(avg_note) as max_note,
+                        RANK() OVER (ORDER BY COUNT(user_id) DESC, AVG(avg_note) DESC) as user_rank
+                    FROM UserAverageNotes
+                    GROUP BY user_id
+                )
+                SELECT user_rank, rating_count, global_avg, min_note, max_note
+                FROM AllRanks
+                WHERE user_id = ?
             """, (user_id,))
-            stats = cursor.fetchone()
-            user_stats = {'rank': stats['user_rank'], 'count': stats['rating_count'], 'avg': stats['avg_note']} if stats else {}
+            
+            stats_row = cursor.fetchone()
+            # On initialise avec des valeurs par défaut au cas où l'utilisateur n'a aucune note
+            user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0}
+            if stats_row:
+                user_stats = {
+                    'rank': stats_row['user_rank'],
+                    'count': stats_row['rating_count'],
+                    'avg': stats_row['global_avg'],
+                    'min_note': stats_row['min_note'],
+                    'max_note': stats_row['max_note']
+                }
+
+            # On vérifie si l'utilisateur est dans le top 3 du mois
             one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
             cursor.execute("SELECT user_id FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY COUNT(id) DESC LIMIT 3", (one_month_ago,))
             top_3_monthly_ids = [row['user_id'] for row in cursor.fetchall()]
             user_stats['is_top_3_monthly'] = user_id in top_3_monthly_ids
+            
             conn.close()
+
+            # La récupération des données Shopify reste inchangée
             shopify_data = {}
             api_url = f"{APP_URL}/api/get_purchased_products/{user_id}"
             try:
@@ -877,6 +912,7 @@ class SlashCommands(commands.Cog):
                 if response.ok: shopify_data = response.json()
             except requests.exceptions.RequestException as e:
                 Logger.error(f"API Flask inaccessible pour le profil de {user_id}: {e}")
+            
             return user_stats, user_ratings, shopify_data
 
         try:
