@@ -841,84 +841,84 @@ class SlashCommands(commands.Cog):
             await interaction.followup.send("❌ Une erreur interne est survenue. Merci de réessayer ou de contacter un admin.", ephemeral=True)
 
     @app_commands.command(name="profil", description="Affiche le profil et les notations d'un membre.")
-@app_commands.describe(membre="Le membre dont vous voulez voir le profil (optionnel).")
-async def profil(self, interaction: discord.Interaction, membre: Optional[discord.Member] = None):
+    @app_commands.describe(membre="Le membre dont vous voulez voir le profil (optionnel).")
+    async def profil(self, interaction: discord.Interaction, membre: Optional[discord.Member] = None):
     # 1. Defer immédiatement pour garantir une réponse rapide à Discord
-    await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
     
-    target_user = membre or interaction.user
-    await log_user_action(interaction, f"a consulté le profil de {target_user.display_name}")
+        target_user = membre or interaction.user
+        await log_user_action(interaction, f"a consulté le profil de {target_user.display_name}")
 
-    def _fetch_user_data_sync(user_id):
+        def _fetch_user_data_sync(user_id):
         # Cette fonction interne est bien conçue, nous la gardons telle quelle.
-        import requests
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT product_name, visual_score, smell_score, touch_score, taste_score, effects_score, rating_timestamp FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC", (user_id,))
-        user_ratings = [dict(row) for row in cursor.fetchall()]
-        cursor.execute("""
-            WITH AllRanks AS (
-                SELECT user_id, COUNT(id) as rating_count, AVG((COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0) as avg_note, RANK() OVER (ORDER BY COUNT(id) DESC, AVG((COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0) DESC) as user_rank
-                FROM ratings GROUP BY user_id
-            ) SELECT user_rank, rating_count, avg_note FROM AllRanks WHERE user_id = ?
-        """, (user_id,))
-        stats = cursor.fetchone()
-        user_stats = {'rank': stats['user_rank'], 'count': stats['rating_count'], 'avg': stats['avg_note']} if stats else {}
-        one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
-        cursor.execute("SELECT user_id FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY COUNT(id) DESC LIMIT 3", (one_month_ago,))
-        top_3_monthly_ids = [row['user_id'] for row in cursor.fetchall()]
-        user_stats['is_top_3_monthly'] = user_id in top_3_monthly_ids
-        conn.close()
-        shopify_data = {}
-        api_url = f"{APP_URL}/api/get_purchased_products/{user_id}"
+            import requests
+            conn = sqlite3.connect(DB_FILE)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT product_name, visual_score, smell_score, touch_score, taste_score, effects_score, rating_timestamp FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC", (user_id,))
+            user_ratings = [dict(row) for row in cursor.fetchall()]
+            cursor.execute("""
+                WITH AllRanks AS (
+                    SELECT user_id, COUNT(id) as rating_count, AVG((COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0) as avg_note, RANK() OVER (ORDER BY COUNT(id) DESC, AVG((COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0) DESC) as user_rank
+                    FROM ratings GROUP BY user_id
+                ) SELECT user_rank, rating_count, avg_note FROM AllRanks WHERE user_id = ?
+            """, (user_id,))
+            stats = cursor.fetchone()
+            user_stats = {'rank': stats['user_rank'], 'count': stats['rating_count'], 'avg': stats['avg_note']} if stats else {}
+            one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
+            cursor.execute("SELECT user_id FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY COUNT(id) DESC LIMIT 3", (one_month_ago,))
+            top_3_monthly_ids = [row['user_id'] for row in cursor.fetchall()]
+            user_stats['is_top_3_monthly'] = user_id in top_3_monthly_ids
+            conn.close()
+            shopify_data = {}
+            api_url = f"{APP_URL}/api/get_purchased_products/{user_id}"
+            try:
+                response = requests.get(api_url, timeout=10)
+                if response.ok: shopify_data = response.json()
+            except requests.exceptions.RequestException as e:
+                Logger.error(f"API Flask inaccessible pour le profil de {user_id}: {e}")
+            return user_stats, user_ratings, shopify_data
+
         try:
-            response = requests.get(api_url, timeout=10)
-            if response.ok: shopify_data = response.json()
-        except requests.exceptions.RequestException as e:
-            Logger.error(f"API Flask inaccessible pour le profil de {user_id}: {e}")
-        return user_stats, user_ratings, shopify_data
-
-    try:
         # 2. Le travail long (BDD, API) est fait dans un thread
-        user_stats, user_ratings, shopify_data = await asyncio.to_thread(_fetch_user_data_sync, target_user.id)
+            user_stats, user_ratings, shopify_data = await asyncio.to_thread(_fetch_user_data_sync, target_user.id)
 
-        if not user_stats and not shopify_data.get('purchase_count', 0) > 0:
-            await interaction.followup.send("Cet utilisateur n'a aucune activité enregistrée.", ephemeral=True)
-            return
+            if not user_stats and not shopify_data.get('purchase_count', 0) > 0:
+                await interaction.followup.send("Cet utilisateur n'a aucune activité enregistrée.", ephemeral=True)
+                return
 
         # 3. Préparation des données pour la carte visuelle
-        card_data = {
-            "name": str(target_user),
-            "avatar_url": target_user.display_avatar.url,
-            **user_stats,
-            **shopify_data
-        }
+            card_data = {
+                "name": str(target_user),
+                "avatar_url": target_user.display_avatar.url,
+                **user_stats,
+                **shopify_data
+            }
 
         # 4. Génération de l'image de la carte de profil
-        image_buffer = await create_profile_card(card_data) # On importe depuis image_generator.py
-        image_file = discord.File(fp=image_buffer, filename="profile_card.png")
+            image_buffer = await create_profile_card(card_data) # On importe depuis image_generator.py
+            image_file = discord.File(fp=image_buffer, filename="profile_card.png")
 
         # 5. Création de l'embed qui contiendra l'image
-        embed = discord.Embed(
-            title=f"Profil de {target_user.display_name}",
-            description="Cliquez sur `📝 Notes` pour voir la liste des produits notés.",
-            color=target_user.color
-        )
-        embed.set_image(url="attachment://profile_card.png")
+            embed = discord.Embed(
+                title=f"Profil de {target_user.display_name}",
+                description="Cliquez sur `📝 Notes` pour voir la liste des produits notés.",
+                color=target_user.color
+            )
+            embed.set_image(url="attachment://profile_card.png")
 
         # 6. Création de la vue de pagination/gestion
-        can_reset = membre and membre.id != interaction.user.id and await is_staff_or_owner(interaction)
+            can_reset = membre and membre.id != interaction.user.id and await is_staff_or_owner(interaction)
         # Votre `ProfilePaginatorView` fonctionnera toujours pour afficher les notes
-        paginator = ProfilePaginatorView(target_user, user_stats, user_ratings, shopify_data, can_reset, self.bot)
+            paginator = ProfilePaginatorView(target_user, user_stats, user_ratings, shopify_data, can_reset, self.bot)
         
         # 7. Envoi du message final avec l'image et les boutons
-        await interaction.followup.send(embed=embed, file=image_file, view=paginator, ephemeral=True)
+            await interaction.followup.send(embed=embed, file=image_file, view=paginator, ephemeral=True)
 
-    except Exception as e:
-        Logger.error(f"Erreur lors de la génération du profil pour {target_user.display_name}: {e}")
-        traceback.print_exc()
-        await interaction.followup.send("❌ Une erreur est survenue lors de la récupération du profil.", ephemeral=True)
+        except Exception as e:
+            Logger.error(f"Erreur lors de la génération du profil pour {target_user.display_name}: {e}")
+            traceback.print_exc()
+            await interaction.followup.send("❌ Une erreur est survenue lors de la récupération du profil.", ephemeral=True)
 
     @app_commands.command(name="lier_compte", description="Démarre la liaison de ton compte via ton e-mail de commande.")
     @app_commands.describe(email="L'adresse e-mail que tu utilises pour tes commandes sur la boutique.")
