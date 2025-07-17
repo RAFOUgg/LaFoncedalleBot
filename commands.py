@@ -79,8 +79,9 @@ class ProductView(discord.ui.View):
         if self.category == "accessoire": return "🛠️"
         return ""
 
+    # Dans commands.py, à l'intérieur de la classe ProductView
+
     def create_embed(self) -> discord.Embed:
-        # ... (Début de create_embed inchangé) ...
         product = self.products[self.current_index]
         emoji = self.get_category_emoji()
         embed_color = discord.Color.dark_red() if product.get('is_sold_out') else discord.Color.from_rgb(255, 204, 0)
@@ -94,7 +95,6 @@ class ProductView(discord.ui.View):
             # Afficher la description complète jusqu'à la limite de Discord (1024 caractères par champ)
             embed.add_field(name="Description", value=description[:1024], inline=False)
 
-        # ... (Prix et Stock inchangés) ...
         price_text = ""
         if product.get('is_sold_out'): price_text = "❌ **ÉPUISÉ**"
         elif product.get('is_promo'): price_text = f"🏷️ **{product.get('price')}** ~~{product.get('original_price')}~~"
@@ -107,22 +107,27 @@ class ProductView(discord.ui.View):
         stats = product.get('stats', {})
         char_lines = []
         
-        # --- FILTRAGE DES CARACTÉRISTIQUES (Pour éviter "Goût : Livraison offerte") ---
+        # --- CORRECTION DU FILTRAGE DES CARACTÉRISTIQUES ---
+        # Clés de champs méta à toujours ignorer dans cette section
         ignore_keys = ["pdf", "lab", "terpen", "stock", "description"] 
-        ignore_values = ["livraison", "offert"] # Ignorer si la valeur contient ces mots
+        # Mots-clés dans la valeur qui indiquent que ce n'est pas une caractéristique pertinente
+        ignore_values = ["livraison", "offert"]
 
         for k, v in stats.items():
             k_lower = k.lower()
             v_str = str(v) # S'assurer que v est une chaîne pour la comparaison
             v_lower = v_str.lower()
             
-            # Si la clé est à ignorer, OU si la valeur est un lien/GID, OU si la valeur contient des mots interdits :
+            # Condition de filtrage : on saute cette caractéristique si...
+            # ... la clé est dans la liste d'ignorés (ex: 'stock')
+            # ... la valeur est un lien http ou un gid Shopify
+            # ... la valeur contient un mot-clé à ignorer (ex: 'livraison offerte')
             if (any(key in k_lower for key in ignore_keys) or 
                 v_str.startswith("http") or v_str.startswith("gid://") or 
                 any(val in v_lower for val in ignore_values)):
                 continue
             
-            # Formattage spécifique
+            # Si le filtrage est passé, on formate l'affichage
             if "effet" in k_lower: char_lines.append(f"**Effet :** {v_str}")
             elif "gout" in k_lower: char_lines.append(f"**Goût :** {v_str}")
             elif "cbd" in k_lower: char_lines.append(f"**CBD :** {v_str}")

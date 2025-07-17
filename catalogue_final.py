@@ -58,6 +58,12 @@ query getFiles($ids: [ID!]!) {
 }
 """
 
+# Dans catalogue_final.py
+
+# ... (gardez les imports en haut du fichier, assurez-vous que 're' est importé)
+import re
+# ...
+
 def get_site_data_from_api():
     """
     Version FINALE : Récupère, catégorise, filtre, et résout les GIDs des fichiers en URLs publiques.
@@ -110,8 +116,11 @@ def get_site_data_from_api():
 
             desc_html = prod.body_html
             if desc_html:
+                # --- CORRECTION DU PARSING HTML ---
+                # On remplace les balises de saut de ligne par le caractère newline
                 desc_html = re.sub(r'<br\s*/?>', '\n', desc_html, flags=re.IGNORECASE)
                 desc_html = re.sub(r'</p>', '\n\n', desc_html, flags=re.IGNORECASE)
+                # Ensuite, on nettoie le reste des balises HTML
                 soup = BeautifulSoup(desc_html, 'html.parser')
                 product_data['detailed_description'] = soup.get_text(strip=True)
             else:
@@ -146,6 +155,7 @@ def get_site_data_from_api():
             
             raw_products_data.append(product_data)
 
+        # ... (le reste de la fonction est inchangé) ...
         gid_url_map = {}
         if gids_to_resolve:
             Logger.info(f"Résolution de {len(gids_to_resolve)} GIDs de fichiers via GraphQL...")
