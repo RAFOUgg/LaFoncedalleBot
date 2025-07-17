@@ -12,10 +12,10 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
         # --- Configuration (Polices plus grandes) ---
         try:
             # Assurez-vous d'avoir ces fichiers de police dans votre dossier de projet
-            font_name = ImageFont.truetype("Roboto-Bold.ttf", 60)
-            font_title = ImageFont.truetype("Roboto-Bold.ttf", 45)
-            font_regular = ImageFont.truetype("Roboto-Regular.ttf", 38)
-            font_badge = ImageFont.truetype("Roboto-Bold.ttf", 35)
+            font_name = ImageFont.truetype("GROBOLD.ttf", 60)
+            font_title = ImageFont.truetype("GROBOLD.ttf", 45)
+            font_regular = ImageFont.truetype("GROBOLD.ttf", 38)
+            font_badge = ImageFont.truetype("GROBOLD.ttf", 35)
         except IOError:
             # Polices de secours si les fichiers ne sont pas trouvés
             font_name = ImageFont.load_default()
