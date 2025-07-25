@@ -6,7 +6,6 @@ discord.py
 # --- Shopify & Web Requests ---
 ShopifyAPI
 requests
-playwright
 
 # --- Database & Utils ---
 aiosqlite
