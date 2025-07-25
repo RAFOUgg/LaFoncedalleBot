@@ -746,204 +746,108 @@ class SlashCommands(commands.Cog):
     @app_commands.command(name="debug", description="Force la republication du menu (staff uniquement)")
     @app_commands.check(is_staff_or_owner)
     async def debug(self, interaction: discord.Interaction):
-        # 1. On accuse réception IMMÉDIATEMENT pour éviter tout timeout.
         await interaction.response.defer(ephemeral=True)
-        Logger.info(f"Publication forcée du menu demandée par {interaction.user} via /debug...")
-
+        Logger.info(f"Publication forcée demandée par {interaction.user} via /debug...")
         try:
-            # 2. On appelle la fonction qui fait le vrai travail.
-            # Le 'force_publish=True' assure que le menu sera publié même si le hash n'a pas changé.
             updates_found = await self.bot.check_for_updates(self.bot, force_publish=True)
-            
-            # 3. On envoie un message de succès à l'utilisateur qui a lancé la commande.
             if updates_found:
-                # Ce cas est idéal : un changement a été détecté (ou forcé) ET le menu a été publié.
-                await interaction.followup.send("✅ Menu mis à jour et republié avec mention dans le salon dédié.", ephemeral=True)
+                await interaction.followup.send("✅ Menu mis à jour et republié avec mention.", ephemeral=True)
             else:
-                # Ce cas peut arriver si check_for_updates ne publie pas pour une raison interne (ex: salon introuvable).
-                # Le message reste positif car l'action a été tentée.
-                await interaction.followup.send("✅ Tentative de republication effectuée. Vérifiez le salon dédié pour le résultat.", ephemeral=True)
-
+                await interaction.followup.send("✅ Tentative de republication effectuée. Le menu était déjà à jour mais a été republié.", ephemeral=True)
         except Exception as e:
-            # 4. En cas d'erreur pendant la publication, on notifie l'utilisateur et on loggue l'erreur.
-            Logger.error(f"Erreur critique lors de l'exécution de /debug : {e}")
+            Logger.error(f"Erreur critique lors de /debug : {e}")
             traceback.print_exc()
-            await interaction.followup.send("❌ Une erreur est survenue lors de la tentative de republication. Consultez les logs du bot pour les détails.", ephemeral=True)
+            await interaction.followup.send("❌ Une erreur est survenue. Consultez les logs.", ephemeral=True)
 
-    @app_commands.command(name="check", description="Vérifie si de nouveaux produits sont disponibles (cooldown de 12h).")
+    @app_commands.command(name="check", description="Vérifie si de nouveaux produits sont disponibles (cooldown 12h).")
     async def check(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         cooldown_period = timedelta(hours=12)
         last_check_iso = await config_manager.get_state('last_check_command_timestamp')
         if last_check_iso:
-            time_since_last_check = datetime.utcnow() - datetime.fromisoformat(last_check_iso)
-            if time_since_last_check < cooldown_period:
-                next_allowed_time = datetime.fromisoformat(last_check_iso) + cooldown_period
-                await interaction.followup.send(f"⏳ Prochaine vérification possible <t:{int(next_allowed_time.timestamp())}:R>.", ephemeral=True)
+            time_since = datetime.utcnow() - datetime.fromisoformat(last_check_iso)
+            if time_since < cooldown_period:
+                next_time = datetime.fromisoformat(last_check_iso) + cooldown_period
+                await interaction.followup.send(f"⏳ Prochaine vérification possible <t:{int(next_time.timestamp())}:R>.", ephemeral=True)
                 return
+        
         await log_user_action(interaction, "a utilisé /check.")
         try:
             updates_found = await self.bot.check_for_updates(self.bot, force_publish=False)
             await config_manager.update_state('last_check_command_timestamp', datetime.utcnow().isoformat())
-            if updates_found: await interaction.followup.send("✅ Merci ! Le menu a été mis à jour grâce à vous.", ephemeral=True)
-            else: await interaction.followup.send("👍 Le menu est déjà à jour. Merci d'avoir vérifié !", ephemeral=True)
+            if updates_found:
+                await interaction.followup.send("✅ Merci ! Le menu a été mis à jour grâce à vous.", ephemeral=True)
+            else:
+                await interaction.followup.send("👍 Le menu est déjà à jour. Merci d'avoir vérifié !", ephemeral=True)
         except Exception as e:
             Logger.error(f"Erreur dans /check: {e}"); traceback.print_exc()
-            await interaction.followup.send("❌ Oups, une erreur est survenue lors de la vérification.", ephemeral=True)
+            await interaction.followup.send("❌ Oups, une erreur est survenue.", ephemeral=True)
 
-    @app_commands.command(name="graph", description="Voir un graphique radar des moyennes du serveur pour un produit")
+    @app_commands.command(name="graph", description="Voir un graphique radar pour un produit")
     @app_commands.check(is_staff_or_owner)
     async def graph(self, interaction: discord.Interaction):
-        import graph_generator 
         await interaction.response.defer(ephemeral=True)
-        await log_user_action(interaction, "Commande /graph")
+        await log_user_action(interaction, "a demandé un graphique.")
         def fetch_products():
-            conn = sqlite3.connect(DB_FILE)
-            cursor = conn.cursor()
-            cursor.execute("SELECT DISTINCT product_name FROM ratings")
-            products = [row[0] for row in cursor.fetchall()]
+            conn = sqlite3.connect(DB_FILE); c = conn.cursor()
+            c.execute("SELECT DISTINCT product_name FROM ratings")
+            products = [row[0] for row in c.fetchall()]
             conn.close()
             return products
         products = await asyncio.to_thread(fetch_products)
         if not products:
-            await interaction.followup.send("Aucun produit n'a encore été noté sur le serveur.", ephemeral=True)
+            await interaction.followup.send("Aucun produit n'a encore été noté.", ephemeral=True)
             return
         view = ProductSelectViewForGraph(products, self.bot)
-        await interaction.followup.send("Sélectionnez un produit pour voir le graphique radar des moyennes du serveur :", view=view, ephemeral=True)
+        await interaction.followup.send("Sélectionnez un produit :", view=view, ephemeral=True)
 
     @app_commands.command(name="nitro_gift", description="Réclame ton code de réduction pour avoir boosté le serveur !")
     @app_commands.guild_only()
     async def nitro_gift(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        user = interaction.user
-        guild = interaction.guild
+        user, guild = interaction.user, interaction.guild
         if not user.premium_since:
-            await interaction.followup.send("Désolé, cette commande est réservée aux membres qui boostent actuellement le serveur. Merci pour ton soutien ! 🚀", ephemeral=True)
+            await interaction.followup.send("Désolé, cette commande est pour les Boosters. Merci pour ton soutien ! 🚀", ephemeral=True)
             return
+        
         claimed_users = {}
         try:
             with open(CLAIMED_CODES_FILE, 'r') as f: claimed_users = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError): pass
+
         if str(user.id) in claimed_users:
-            await interaction.followup.send(f"Tu as déjà réclamé ton code de réduction le {claimed_users[str(user.id)]}. Merci encore pour ton boost ! ✨", ephemeral=True)
+            await interaction.followup.send(f"Tu as déjà réclamé ton code le {claimed_users[str(user.id)]}. Merci encore ! ✨", ephemeral=True)
             return
+        
         try:
             with open(NITRO_CODES_FILE, 'r+') as f:
                 codes = [line.strip() for line in f if line.strip()]
                 if not codes:
-                    await interaction.followup.send("Oh non ! Il semble que nous soyons à court de codes de réduction pour le moment. Merci de contacter un membre du staff. 😥", ephemeral=True)
-                    Logger.warning("Tentative de réclamation de code Nitro alors que le fichier est vide.")
+                    await interaction.followup.send("Oh non ! Plus de codes dispo. Contactez le staff. 😥", ephemeral=True)
+                    Logger.warning("Fichier de codes Nitro vide.")
                     return
                 gift_code = codes.pop(0)
                 f.seek(0); f.truncate(); f.write('\n'.join(codes))
+            
             try:
-                embed = create_styled_embed(title="Merci pour ton Boost ! 💖", description=f"Encore merci de soutenir **{guild.name}** ! Pour te remercier, voici ton code de réduction personnel à usage unique.\n\nUtilise-le lors de ta prochaine commande sur notre boutique.", color=discord.Color.nitro_pink())
-                embed.add_field(name="🎟️ Ton Code de Réduction", value=f"**`{gift_code}`**")
-                embed.set_footer(text="Ce code est à usage unique. Ne le partage pas !")
+                embed = create_styled_embed(title="Merci pour ton Boost ! 💖", 
+                    description=f"Merci de soutenir **{guild.name}** ! Voici ton code de réduction unique.", 
+                    color=discord.Color.nitro_pink())
+                embed.add_field(name="🎟️ Ton Code", value=f"**`{gift_code}`**")
                 await user.send(embed=embed)
-                await interaction.followup.send("Je viens de t'envoyer ton code de réduction en message privé ! Vérifie tes MPs. 😉", ephemeral=True)
+                await interaction.followup.send("Code envoyé en MP ! 😉", ephemeral=True)
                 claimed_users[str(user.id)] = datetime.now(paris_tz).strftime('%d/%m/%Y')
                 with open(CLAIMED_CODES_FILE, 'w') as f: json.dump(claimed_users, f, indent=4)
-                await log_user_action(interaction, f"a réclamé avec succès le code Nitro : {gift_code}")
+                await log_user_action(interaction, f"a réclamé le code Nitro : {gift_code}")
             except discord.Forbidden:
-                await interaction.followup.send("Je n'ai pas pu t'envoyer ton code en message privé. Assure-toi d'autoriser les messages privés venant des membres de ce serveur, puis réessaye.", ephemeral=True)
+                await interaction.followup.send("Impossible de t'envoyer un MP. Vérifie tes paramètres de confidentialité.", ephemeral=True)
         except FileNotFoundError:
-            await interaction.followup.send("Le fichier de codes de réduction n'a pas été trouvé. Merci de contacter un membre du staff.", ephemeral=True)
-            Logger.error(f"Le fichier '{NITRO_CODES_FILE}' est introuvable.")
+            await interaction.followup.send("Fichier de codes introuvable. Contactez le staff.", ephemeral=True)
+            Logger.error(f"Fichier '{NITRO_CODES_FILE}' introuvable.")
         except Exception as e:
-            Logger.error(f"Erreur inattendue dans la commande /nitro_gift : {e}")
-            traceback.print_exc()
-            await interaction.followup.send("❌ Une erreur interne est survenue. Merci de réessayer ou de contacter un admin.", ephemeral=True)
-
-    @app_commands.command(name="profil", description="Affiche le profil et les notations d'un membre.")
-@app_commands.describe(membre="Le membre dont vous voulez voir le profil (optionnel).")
-async def profil(self, interaction: discord.Interaction, membre: Optional[discord.Member] = None):
-    # 1. Defer immédiatement pour garantir une réponse rapide à Discord
-    await interaction.response.defer(ephemeral=True)
-
-    target_user = membre or interaction.user
-    await log_user_action(interaction, f"a consulté le profil de {target_user.display_name}")
-
-    def _fetch_user_data_sync(user_id):
-        # ... (cette fonction interne est correcte, pas de changement)
-        import requests
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT product_name, visual_score, smell_score, touch_score, taste_score, effects_score, rating_timestamp FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC", (user_id,))
-        user_ratings = [dict(row) for row in cursor.fetchall()]
-        cursor.execute("""
-            WITH UserAverageNotes AS (
-                SELECT user_id, (COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0 AS avg_note
-                FROM ratings
-            ),
-            AllRanks AS (
-                SELECT user_id, COUNT(user_id) as rating_count, AVG(avg_note) as global_avg, MIN(avg_note) as min_note, MAX(avg_note) as max_note,
-                       RANK() OVER (ORDER BY COUNT(user_id) DESC, AVG(avg_note) DESC) as user_rank
-                FROM UserAverageNotes
-                GROUP BY user_id
-            )
-            SELECT user_rank, rating_count, global_avg, min_note, max_note
-            FROM AllRanks WHERE user_id = ?
-        """, (user_id,))
-        stats_row = cursor.fetchone()
-        user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0}
-        if stats_row:
-            user_stats = dict(stats_row)
-        one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
-        cursor.execute("SELECT user_id FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY COUNT(id) DESC LIMIT 3", (one_month_ago,))
-        top_3_monthly_ids = [row['user_id'] for row in cursor.fetchall()]
-        user_stats['is_top_3_monthly'] = user_id in top_3_monthly_ids
-        conn.close()
-        shopify_data = {}
-        api_url = f"{APP_URL}/api/get_purchased_products/{user_id}"
-        try:
-            response = requests.get(api_url, timeout=10)
-            if response.ok: shopify_data = response.json()
-        except requests.exceptions.RequestException as e:
-            Logger.error(f"API Flask inaccessible pour le profil de {user_id}: {e}")
-        return user_stats, user_ratings, shopify_data
-
-    try:
-        # 2. Le travail long (BDD, API) est fait dans un thread
-        user_stats, user_ratings, shopify_data = await asyncio.to_thread(_fetch_user_data_sync, target_user.id)
-
-        if user_stats['count'] == 0 and not shopify_data.get('purchase_count', 0) > 0:
-            await interaction.followup.send("Cet utilisateur n'a aucune activité enregistrée.", ephemeral=True)
-            return
-
-        # 3. Préparation des données pour la carte visuelle
-        card_data = {
-            "name": str(target_user),
-            "avatar_url": target_user.display_avatar.url,
-            **user_stats,
-            **shopify_data
-        }
-
-        # 4. Génération de l'image de la carte de profil (CORRIGÉ : SANS DUPLICATION)
-        image_buffer = await create_profile_card(card_data)
-        image_file = discord.File(fp=image_buffer, filename="profile_card.png")
-
-        # 5. Création de l'embed qui contiendra l'image
-        embed = discord.Embed(
-            title=f"Profil de {target_user.display_name}",
-            description="Cliquez sur les boutons `⬅️` et `➡️` pour voir la liste des produits notés, ou sur `👤` pour revenir ici.",
-            color=target_user.color
-        )
-        embed.set_image(url=f"attachment://{image_file.filename}") # Important: utiliser attachment://
-
-        # 6. Création de la vue de pagination/gestion
-        can_reset = membre and membre.id != interaction.user.id and await is_staff_or_owner(interaction)
-        paginator = ProfilePaginatorView(target_user, user_stats, user_ratings, shopify_data, can_reset, self.bot, image_file)
-        
-        # 7. Envoi du message final avec l'image et les boutons
-        await interaction.followup.send(embed=embed, file=image_file, view=paginator, ephemeral=True)
-
-    except Exception as e:
-        Logger.error(f"Erreur lors de la génération du profil pour {target_user.display_name}: {e}")
-        traceback.print_exc()
-        await interaction.followup.send("❌ Une erreur est survenue lors de la récupération du profil.", ephemeral=True)
-
+            Logger.error(f"Erreur dans /nitro_gift : {e}"); traceback.print_exc()
+            await interaction.followup.send("❌ Erreur interne.", ephemeral=True)
+    
     @app_commands.command(name="lier_compte", description="Démarre la liaison de ton compte via ton e-mail de commande.")
     @app_commands.describe(email="L'adresse e-mail que tu utilises pour tes commandes sur la boutique.")
     async def lier_compte(self, interaction: discord.Interaction, email: str):
