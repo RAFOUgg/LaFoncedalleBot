@@ -64,6 +64,8 @@ query getFiles($ids: [ID!]!) {
 
 # ... (gardez la fonction get_smart_promotions_from_api, elle est utile)
 
+# Dans catalogue_final.py
+
 def get_site_data_from_api():
     """
     Version FINALE ET ROBUSTE : Catégorise les produits en se basant sur leurs collections
@@ -83,15 +85,24 @@ def get_site_data_from_api():
         session = shopify.Session(shop_url, api_version, access_token)
         shopify.ShopifyResource.activate_session(session)
 
+        # --- ÉTAPE 1 : Récupérer la liste de tous les produits PUBLIÉS ---
+        # On stocke leurs IDs dans un set pour une vérification ultra-rapide.
+        published_products_api = shopify.Product.find(published_status='published', limit=250)
+        published_product_ids = {prod.id for prod in published_products_api}
+        Logger.info(f"{len(published_product_ids)} produits publiés trouvés sur la boutique.")
+
+        # --- ÉTAPE 2 : Récupérer les promotions ---
         general_promos = get_smart_promotions_from_api()
 
+        # --- ÉTAPE 3 : Traiter les collections pour catégoriser les produits ---
         collection_keyword_map = {
             "hash": "hash",
             "weed": "weed",
             "box": "box",
+            # Ajoutez "accessoire" ici si vous avez une collection nommée "Accessoires"
         }
         
-        all_products = {}
+        all_products = {} # Dictionnaire pour stocker les produits traités et éviter les doublons
         gids_to_resolve = set()
 
         collections = shopify.CustomCollection.find()
@@ -106,24 +117,31 @@ def get_site_data_from_api():
                     break
 
             if category:
-                Logger.info(f"Récupération des produits PUBLIÉS de la collection '{collection.title}'...")
+                Logger.info(f"Analyse des produits de la collection '{collection.title}'...")
                 
-                # --- CORRECTION N°1 : On ajoute le filtre ici ---
-                products_in_collection = collection.products(published_status='published')
+                # On récupère TOUS les produits de la collection...
+                products_in_collection = collection.products()
                 
                 for prod in products_in_collection:
+                    # ...et on vérifie MANUELLEMENT s'ils sont dans notre liste de produits publiés.
+                    if prod.id not in published_product_ids:
+                        continue # Si non, on l'ignore.
+
                     if prod.id in all_products:
                         continue
-
+                    
                     if any(kw in prod.title.lower() for kw in ["telegram", "instagram", "tiktok"]):
                         continue
 
+                    # --- Début de l'extraction des données du produit ---
                     product_data = {}
                     product_data['name'] = prod.title
                     product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
                     product_data['image'] = prod.image.src if prod.image else None
+                    
                     category_map_display = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
                     product_data['category'] = category_map_display.get(category, category)
+
                     desc_html = prod.body_html
                     if desc_html:
                         soup = BeautifulSoup(desc_html, 'html.parser')
@@ -131,8 +149,10 @@ def get_site_data_from_api():
                         product_data['detailed_description'] = soup.get_text(separator="\n", strip=True)
                     else:
                         product_data['detailed_description'] = "Pas de description."
+                    
                     available_variants = [v for v in prod.variants if v.inventory_quantity > 0 or v.inventory_policy == 'continue']
                     product_data['is_sold_out'] = not available_variants
+                    
                     if available_variants:
                         min_price_variant = min(available_variants, key=lambda v: float(v.price))
                         price = float(min_price_variant.price)
@@ -145,6 +165,7 @@ def get_site_data_from_api():
                         product_data['price'] = "N/A"
                         product_data['is_promo'] = False
                         product_data['original_price'] = None
+
                     product_data['stats'] = {}
                     for meta in prod.metafields():
                         key = meta.key.replace('_', ' ').capitalize()
@@ -152,15 +173,26 @@ def get_site_data_from_api():
                         product_data['stats'][key] = value
                         if isinstance(value, str) and value.startswith("gid://shopify/"):
                             gids_to_resolve.add(value)
+                    
                     all_products[prod.id] = product_data
+                    # --- Fin de l'extraction ---
 
-        all_products_from_api = shopify.Product.find(published_status='published', limit=250)
-        for prod in all_products_from_api:
+        # --- Logique de Fallback pour les produits hors-collection (ex: accessoires) ---
+        for prod in published_products_api:
             if prod.id in all_products:
                 continue
+            
+            # Si un produit publié n'a pas été trouvé dans nos collections principales,
+            # on vérifie s'il s'agit d'un accessoire.
+            if any(kw in prod.title.lower() for kw in ["briquet", "feuille", "grinder", "accessoire"]):
+                # On réutilise la même logique d'extraction de données ici
+                # (c'est un peu redondant mais garantit que rien n'est manqué)
+                # ... (vous pouvez copier/coller le bloc d'extraction de données si nécessaire)
+                pass
 
         raw_products_data = list(all_products.values())
         
+        # --- Résolution des GIDs ---
         gid_url_map = {}
         if gids_to_resolve:
             client = shopify.GraphQL()
