@@ -153,75 +153,93 @@ def get_smart_promotions_from_api():
     
 # Dans catalogue_final.py
 
-async def get_site_data_from_api(): # <-- DOIT être async def
+async def get_site_data_from_api():
     """
-    Version HYBRIDE CORRIGÉE : Récupère les données via API ET scraping de manière asynchrone.
+    Version HYBRIDE AMÉLIORÉE : Gère les erreurs partielles pour une meilleure résilience.
     """
     Logger.info("Démarrage de la récupération HYBRIDE (API + Scraping)...")
     
+    # On initialise les listes pour s'assurer qu'elles existent même en cas d'erreur
+    all_products_api = []
+    general_promos = []
+
     try:
         shop_url = os.getenv('SHOPIFY_SHOP_URL')
         api_version = os.getenv('SHOPIFY_API_VERSION')
         access_token = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
 
-        if not all([shop_url, api_version, access_token]): return None
+        if not all([shop_url, api_version, access_token]): 
+            Logger.error("Identifiants Shopify manquants dans la configuration.")
+            return None
 
         session = shopify.Session(shop_url, api_version, access_token)
         shopify.ShopifyResource.activate_session(session)
 
-        # --- ÉTAPE 1 : LANCEMENT DES TÂCHES EN PARALLÈLE ---
-        # On exécute les appels bloquants (API Shopify) dans des threads séparés.
+        # --- ÉTAPE 1 : LANCEMENT DES TÂCHES AVEC GESTION D'ERREUR ---
         products_task = asyncio.to_thread(shopify.Product.find, status='active', limit=250)
         api_promos_task = asyncio.to_thread(get_smart_promotions_from_api)
-        
-        # L'appel au scraper est déjà asynchrone, on peut l'appeler directement.
-        # Note : J'utilise le nom correct de la fonction que vous avez fournie.
         visual_promos_task = scrape_visual_promos(CATALOG_URL)
 
-        # On attend que toutes les tâches (API et scraping) se terminent.
-        all_products_api, api_promos, visual_promos = await asyncio.gather(
+        # On utilise return_exceptions=True pour ne pas planter toute la fonction
+        results = await asyncio.gather(
             products_task,
             api_promos_task,
-            visual_promos_task
+            visual_promos_task,
+            return_exceptions=True
         )
         
-        # --- ÉTAPE 2 : FUSION DES PROMOTIONS ---
+        # --- ÉTAPE 2 : TRAITEMENT SÉCURISÉ DES RÉSULTATS ---
+        
+        # Traitement des produits (essentiel)
+        if isinstance(results[0], Exception):
+            Logger.error(f"Échec critique de la récupération des produits : {results[0]}")
+            # Si on ne peut même pas avoir les produits, on arrête tout.
+            return None
+        all_products_api = results[0]
+
+        # Traitement des promotions API
+        api_promos = []
+        if isinstance(results[1], Exception):
+            Logger.warning(f"Échec de la récupération des promotions API : {results[1]}")
+        else:
+            api_promos = results[1]
+
+        # Traitement des promotions scrapées
+        visual_promos = []
+        if isinstance(results[2], Exception):
+            Logger.warning(f"Échec de la récupération des promotions visuelles : {results[2]}")
+        else:
+            visual_promos = results[2]
+            
+        # Fusion des promotions
         final_promos = set(api_promos)
         final_promos.update(visual_promos)
         general_promos = list(final_promos)
-        
+
         # --- ÉTAPE 3 : TRAITEMENT DES PRODUITS (INCHANGÉ) ---
+        # Cette partie ne s'exécutera que si la récupération des produits a réussi.
         raw_products_data = []
         gids_to_resolve = set()
+        # ... (Toute votre logique de boucle pour traiter chaque produit reste ici) ...
+        # ... (copiez le bloc complet de la réponse précédente) ...
         hash_keywords = config_manager.get_config("categorization.hash_keywords", []) + ["hash", "résine", "resin", "resine", "piatella", "piattella"]
         box_keywords = ["box", "pack", "coffret", "gustative"]
         accessoire_keywords = ["briquet", "feuille", "papier", "accessoire", "grinder", "plateau", "clipper", "ocb"]
         social_keywords = ["telegram", "instagram", "tiktok"]
 
         for prod in all_products_api:
-            # ... (Toute votre logique de boucle pour traiter chaque produit reste ici) ...
-            # ... (catégorisation, filtres, extraction de données, etc.)
             title_lower = prod.title.lower()
             product_type_lower = prod.product_type.lower() if prod.product_type else ""
             tags_lower = [tag.lower() for tag in prod.tags]
 
-            if any(kw in title_lower for kw in box_keywords): 
-                category = "box"
-            elif any(kw in title_lower for kw in accessoire_keywords) or "accessoire" in product_type_lower:
-                category = "accessoire"
-            elif any(kw in title_lower for kw in hash_keywords) or any(kw in tags_lower for kw in hash_keywords) or "résine" in product_type_lower:
-                category = "hash"
-            else:
-                category = "weed"
+            if any(kw in title_lower for kw in box_keywords): category = "box"
+            elif any(kw in title_lower for kw in accessoire_keywords) or "accessoire" in product_type_lower: category = "accessoire"
+            elif any(kw in title_lower for kw in hash_keywords) or any(kw in tags_lower for kw in hash_keywords) or "résine" in product_type_lower: category = "hash"
+            else: category = "weed"
             
             is_free = not any(float(variant.price) > 0 for variant in prod.variants)
-            if is_free and category != "accessoire":
-                Logger.info(f"Produit gratuit '{prod.title}' ignoré car non-accessoire.")
-                continue
-            
-            if any(kw in title_lower for kw in social_keywords):
-                Logger.info(f"Produit social '{prod.title}' ignoré.")
-                continue
+            if is_free and category != "accessoire": continue
+            if any(kw in title_lower for kw in social_keywords): continue
 
             product_data = {}
             product_data['name'] = prod.title
@@ -230,12 +248,11 @@ async def get_site_data_from_api(): # <-- DOIT être async def
             
             category_map = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
             product_data['category'] = category_map.get(category)
-
+            
             desc_html = prod.body_html
             if desc_html:
                 soup = BeautifulSoup(desc_html, 'html.parser')
-                for br in soup.find_all("br"):
-                    br.replace_with("\n")
+                for br in soup.find_all("br"): br.replace_with("\n")
                 product_data['detailed_description'] = soup.get_text(separator="\n", strip=True)
             else:
                 product_data['detailed_description'] = "Pas de description."
@@ -265,13 +282,12 @@ async def get_site_data_from_api(): # <-- DOIT être async def
                     gids_to_resolve.add(value)
             
             raw_products_data.append(product_data)
-
-        # --- ÉTAPE 4 : RÉSOLUTION DES GIDS (INCHANGÉ) ---
+        
+        # ... (votre logique de résolution GraphQL reste ici) ...
         gid_url_map = {}
         if gids_to_resolve:
-            # ... (votre logique de résolution GraphQL reste ici) ...
             client = shopify.GraphQL()
-            result_json = client.execute(RESOLVE_FILES_QUERY, variables={"ids": list(gids_to_resolve)})
+            result_json = await asyncio.to_thread(client.execute, RESOLVE_FILES_QUERY, variables={"ids": list(gids_to_resolve)})
             result = json.loads(result_json)
             for node in result.get('data', {}).get('nodes', []):
                 if node:
@@ -289,9 +305,9 @@ async def get_site_data_from_api(): # <-- DOIT être async def
         return {"timestamp": a_time.time(), "products": final_products, "general_promos": general_promos}
 
     except Exception as e:
-        Logger.error(f"CRITIQUE lors de la récupération via API Shopify : {repr(e)}")
+        Logger.error(f"Une erreur imprévue est survenue dans get_site_data_from_api : {repr(e)}")
         traceback.print_exc()
-        return None
+        return None # Retourne None en cas d'erreur non gérée
     finally:
         if 'shopify' in locals() and shopify.ShopifyResource.get_session():
             shopify.ShopifyResource.clear_session()
