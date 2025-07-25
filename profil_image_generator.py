@@ -9,17 +9,15 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
     """Génère une carte de profil visuellement riche avec une police personnalisée et des emojis."""
 
     def _generate():
-        # --- Configuration des Polices ---
-        # On charge la police de texte (Gobold) et la police pour les emojis.
+        # --- Configuration des Polices (CORRIGÉE) ---
         try:
-            # Assurez-vous que les noms de fichiers correspondent à ceux que vous avez téléchargés
-            font_name = ImageFont.truetype("Gobold-Bold.ttf", 65)
-            font_title = ImageFont.truetype("Gobold-Bold.ttf", 42)
-            font_regular = ImageFont.truetype("Gobold-Regular.ttf", 40)
-            font_badge = ImageFont.truetype("Gobold-Bold.ttf", 42)
-            # Charge la police emoji
-            font_emoji = ImageFont.truetype("NotoColorEmoji.ttf", 40)
-        except IOError:
+            # On utilise os.path.join pour construire des chemins robustes
+            font_name = ImageFont.truetype(os.path.join(ASSETS_DIR, "Gobold-Bold.ttf"), 65)
+            font_title = ImageFont.truetype(os.path.join(ASSETS_DIR, "Gobold-Bold.ttf"), 42)
+            font_regular = ImageFont.truetype(os.path.join(ASSETS_DIR, "Gobold-Regular.ttf"), 40)
+            font_badge = ImageFont.truetype(os.path.join(ASSETS_DIR, "Gobold-Bold.ttf"), 42)
+            font_emoji = ImageFont.truetype(os.path.join(ASSETS_DIR, "NotoColorEmoji.ttf"), 40)
+        except IOError as e:
             # Polices de secours si les fichiers ne sont pas trouvés
             font_name = ImageFont.load_default()
             font_title = ImageFont.load_default()

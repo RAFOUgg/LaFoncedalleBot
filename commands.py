@@ -456,7 +456,7 @@ class PromoPaginatorView(discord.ui.View):
             await self.view.update_message(interaction)
 
 class ProfilePaginatorView(discord.ui.View):
-    def __init__(self, target_user, user_stats, user_ratings, shopify_data, can_reset, bot, items_per_page=3):
+    def __init__(self, target_user, user_stats, user_ratings, shopify_data, can_reset, bot, initial_image_file, items_per_page=3):
         super().__init__(timeout=300)
         self.target_user = target_user
         self.user_stats = user_stats
@@ -465,80 +465,95 @@ class ProfilePaginatorView(discord.ui.View):
         self.can_reset = can_reset
         self.bot = bot
         self.items_per_page = items_per_page
-        self.current_page = -1
         self.total_pages = (len(self.user_ratings) - 1) // self.items_per_page
-        self.update_buttons()
-
-    def update_buttons(self):
-        self.clear_items()
-        self.add_item(self.ProfileButton(self))
+        
+        # On stocke le fichier image pour ne pas le perdre
+        self.initial_image_file = initial_image_file
+        
+        # On commence par défaut sur la vue "notes" (page 0), la vue profil est l'état initial
+        self.current_page = 0 
+        
+        # On ajoute les boutons
+        self.add_item(self.ShowProfileButton()) # Nouveau bouton pour revenir au profil
         if self.user_ratings:
-            self.add_item(self.RatingsButton(self))
+            self.add_item(self.PrevButton())
+            self.add_item(self.NextButton())
         if self.can_reset:
-            self.add_item(self.ResetButton(self))
-        if self.current_page != -1 and self.total_pages > 0:
-            self.add_item(self.PrevButton(self))
-            self.add_item(self.NextButton(self))
-            for item in self.children:
-                if isinstance(item, self.PrevButton): item.disabled = self.current_page == 0
-                if isinstance(item, self.NextButton): item.disabled = self.current_page >= self.total_pages
+            self.add_item(self.ResetButton())
+        
+        self.update_buttons_state()
 
-    def create_embed(self) -> discord.Embed:
-        if self.current_page == -1: 
-            embed = discord.Embed(title=f"Profil de {self.target_user.display_name}", color=self.target_user.color)
-            embed.set_thumbnail(url=self.target_user.display_avatar.url)
-            desc = "**__Activité sur le Discord__**\n"
-            rank, count, avg = self.user_stats.get('rank', 'N/C'), self.user_stats.get('count', 0), f"{self.user_stats.get('avg', 0):.2f}/10"
-            if count > 0:
-                desc += f"🏆 **Classement :** `#{rank}`\n📝 **Notations :** `{count}`\n📊 **Moyenne :** `{avg}`\n"
-            else: desc += "Aucune notation.\n"
-            if self.user_stats.get('is_top_3_monthly'): desc += "🏅 **Badge :** `Top Noteur du Mois`\n"
-            desc += "\n**__Activité sur la Boutique__**\n"
-            if self.shopify_data and 'purchase_count' in self.shopify_data:
-                desc += f"🛍️ **Commandes :** `{self.shopify_data['purchase_count']}`\n💳 **Total dépensé :** `{self.shopify_data['total_spent']:.2f} €`\n"
-            else: desc += "Compte non lié. Utilisez `/lier_compte`.\n"
-            embed.description = desc
-            embed.set_footer(text="Cliquez sur les boutons pour voir plus de détails.")
-            return embed
-        else:
-            embed = discord.Embed(title=f"Notes de {self.target_user.display_name}", color=discord.Color.green())
-            embed.set_thumbnail(url=self.target_user.display_avatar.url)
-            start, end = self.current_page * self.items_per_page, (self.current_page + 1) * self.items_per_page
-            for r in self.user_ratings[start:end]:
-                avg = (r.get('visual_score',0)+r.get('smell_score',0)+r.get('touch_score',0)+r.get('taste_score',0)+r.get('effects_score',0))/5
-                date = datetime.fromisoformat(r['rating_timestamp']).strftime('%d/%m/%Y')
-                embed.add_field(name=f"**{r['product_name']}** ({date})", value=f"> Note : **{avg:.2f}/10**", inline=False)
-            if self.total_pages >= 0: embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages + 1}")
-            return embed
+    def update_buttons_state(self):
+        # Désactiver/Activer les boutons Précédent/Suivant
+        for item in self.children:
+            if isinstance(item, self.PrevButton):
+                item.disabled = self.current_page == 0
+            elif isinstance(item, self.NextButton):
+                item.disabled = self.current_page >= self.total_pages
 
-    async def update_view(self, interaction: discord.Interaction):
-        self.update_buttons()
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
-
-    class ProfileButton(discord.ui.Button):
-        def __init__(self, pv): super().__init__(label="Profil", style=discord.ButtonStyle.primary, emoji="👤"); self.pv=pv
-        async def callback(self, i: discord.Interaction): self.pv.current_page = -1; await self.pv.update_view(i)
-    
-    class RatingsButton(discord.ui.Button):
-        def __init__(self, pv): super().__init__(label="Notes", style=discord.ButtonStyle.secondary, emoji="📝"); self.pv=pv
-        async def callback(self, i: discord.Interaction): self.pv.current_page = 0; await self.pv.update_view(i)
+    def create_ratings_embed(self) -> discord.Embed:
+        """Crée l'embed pour la liste des notes."""
+        embed = discord.Embed(title=f"Notes de {self.target_user.display_name}", color=discord.Color.green())
+        embed.set_thumbnail(url=self.target_user.display_avatar.url)
+        start = self.current_page * self.items_per_page
+        end = start + self.items_per_page
+        
+        for r in self.user_ratings[start:end]:
+            avg = (r.get('visual_score', 0) + r.get('smell_score', 0) + r.get('touch_score', 0) + r.get('taste_score', 0) + r.get('effects_score', 0)) / 5
+            date = datetime.fromisoformat(r['rating_timestamp']).strftime('%d/%m/%Y')
+            embed.add_field(name=f"**{r['product_name']}** ({date})", value=f"> Note : **{avg:.2f}/10**", inline=False)
             
+        if self.total_pages >= 0:
+            embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages + 1}")
+        return embed
+
+    async def show_profile_view(self, interaction: discord.Interaction):
+        """Affiche la vue du profil initial avec l'image."""
+        embed = discord.Embed(
+            title=f"Profil de {self.target_user.display_name}",
+            description="Cliquez sur les boutons `⬅️` et `➡️` pour voir la liste des produits notés.",
+            color=self.target_user.color
+        )
+        embed.set_image(url=f"attachment://{self.initial_image_file.filename}")
+        
+        # On ré-attache le fichier image à la réponse
+        await interaction.response.edit_message(embed=embed, attachments=[self.initial_image_file], view=self)
+
+    async def show_ratings_view(self, interaction: discord.Interaction):
+        """Affiche la vue des notes."""
+        self.update_buttons_state()
+        embed = self.create_ratings_embed()
+        # On supprime les anciennes pièces jointes pour ne pas garder l'image
+        await interaction.response.edit_message(embed=embed, attachments=[], view=self)
+
+    # --- DÉFINITION DES BOUTONS ---
+    class ShowProfileButton(discord.ui.Button):
+        def __init__(self):
+            super().__init__(label="Afficher le Profil", style=discord.ButtonStyle.primary, emoji="👤", row=1)
+        async def callback(self, interaction: discord.Interaction):
+            await self.view.show_profile_view(interaction)
+
     class PrevButton(discord.ui.Button):
-        def __init__(self, pv): super().__init__(label="⬅️", style=discord.ButtonStyle.secondary); self.pv=pv
-        async def callback(self, i: discord.Interaction):
-            if self.pv.current_page > 0: self.pv.current_page -= 1
-            await self.pv.update_view(i)
+        def __init__(self):
+            super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary, row=0)
+        async def callback(self, interaction: discord.Interaction):
+            if self.view.current_page > 0:
+                self.view.current_page -= 1
+            await self.view.show_ratings_view(interaction)
             
     class NextButton(discord.ui.Button):
-        def __init__(self, pv): super().__init__(label="➡️", style=discord.ButtonStyle.secondary); self.pv=pv
-        async def callback(self, i: discord.Interaction):
-            if self.pv.current_page < self.pv.total_pages: self.pv.current_page += 1
-            await self.pv.update_view(i)
+        def __init__(self):
+            super().__init__(label="Suivant ➡️", style=discord.ButtonStyle.secondary, row=0)
+        async def callback(self, interaction: discord.Interaction):
+            if self.view.current_page < self.view.total_pages:
+                self.view.current_page += 1
+            await self.view.show_ratings_view(interaction)
 
     class ResetButton(discord.ui.Button):
-        def __init__(self, pv): super().__init__(label="Réinitialiser", style=discord.ButtonStyle.danger, emoji="🗑️"); self.pv=pv
+        def __init__(self):
+            super().__init__(label="Réinitialiser", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
         async def callback(self, i: discord.Interaction):
-            await i.response.send_message(f"Voulez-vous vraiment supprimer les notes de {self.pv.target_user.mention} ?", view=ConfirmResetNotesView(self.pv.target_user, self.pv.bot), ephemeral=True)
+            await i.response.send_message(f"Voulez-vous vraiment supprimer les notes de {self.view.target_user.mention} ?", view=ConfirmResetNotesView(self.view.target_user, self.view.bot), ephemeral=True)
 
 class ConfirmResetNotesView(discord.ui.View):
     def __init__(self, user, bot): super().__init__(timeout=60); self.user=user; self.bot=bot
@@ -841,120 +856,93 @@ class SlashCommands(commands.Cog):
             await interaction.followup.send("❌ Une erreur interne est survenue. Merci de réessayer ou de contacter un admin.", ephemeral=True)
 
     @app_commands.command(name="profil", description="Affiche le profil et les notations d'un membre.")
-    @app_commands.describe(membre="Le membre dont vous voulez voir le profil (optionnel).")
-    async def profil(self, interaction: discord.Interaction, membre: Optional[discord.Member] = None):
+@app_commands.describe(membre="Le membre dont vous voulez voir le profil (optionnel).")
+async def profil(self, interaction: discord.Interaction, membre: Optional[discord.Member] = None):
     # 1. Defer immédiatement pour garantir une réponse rapide à Discord
-        await interaction.response.defer(ephemeral=True)
-    
-        target_user = membre or interaction.user
-        await log_user_action(interaction, f"a consulté le profil de {target_user.display_name}")
+    await interaction.response.defer(ephemeral=True)
 
-        def _fetch_user_data_sync(user_id):
-            import requests
-            conn = sqlite3.connect(DB_FILE)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
+    target_user = membre or interaction.user
+    await log_user_action(interaction, f"a consulté le profil de {target_user.display_name}")
 
-            # --- CORRECTION DE LA REQUÊTE SQL POUR INCLURE MIN/MAX ---
-            # D'abord, on récupère la liste complète des notes
-            cursor.execute("SELECT product_name, visual_score, smell_score, touch_score, taste_score, effects_score, rating_timestamp FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC", (user_id,))
-            user_ratings = [dict(row) for row in cursor.fetchall()]
-
-            # Ensuite, on calcule toutes les statistiques, y compris le rang, en une seule requête plus lisible
-            cursor.execute("""
-                WITH UserAverageNotes AS (
-                    SELECT
-                        user_id,
-                        (COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0 AS avg_note
-                    FROM ratings
-                ),
-                AllRanks AS (
-                    SELECT
-                        user_id,
-                        COUNT(user_id) as rating_count,
-                        AVG(avg_note) as global_avg,
-                        MIN(avg_note) as min_note,
-                        MAX(avg_note) as max_note,
-                        RANK() OVER (ORDER BY COUNT(user_id) DESC, AVG(avg_note) DESC) as user_rank
-                    FROM UserAverageNotes
-                    GROUP BY user_id
-                )
-                SELECT user_rank, rating_count, global_avg, min_note, max_note
-                FROM AllRanks
-                WHERE user_id = ?
-            """, (user_id,))
-            
-            stats_row = cursor.fetchone()
-            # On initialise avec des valeurs par défaut au cas où l'utilisateur n'a aucune note
-            user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0}
-            if stats_row:
-                user_stats = {
-                    'rank': stats_row['user_rank'],
-                    'count': stats_row['rating_count'],
-                    'avg': stats_row['global_avg'],
-                    'min_note': stats_row['min_note'],
-                    'max_note': stats_row['max_note']
-                }
-
-            # On vérifie si l'utilisateur est dans le top 3 du mois
-            one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
-            cursor.execute("SELECT user_id FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY COUNT(id) DESC LIMIT 3", (one_month_ago,))
-            top_3_monthly_ids = [row['user_id'] for row in cursor.fetchall()]
-            user_stats['is_top_3_monthly'] = user_id in top_3_monthly_ids
-            
-            conn.close()
-
-            # La récupération des données Shopify reste inchangée
-            shopify_data = {}
-            api_url = f"{APP_URL}/api/get_purchased_products/{user_id}"
-            try:
-                response = requests.get(api_url, timeout=10)
-                if response.ok: shopify_data = response.json()
-            except requests.exceptions.RequestException as e:
-                Logger.error(f"API Flask inaccessible pour le profil de {user_id}: {e}")
-            
-            return user_stats, user_ratings, shopify_data
-
+    def _fetch_user_data_sync(user_id):
+        # ... (cette fonction interne est correcte, pas de changement)
+        import requests
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT product_name, visual_score, smell_score, touch_score, taste_score, effects_score, rating_timestamp FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC", (user_id,))
+        user_ratings = [dict(row) for row in cursor.fetchall()]
+        cursor.execute("""
+            WITH UserAverageNotes AS (
+                SELECT user_id, (COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0 AS avg_note
+                FROM ratings
+            ),
+            AllRanks AS (
+                SELECT user_id, COUNT(user_id) as rating_count, AVG(avg_note) as global_avg, MIN(avg_note) as min_note, MAX(avg_note) as max_note,
+                       RANK() OVER (ORDER BY COUNT(user_id) DESC, AVG(avg_note) DESC) as user_rank
+                FROM UserAverageNotes
+                GROUP BY user_id
+            )
+            SELECT user_rank, rating_count, global_avg, min_note, max_note
+            FROM AllRanks WHERE user_id = ?
+        """, (user_id,))
+        stats_row = cursor.fetchone()
+        user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0}
+        if stats_row:
+            user_stats = dict(stats_row)
+        one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
+        cursor.execute("SELECT user_id FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY COUNT(id) DESC LIMIT 3", (one_month_ago,))
+        top_3_monthly_ids = [row['user_id'] for row in cursor.fetchall()]
+        user_stats['is_top_3_monthly'] = user_id in top_3_monthly_ids
+        conn.close()
+        shopify_data = {}
+        api_url = f"{APP_URL}/api/get_purchased_products/{user_id}"
         try:
-        # 2. Le travail long (BDD, API) est fait dans un thread
-            user_stats, user_ratings, shopify_data = await asyncio.to_thread(_fetch_user_data_sync, target_user.id)
+            response = requests.get(api_url, timeout=10)
+            if response.ok: shopify_data = response.json()
+        except requests.exceptions.RequestException as e:
+            Logger.error(f"API Flask inaccessible pour le profil de {user_id}: {e}")
+        return user_stats, user_ratings, shopify_data
 
-            if not user_stats and not shopify_data.get('purchase_count', 0) > 0:
-                await interaction.followup.send("Cet utilisateur n'a aucune activité enregistrée.", ephemeral=True)
-                return
+    try:
+        # 2. Le travail long (BDD, API) est fait dans un thread
+        user_stats, user_ratings, shopify_data = await asyncio.to_thread(_fetch_user_data_sync, target_user.id)
+
+        if user_stats['count'] == 0 and not shopify_data.get('purchase_count', 0) > 0:
+            await interaction.followup.send("Cet utilisateur n'a aucune activité enregistrée.", ephemeral=True)
+            return
 
         # 3. Préparation des données pour la carte visuelle
-            card_data = {
-                "name": str(target_user),
-                "avatar_url": target_user.display_avatar.url,
-                **user_stats,
-                **shopify_data
-            }
+        card_data = {
+            "name": str(target_user),
+            "avatar_url": target_user.display_avatar.url,
+            **user_stats,
+            **shopify_data
+        }
 
-        # 4. Génération de l'image de la carte de profil
-            image_buffer = await create_profile_card(card_data) # On importe depuis image_generator.py
-            image_file = discord.File(fp=image_buffer, filename="profile_card.png")
+        # 4. Génération de l'image de la carte de profil (CORRIGÉ : SANS DUPLICATION)
+        image_buffer = await create_profile_card(card_data)
+        image_file = discord.File(fp=image_buffer, filename="profile_card.png")
 
         # 5. Création de l'embed qui contiendra l'image
-            embed = discord.Embed(
-                title=f"Profil de {target_user.display_name}",
-                description="Cliquez sur `📝 Notes` pour voir la liste des produits notés.",
-                color=target_user.color
-            )
-            embed.set_image(url="attachment://profile_card.png")
+        embed = discord.Embed(
+            title=f"Profil de {target_user.display_name}",
+            description="Cliquez sur les boutons `⬅️` et `➡️` pour voir la liste des produits notés, ou sur `👤` pour revenir ici.",
+            color=target_user.color
+        )
+        embed.set_image(url=f"attachment://{image_file.filename}") # Important: utiliser attachment://
 
         # 6. Création de la vue de pagination/gestion
-            can_reset = membre and membre.id != interaction.user.id and await is_staff_or_owner(interaction)
-        # Votre `ProfilePaginatorView` fonctionnera toujours pour afficher les notes
-            paginator = ProfilePaginatorView(target_user, user_stats, user_ratings, shopify_data, can_reset, self.bot)
+        can_reset = membre and membre.id != interaction.user.id and await is_staff_or_owner(interaction)
+        paginator = ProfilePaginatorView(target_user, user_stats, user_ratings, shopify_data, can_reset, self.bot, image_file)
         
         # 7. Envoi du message final avec l'image et les boutons
-            await interaction.followup.send(embed=embed, file=image_file, view=paginator, ephemeral=True)
+        await interaction.followup.send(embed=embed, file=image_file, view=paginator, ephemeral=True)
 
-        except Exception as e:
-            Logger.error(f"Erreur lors de la génération du profil pour {target_user.display_name}: {e}")
-            traceback.print_exc()
-            await interaction.followup.send("❌ Une erreur est survenue lors de la récupération du profil.", ephemeral=True)
+    except Exception as e:
+        Logger.error(f"Erreur lors de la génération du profil pour {target_user.display_name}: {e}")
+        traceback.print_exc()
+        await interaction.followup.send("❌ Une erreur est survenue lors de la récupération du profil.", ephemeral=True)
 
     @app_commands.command(name="lier_compte", description="Démarre la liaison de ton compte via ton e-mail de commande.")
     @app_commands.describe(email="L'adresse e-mail que tu utilises pour tes commandes sur la boutique.")
