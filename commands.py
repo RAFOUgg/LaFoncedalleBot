@@ -331,7 +331,7 @@ class NotationProductSelectView(discord.ui.View):
             # de la liste originale (stockée dans la vue) avec la valeur tronquée.
             full_product_name = next(
                 (p for p in self.view.products if p.startswith(selected_value)),
-                selected_value  # Si on ne trouve pas (improbable), on utilise la valeur tronquée
+                selected_value
             )
             
             # On envoie le nom complet au Modal pour l'enregistrement
@@ -995,12 +995,10 @@ class SlashCommands(commands.Cog):
             Logger.error(f"Erreur /profil pour {target_user.display_name}: {e}"); traceback.print_exc()
             await interaction.followup.send("❌ Erreur lors de la récupération du profil.", ephemeral=True)
     @app_commands.command(name="lier_force", description="[STAFF] Lie un compte à un e-mail sans vérification.")
-    @app_commands.check(is_staff_or_owner) # <-- Sécurité !
-    @app_commands.describe(
-        membre="Le membre à qui lier le compte (ou vous-même si non spécifié).",
-        email="L'adresse e-mail à lier au compte."
-    )
+    @app_commands.check(is_staff_or_owner)
+    @app_commands.describe(membre="...", email="...")
     async def lier_force(self, interaction: discord.Interaction, email: str, membre: Optional[discord.Member] = None):
+        # [CORRECTION] Ajouter le defer au tout début
         await interaction.response.defer(ephemeral=True)
         
         target_user = membre or interaction.user
@@ -1028,7 +1026,7 @@ class SlashCommands(commands.Cog):
     @app_commands.command(name="lier_compte", description="Démarre la liaison de ton compte via ton e-mail.")
     @app_commands.describe(email="L'adresse e-mail de tes commandes.")
     async def lier_compte(self, interaction: discord.Interaction, email: str):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=True)        
         api_url = f"{APP_URL}/api/start-verification"
         payload = {"discord_id": str(interaction.user.id), "email": email}
         try:
