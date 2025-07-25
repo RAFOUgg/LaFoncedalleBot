@@ -22,8 +22,9 @@ from shared_utils import (
 # --- Logique des permissions (inchangée) ---
 async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
     if await interaction.client.is_owner(interaction.user): return True
-    if not STAFF_ROLE_ID: return False
-    try: staff_role_id_int = int(STAFF_ROLE_ID)
+    staff_role_id = await config_manager.get_state('staff_role_id', STAFF_ROLE_ID)
+    if not staff_role_id: return False
+    try: staff_role_id_int = int(staff_role_id)
     except (ValueError, TypeError): return False
     return any(role.id == staff_role_id_int for role in interaction.user.roles)
 
@@ -339,63 +340,38 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
     def __init__(self, product_name: str, user: discord.User):
         super().__init__(timeout=None)
         self.product_name, self.user = product_name, user
-        
-        # Champs de notation (inchangés)
         self.visual_score = discord.ui.TextInput(label="👀 Note Visuel /10", placeholder="Ex: 8.5", required=True)
         self.smell_score = discord.ui.TextInput(label="👃🏼 Note Odeur /10", placeholder="Ex: 9", required=True)
         self.touch_score = discord.ui.TextInput(label="🤏🏼 Note Toucher /10", placeholder="Ex: 7", required=True)
         self.taste_score = discord.ui.TextInput(label="👅 Note Goût /10", placeholder="Ex: 8", required=True)
         self.effects_score = discord.ui.TextInput(label="🧠 Note Effets /10", placeholder="Ex: 9.5", required=True)
-        
-        # --- NOUVEAU CHAMP COMMENTAIRE ---
-        self.comment = discord.ui.TextInput(
-            label="💬 Ton commentaire (optionnel)",
-            style=discord.TextStyle.paragraph, # Permet d'écrire sur plusieurs lignes
-            placeholder="Un goût incroyable, effets très relaxants, je recommande...",
-            required=False, # Le commentaire n'est pas obligatoire
-            max_length=500 # On limite la longueur pour éviter les abus
-        )
-
+        self.comment = discord.ui.TextInput(label="💬 Ton commentaire (optionnel)", style=discord.TextStyle.paragraph, placeholder="Un goût incroyable...", required=False, max_length=500)
         for item in [self.visual_score, self.smell_score, self.touch_score, self.taste_score, self.effects_score, self.comment]:
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        scores = {}
+        scores, comment_text = {}, self.comment.value or None
         try:
-            # ... (la logique de récupération des scores est inchangée) ...
             scores['visual'] = float(self.visual_score.value.replace(',', '.'))
             scores['smell'] = float(self.smell_score.value.replace(',', '.'))
             scores['touch'] = float(self.touch_score.value.replace(',', '.'))
             scores['taste'] = float(self.taste_score.value.replace(',', '.'))
             scores['effects'] = float(self.effects_score.value.replace(',', '.'))
-
             for key, value in scores.items():
                 if not (0 <= value <= 10):
-                    await interaction.followup.send(f"❌ La note '{key.capitalize()}' ({value}) doit être entre 0 et 10.", ephemeral=True); return
+                    await interaction.followup.send(f"❌ La note '{key.capitalize()}' doit être entre 0 et 10.", ephemeral=True); return
         except ValueError:
-            await interaction.followup.send("❌ Veuillez n'entrer que des nombres pour les notes (ex: 8 ou 8.5).", ephemeral=True); return
+            await interaction.followup.send("❌ Veuillez n'entrer que des nombres pour les notes.", ephemeral=True); return
         
-        # On récupère la valeur du commentaire
-        comment_text = self.comment.value or None # Met None si le champ est vide
-
         def _save():
             conn = sqlite3.connect(DB_FILE); c = conn.cursor()
-            # --- MISE À JOUR DE LA REQUÊTE SQL ---
-            c.execute("""
-                INSERT OR REPLACE INTO ratings 
-                (user_id, user_name, product_name, visual_score, smell_score, touch_score, taste_score, effects_score, rating_timestamp, comment) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (self.user.id, str(self.user), self.product_name, scores['visual'], scores['smell'], scores['touch'], 
-                  scores['taste'], scores['effects'], datetime.utcnow().isoformat(), comment_text))
+            c.execute("""INSERT OR REPLACE INTO ratings (user_id, user_name, product_name, visual_score, smell_score, touch_score, taste_score, effects_score, rating_timestamp, comment) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (self.user.id, str(self.user), self.product_name, scores['visual'], scores['smell'], scores['touch'], scores['taste'], scores['effects'], datetime.utcnow().isoformat(), comment_text))
             conn.commit(); conn.close()
         
         await asyncio.to_thread(_save)
-        avg = sum(scores.values()) / len(scores)
-        await interaction.followup.send(f"✅ Merci ! Note de **{avg:.2f}/10** pour **{self.product_name}** enregistrée.", ephemeral=True)
-
-    async def on_error(self, interaction: discord.Interaction, error: Exception):
-        await interaction.followup.send('❌ Oups! Une erreur est survenue.', ephemeral=True); traceback.print_exc()
+        await interaction.followup.send(f"✅ Merci ! Note de **{sum(scores.values())/5:.2f}/10** pour **{self.product_name}** enregistrée.", ephemeral=True)
 
 class NotationProductSelectView(discord.ui.View):
     def __init__(self, products: list, user: discord.User):
@@ -409,8 +385,6 @@ class NotationProductSelectView(discord.ui.View):
             super().__init__(placeholder="Choisissez un produit à noter...", options=options)
         async def callback(self, interaction: discord.Interaction):
             await interaction.response.send_modal(RatingModal(self.values[0], self.user))
-
-        
 
 class TopRatersPaginatorView(discord.ui.View):
     def __init__(self, top_raters, guild, items_per_page=5): # On met un peu moins de noteurs par page pour la lisibilité
@@ -535,7 +509,6 @@ class ProductSelectForGraph(discord.ui.Select):
         else:
             await interaction.followup.send("Impossible de générer le graphique (pas assez de données ?).", ephemeral=True)
 
-
 class ProfilePaginatorView(discord.ui.View):
     def __init__(self, target_user, user_stats, user_ratings, shopify_data, can_reset, bot, initial_image_file, items_per_page=3):
         super().__init__(timeout=300)
@@ -640,6 +613,36 @@ class SlashCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
     
+    config_group = app_commands.Group(name="config", description="Commandes de configuration du bot (Staff uniquement)")
+
+    @config_group.command(name="salon_menu", description="Définit le salon où le menu automatique sera publié.")
+    @app_commands.check(is_staff_or_owner)
+    @app_commands.describe(salon="Le salon textuel à utiliser pour le menu.")
+    async def set_menu_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
+        await config_manager.update_state('menu_channel_id', salon.id)
+        await interaction.response.send_message(f"✅ Le salon pour le menu a été défini sur {salon.mention}.", ephemeral=True)
+
+    @config_group.command(name="salon_selection", description="Définit le salon pour la sélection de la semaine.")
+    @app_commands.check(is_staff_or_owner)
+    @app_commands.describe(salon="Le salon textuel à utiliser.")
+    async def set_selection_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
+        await config_manager.update_state('selection_channel_id', salon.id)
+        await interaction.response.send_message(f"✅ Le salon pour la sélection de la semaine a été défini sur {salon.mention}.", ephemeral=True)
+
+    @config_group.command(name="role_staff", description="Définit le rôle qui peut utiliser les commandes staff.")
+    @app_commands.check(is_staff_or_owner)
+    @app_commands.describe(role="Le rôle à définir comme staff.")
+    async def set_staff_role(self, interaction: discord.Interaction, role: discord.Role):
+        await config_manager.update_state('staff_role_id', role.id)
+        await interaction.response.send_message(f"✅ Le rôle staff a été défini sur {role.mention}.", ephemeral=True)
+    
+    @config_group.command(name="role_mention", description="Définit le rôle à mentionner lors des mises à jour du menu.")
+    @app_commands.check(is_staff_or_owner)
+    @app_commands.describe(role="Le rôle à mentionner.")
+    async def set_mention_role(self, interaction: discord.Interaction, role: discord.Role):
+        await config_manager.update_state('mention_role_id', role.id)
+        await interaction.response.send_message(f"✅ Le rôle à mentionner a été défini sur {role.mention}.", ephemeral=True)
+
     @app_commands.command(name="menu", description="Affiche le menu interactif des produits disponibles.")
     async def menu(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -1177,4 +1180,5 @@ class SlashCommands(commands.Cog):
             await interaction.followup.send("❌ Erreur lors de la récupération des promotions.", ephemeral=True)
 
 async def setup(bot: commands.Bot):
+    bot.tree.add_command(SlashCommands.config_group)
     await bot.add_cog(SlashCommands(bot))

@@ -224,12 +224,16 @@ def get_site_data_from_api():
 async def post_weekly_selection(bot_instance: commands.Bot):
     Logger.info("Génération et publication de la sélection de la semaine...")
     
-    if not GUILD_ID or not SELECTION_CHANNEL_ID:
+    # --- MODIFICATION ---
+    guild_id = await config_manager.get_state('guild_id', GUILD_ID)
+    selection_channel_id = await config_manager.get_state('selection_channel_id', SELECTION_CHANNEL_ID)
+
+    if not guild_id or not selection_channel_id:
         Logger.error("GUILD_ID ou SELECTION_CHANNEL_ID ne sont pas définis. Annulation.")
         return
 
-    guild = bot_instance.get_guild(GUILD_ID)
-    channel = bot_instance.get_channel(SELECTION_CHANNEL_ID)
+    guild = bot_instance.get_guild(guild_id)
+    channel = bot_instance.get_channel(selection_channel_id)
     if not guild or not channel:
         Logger.error(f"Impossible de trouver la guilde ({GUILD_ID}) ou le salon ({SELECTION_CHANNEL_ID}).")
         return
@@ -401,18 +405,26 @@ def get_smart_promotions_from_api():
         Logger.error(f"Erreur lors de la récupération des PriceRule : {e}")
         return ["Impossible de charger les promotions."]
     
+# Dans catalogue_final.py
+
 async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: bool = False):
     Logger.info(f"Publication du menu (mention: {mention})...")
-    channel = bot_instance.get_channel(CHANNEL_ID)
+    
+    channel_id = await config_manager.get_state('menu_channel_id', CHANNEL_ID)
+    if not channel_id:
+        Logger.error("Aucun ID de salon pour le menu n'est configuré (ni via /config, ni dans le .env).")
+        return False
+        
+    channel = bot_instance.get_channel(int(channel_id))
     if not channel:
-        Logger.error(f"Salon avec l'ID {CHANNEL_ID} non trouvé pour la publication.")
+        Logger.error(f"Salon avec l'ID {channel_id} non trouvé pour la publication.")
         return False
 
+    # --- CORRECTION : Définition unique des variables ---
     products = site_data.get('products', [])
     promos_list = site_data.get('general_promos', [])
-    products = site_data.get('products', [])
-    promos_list = site_data.get('general_promos', [])
-    promos_to_show = promos_list[:5] # On n'affiche que les 5 premières
+    
+    promos_to_show = promos_list[:5]
     general_promos_text = "\n".join([f"• {promo.strip()}" for promo in promos_to_show if promo.strip()])
     
     if len(promos_list) > 5:
@@ -439,7 +451,8 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
     view = MenuView()
     bot_instance.add_view(view)
 
-    content = f"<@&{ROLE_ID_TO_MENTION}>" if mention and ROLE_ID_TO_MENTION else None
+    role_id_to_mention = await config_manager.get_state('mention_role_id', ROLE_ID_TO_MENTION)
+    content = f"<@&{role_id_to_mention}>" if mention and role_id_to_mention else None
     last_message_id = await config_manager.get_state('last_message_id')
     
     try:
