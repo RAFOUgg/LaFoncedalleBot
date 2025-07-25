@@ -66,7 +66,7 @@ query getFiles($ids: [ID!]!) {
 
 def get_site_data_from_api():
     """
-    Version FINALE ET ROBUSTE : Catégorise les produits en se basant sur leurs collections Shopify.
+    Version FINALE avec débogage des collections.
     """
     Logger.info("Démarrage de la récupération via API Shopify (par collection)...")
     
@@ -82,44 +82,42 @@ def get_site_data_from_api():
         session = shopify.Session(shop_url, api_version, access_token)
         shopify.ShopifyResource.activate_session(session)
 
-        # Récupération des promotions (inchangé)
         general_promos = get_smart_promotions_from_api()
 
-        # Dictionnaire pour mapper les titres des collections à nos catégories internes
-        collection_category_map = {
-            "nos hash": "hash",
-            "nos weed": "weed",
-            "boxes": "box",
+        collection_keyword_map = {
+            "hash": "hash",
+            "weed": "weed",
+            "box": "box",
+            "accessoire": "accessoire"
         }
         
-        all_products = {} 
+        all_products = {}
         gids_to_resolve = set()
 
         collections = shopify.CustomCollection.find()
+        
+        # --- BLOC DE DÉBOGAGE ACTIF ---
         collection_titles_found = [c.title for c in collections]
         Logger.warning(f"Collections trouvées sur Shopify ({len(collection_titles_found)}): {collection_titles_found}")
+        # --- FIN BLOC DE DÉBOGAGE ---
+        
         for collection in collections:
             collection_title_lower = collection.title.lower()
-            
-            # --- NOUVELLE LOGIQUE PLUS SOUPLE ---
             category = None
+            
             for keyword, cat in collection_keyword_map.items():
                 if keyword in collection_title_lower:
                     category = cat
-                    break # On a trouvé la catégorie, on arrête de chercher
+                    break
 
-            # Si on a trouvé une catégorie correspondante pour cette collection
             if category:
-                Logger.info(f"Récupération des produits de la collection '{collection.title}' -> catégorie '{category}'")
-                
+                Logger.info(f"MATCH! Collection '{collection.title}' -> Catégorie '{category}'. Récupération des produits...")
                 products_in_collection = collection.products()
                 
                 for prod in products_in_collection:
-                    # Si on a déjà traité ce produit (car il est dans plusieurs collections), on passe
                     if prod.id in all_products:
                         continue
 
-                    # On filtre les produits "sociaux"
                     if any(kw in prod.title.lower() for kw in ["telegram", "instagram", "tiktok"]):
                         continue
 
@@ -128,11 +126,9 @@ def get_site_data_from_api():
                     product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
                     product_data['image'] = prod.image.src if prod.image else None
                     
-                    # On assigne la catégorie en fonction de la collection
                     category_map_display = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
                     product_data['category'] = category_map_display.get(category, category)
 
-                    # --- Le reste de l'extraction de données est identique à avant ---
                     desc_html = prod.body_html
                     if desc_html:
                         soup = BeautifulSoup(desc_html, 'html.parser')
@@ -167,20 +163,8 @@ def get_site_data_from_api():
                     
                     all_products[prod.id] = product_data
 
-        # On récupère aussi les produits qui ne sont dans AUCUNE de ces collections (ex: accessoires)
-        # Vous pouvez commenter cette partie si tous vos produits sont dans des collections
-        all_products_from_api = shopify.Product.find(status='active', limit=250)
-        for prod in all_products_from_api:
-            if prod.id in all_products:
-                continue
-            # Logique de fallback pour les accessoires
-            if any(kw in prod.title.lower() for kw in ["briquet", "feuille", "grinder", "accessoire"]):
-                #... (Vous pouvez ajouter la même logique d'extraction ici si nécessaire)
-                pass
-
         raw_products_data = list(all_products.values())
         
-        # --- Résolution des GIDs (inchangé) ---
         gid_url_map = {}
         if gids_to_resolve:
             client = shopify.GraphQL()
