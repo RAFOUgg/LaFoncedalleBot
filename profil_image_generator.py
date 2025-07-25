@@ -1,4 +1,4 @@
-# --- START OF FILE image_generator.py ---
+# Fichier : profil_image_generator.py
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import requests
@@ -6,6 +6,7 @@ import io
 import os
 import asyncio
 
+# On s'assure que le chemin est absolu et part de l'emplacement du fichier
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 
@@ -13,42 +14,41 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
     """Génère une carte de profil visuellement riche avec une police personnalisée et des emojis."""
 
     def _generate():
-        # --- Configuration des Polices (CORRIGÉE) ---
+        fonts = {}
+        # --- Configuration des Polices (Plus Robuste) ---
         try:
-            # On utilise os.path.join pour construire des chemins robustes
-            font_name = ImageFont.truetype(os.path.join(ASSETS_DIR, "Gobold-Bold.ttf"), 65)
-            font_title = ImageFont.truetype(os.path.join(ASSETS_DIR, "Gobold-Bold.ttf"), 42)
-            font_regular = ImageFont.truetype(os.path.join(ASSETS_DIR, "Gobold-Regular.ttf"), 40)
-            font_badge = ImageFont.truetype(os.path.join(ASSETS_DIR, "Gobold-Bold.ttf"), 42)
-            font_emoji = ImageFont.truetype(os.path.join(ASSETS_DIR, "NotoColorEmoji.ttf"), 40)
+            # On vérifie l'existence des fichiers avant de les charger
+            font_paths = {
+                "name": os.path.join(ASSETS_DIR, "Gobold-Bold.ttf"),
+                "title": os.path.join(ASSETS_DIR, "Gobold-Bold.ttf"),
+                "regular": os.path.join(ASSETS_DIR, "Gobold-Regular.ttf"),
+                "emoji": os.path.join(ASSETS_DIR, "NotoColorEmoji.ttf"),
+            }
+            
+            # Log de débogage pour voir si les chemins sont corrects
+            print(f"INFO [ImageGen]: Recherche des polices dans {ASSETS_DIR}. Fichier existe: {os.path.exists(font_paths['name'])}")
+
+            fonts['name'] = ImageFont.truetype(font_paths['name'], 65)
+            fonts['title'] = ImageFont.truetype(font_paths['title'], 42)
+            fonts['regular'] = ImageFont.truetype(font_paths['regular'], 40)
+            fonts['badge'] = ImageFont.truetype(font_paths['name'], 42) # Réutilise Gobold-Bold
+            fonts['emoji'] = ImageFont.truetype(font_paths['emoji'], 40)
         except IOError as e:
-            # Polices de secours si les fichiers ne sont pas trouvés
-            font_name = ImageFont.load_default()
-            font_title = ImageFont.load_default()
-            font_regular = ImageFont.load_default()
-            font_badge = ImageFont.load_default()
-            try:
-                font_emoji = ImageFont.truetype("NotoColorEmoji.ttf", 40)
-            except IOError:
-                font_emoji = font_regular # Au pire, on se passe d'emojis
+            print(f"ERREUR [ImageGen]: Impossible de charger une police personnalisée : {e}. Utilisation des polices par défaut.")
+            # Polices de secours
+            fonts = {k: ImageFont.load_default() for k in ['name', 'title', 'regular', 'badge', 'emoji']}
 
         # --- Création du fond et de la zone de dessin ---
         bg = Image.new("RGBA", (1200, 600), (27, 27, 31))
         draw = ImageDraw.Draw(bg)
 
-        # --- Fonction utilitaire pour dessiner texte avec emoji ---
-        def draw_text_with_emoji(x, y, emoji, text, emoji_font, text_font, text_fill):
-            # Dessine l'emoji en couleur
-            draw.text((x, y), emoji, font=emoji_font, embedded_color=True)
-            # Calcule la largeur de l'emoji pour placer le texte juste après
-            emoji_width = draw.textlength(emoji, font=emoji_font)
-            # Dessine le texte à côté de l'emoji avec un petit espace
-            draw.text((x + emoji_width + 15, y + 5), text, font=text_font, fill=text_fill)
+        def draw_text_with_emoji(x, y, emoji, text, text_fill):
+            draw.text((x, y), emoji, font=fonts['emoji'], embedded_color=True)
+            emoji_width = draw.textlength(emoji, font=fonts['emoji'])
+            draw.text((x + emoji_width + 15, y + 5), text, font=fonts['regular'], fill=text_fill)
 
-
-        # --- Avatar (inchangé) ---
+        # --- Avatar ---
         try:
-            # ... (le code pour l'avatar reste le même)
             avatar_url = user_data.get("avatar_url")
             response = requests.get(avatar_url, stream=True)
             response.raise_for_status()
@@ -60,45 +60,44 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
             pass
 
         # --- Nom et ligne de séparation ---
-        user_name = user_data.get("name", "Utilisateur Inconnu").split("#")[0]
-        draw.text((400, 90), user_name, font=font_name, fill=(255, 255, 255))
+        user_name = user_data.get("name", "Utilisateur").split("#")[0]
+        draw.text((400, 90), user_name, font=fonts['name'], fill=(255, 255, 255))
         draw.line([(400, 175), (1100, 175)], fill=(60, 60, 65), width=4)
 
         # --- Colonne 1 : Activité Discord ---
         x_col1 = 400
         y_pos = 210
-        draw.text((x_col1, y_pos), "Activité Discord", font=font_title, fill=(255, 255, 255))
+        draw.text((x_col1, y_pos), "Activité Discord", font=fonts['title'], fill=(255, 255, 255))
         y_pos += 70
 
         if user_data.get('is_top_3_monthly'):
-            draw_text_with_emoji(x_col1, y_pos, "🏅", "Top Noteur du Mois", font_emoji, font_badge, (255, 215, 0))
+            draw.text((x_col1 + 60, y_pos + 5), "Top Noteur du Mois", font=fonts['badge'], fill=(255, 215, 0))
+            draw.text((x_col1, y_pos), "🏅", font=fonts['emoji'], embedded_color=True)
             y_pos += 60
             
         if user_data.get('count', 0) > 0:
-            draw_text_with_emoji(x_col1, y_pos, "🏆", f"Classement : #{user_data.get('rank', 'N/C')}", font_emoji, font_regular, (220, 220, 220))
-            draw_text_with_emoji(x_col1, y_pos + 55, "📝", f"Notes : {user_data.get('count', 0)}", font_emoji, font_regular, (220, 220, 220))
-            draw_text_with_emoji(x_col1, y_pos + 110, "📊", f"Moyenne : {user_data.get('avg', 0):.2f}/10", font_emoji, font_regular, (220, 220, 220))
-            draw_text_with_emoji(x_col1, y_pos + 165, "↕️", f"Note Min/Max : {user_data.get('min_note', 0):.2f} / {user_data.get('max_note', 0):.2f}", font_emoji, font_regular, (220, 220, 220))
+            draw_text_with_emoji(x_col1, y_pos, "🏆", f"Classement : #{user_data.get('rank', 'N/C')}", (220, 220, 220))
+            draw_text_with_emoji(x_col1, y_pos + 55, "📝", f"Notes : {user_data.get('count', 0)}", (220, 220, 220))
+            draw_text_with_emoji(x_col1, y_pos + 110, "📊", f"Moyenne : {user_data.get('avg', 0):.2f}/10", (220, 220, 220))
+            draw_text_with_emoji(x_col1, y_pos + 165, "↕️", f"Note Min/Max : {user_data.get('min_note', 0):.2f} / {user_data.get('max_note', 0):.2f}", (220, 220, 220))
         else:
-            draw.text((x_col1, y_pos), "Aucune note enregistrée", font=font_regular, fill=(150, 150, 150))
+            draw.text((x_col1, y_pos), "Aucune note enregistrée", font=fonts['regular'], fill=(150, 150, 150))
             
         # --- Colonne 2 : Activité Boutique ---
         x_col2 = 800
         y_pos = 210
-        draw.text((x_col2, y_pos), "Activité Boutique", font=font_title, fill=(255, 255, 255))
+        draw.text((x_col2, y_pos), "Activité Boutique", font=fonts['title'], fill=(255, 255, 255))
         y_pos += 70
 
         if user_data.get("purchase_count") is not None and user_data.get("purchase_count") > 0:
-            draw_text_with_emoji(x_col2, y_pos, "🛍️", f"Commandes : {user_data.get('purchase_count', 0)}", font_emoji, font_regular, (220, 220, 220))
-            draw_text_with_emoji(x_col2, y_pos + 55, "💳", f"Dépensé : {user_data.get('total_spent', 0):.2f} €", font_emoji, font_regular, (220, 220, 220))
+            draw_text_with_emoji(x_col2, y_pos, "🛍️", f"Commandes : {user_data.get('purchase_count', 0)}", (220, 220, 220))
+            draw_text_with_emoji(x_col2, y_pos + 55, "💳", f"Dépensé : {user_data.get('total_spent', 0):.2f} €", (220, 220, 220))
         else:
-            draw.text((x_col2, y_pos), "Compte non lié", font=font_regular, fill=(255, 180, 180))
+            draw.text((x_col2, y_pos), "Compte non lié", font=fonts['regular'], fill=(255, 180, 180))
 
-        # --- Sauvegarde en mémoire ---
         buffer = io.BytesIO()
         bg.save(buffer, format="PNG")
         buffer.seek(0)
         return buffer
 
-    # On exécute la fonction de dessin (synchrone) dans un thread pour ne pas bloquer le bot
     return await asyncio.to_thread(_generate)
