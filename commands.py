@@ -376,14 +376,30 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
 class NotationProductSelectView(discord.ui.View):
     def __init__(self, products: list, user: discord.User):
         super().__init__(timeout=180)
-        self.add_item(self.ProductSelect(products, user))
+        # On s'assure que la liste des produits n'est pas vide avant de créer le Select
+        if products:
+            self.add_item(self.ProductSelect(products, user))
+        else:
+            # Sécurité au cas où la liste serait vide après le fetch
+            pass
 
     class ProductSelect(discord.ui.Select):
         def __init__(self, products: list, user: discord.User):
             self.user = user
+            # On s'assure que les options ne sont pas vides
             options = [discord.SelectOption(label=p, value=p) for p in products[:25]]
+            if not options:
+                # Créer une option désactivée si aucune n'est disponible
+                options = [discord.SelectOption(label="Aucun produit à noter", value="disabled", default=True)]
+            
             super().__init__(placeholder="Choisissez un produit à noter...", options=options)
+        
         async def callback(self, interaction: discord.Interaction):
+            if not self.values or self.values[0] == "disabled":
+                await interaction.response.send_message("Aucun produit sélectionné.", ephemeral=True)
+                return
+            
+            # On envoie le modal pour la notation
             await interaction.response.send_modal(RatingModal(self.values[0], self.user))
 
 class TopRatersPaginatorView(discord.ui.View):
@@ -662,7 +678,7 @@ class SlashCommands(commands.Cog):
             description_text = (f"__**📦 Produits disponibles :**__\n\n"
                               f"**`Fleurs 🍃 :` {weed_count}**\n"
                               f"**`Résines 🍫 :` {hash_count}**\n"
-                              f"**`Box 📦 :` {box_count}**\n"
+                              f"**`Boxs 📦 :` {box_count}**\n"
                               f"**`Accessoires 🛠️ :` {accessoire_count}**\n\n"
                               f"__**💰 Promotions disponibles :**__\n\n{general_promos_text}\n\n"
                               f"*(Données mises à jour <t:{int(site_data.get('timestamp'))}:R>)*")
@@ -680,36 +696,39 @@ class SlashCommands(commands.Cog):
 
     @app_commands.command(name="noter", description="Note un produit que tu as acheté sur la boutique.")
     async def noter(self, interaction: discord.Interaction):
-        # 1. On répond IMMÉDIATEMENT à Discord pour éviter le timeout.
         await interaction.response.defer(ephemeral=True, thinking=True)
-        
-        # 2. SEULEMENT ENSUITE, on commence le travail long.
         await log_user_action(interaction, "a initié la commande /noter")
         
-        def fetch_purchased_products():
-            import requests
-            try:
-                res = requests.get(f"{APP_URL}/api/get_purchased_products/{interaction.user.id}", timeout=10)
-                if res.status_code == 404: return None
-                res.raise_for_status()
-                return res.json().get("products", [])
-            except Exception as e:
-                Logger.error(f"Erreur API get_purchased_products: {e}"); return []
-        
-        purchased_products = await asyncio.to_thread(fetch_purchased_products)
-        
-        # 3. On envoie la réponse finale avec followup, car on a déjà "defer".
-        if purchased_products is None:
-            await interaction.followup.send("Ton compte Discord n'est pas lié. Utilise `/lier_compte`.", ephemeral=True)
-            return
-        if not purchased_products:
-            await interaction.followup.send("Aucun produit trouvé dans ton historique d'achats.", ephemeral=True)
-            return
-        
-        view = NotationProductSelectView(purchased_products, interaction.user)
-        await interaction.followup.send("Veuillez choisir un produit à noter :", view=view, ephemeral=True)
+        try: # On encapsule tout dans un try/except pour attraper toutes les erreurs
+            def fetch_purchased_products():
+                import requests
+                try:
+                    res = requests.get(f"{APP_URL}/api/get_purchased_products/{interaction.user.id}", timeout=10)
+                    if res.status_code == 404: return None
+                    res.raise_for_status()
+                    return res.json().get("products", [])
+                except Exception as e:
+                    Logger.error(f"Erreur API get_purchased_products: {e}"); return []
+            
+            purchased_products = await asyncio.to_thread(fetch_purchased_products)
+            
+            # LOG DE DÉBOGAGE
+            Logger.info(f"Produits achetés trouvés pour {interaction.user}: {purchased_products}")
 
-    # Dans commands.py -> class SlashCommands
+            if purchased_products is None:
+                await interaction.followup.send("Ton compte Discord n'est pas lié. Utilise `/lier_compte`.", ephemeral=True)
+                return
+            if not purchased_products:
+                await interaction.followup.send("Aucun produit trouvé dans ton historique d'achats pouvant être noté.", ephemeral=True)
+                return
+            
+            view = NotationProductSelectView(purchased_products, interaction.user)
+            await interaction.followup.send("Veuillez choisir un produit à noter :", view=view, ephemeral=True)
+        
+        except Exception as e:
+            Logger.error(f"Erreur majeure dans la commande /noter : {e}")
+            traceback.print_exc()
+            await interaction.followup.send("❌ Oups, une erreur est survenue lors de la préparation du menu de notation.", ephemeral=True)
 
     @app_commands.command(name="top_noteurs", description="Affiche le classement des membres qui ont noté le plus de produits.")
     @app_commands.guild_only()
