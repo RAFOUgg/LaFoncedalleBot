@@ -58,25 +58,22 @@ class RatingsPaginatorView(discord.ui.View):
     def create_embed(self) -> discord.Embed:
         if not self.user_ratings:
             return discord.Embed(description="Aucune note à afficher.")
-        
+
         current_rating = self.user_ratings[self.current_page]
         product_name = current_rating['product_name']
         product_details = self.product_map.get(product_name.strip().lower(), {})
         date = datetime.fromisoformat(current_rating['rating_timestamp']).strftime('%d/%m/%Y')
         
-        embed = discord.Embed(
-            title=f"Avis sur : {product_name}",
-            description=f"*Noté par {self.target_user.display_name} le {date}*",
-            color=discord.Color.green(),
-            url=product_details.get('product_url', CATALOG_URL)
-        )
+        embed = discord.Embed(title=f"Avis sur : {product_name}", url=product_details.get('product_url', CATALOG_URL), color=discord.Color.green())
         if product_details.get('image'):
             embed.set_thumbnail(url=product_details['image'])
         
         embed.add_field(name="Description du Produit", value=product_details.get('detailed_description', 'Non disponible.')[:1024], inline=False)
         embed.add_field(name="Prix", value=product_details.get('price', 'N/A'), inline=True)
         
+        # --- CORRECTION DE LA LIGNE SUIVANTE ---
         avg_score = (current_rating.get('visual_score', 0) + current_rating.get('smell_score', 0) + current_rating.get('touch_score', 0) + current_rating.get('taste_score', 0) + current_rating.get('effects_score', 0)) / 5
+        
         embed.add_field(name="Note Globale Donnée", value=f"**{avg_score:.2f} / 10**", inline=True)
 
         notes_text = (
