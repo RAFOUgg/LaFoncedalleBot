@@ -1,7 +1,12 @@
 #!/bin/bash
 
-# Lancer le serveur web (le pont Flask) en arrière-plan
-gunicorn app:app &
+# Lancer le processus du bot en arrière-plan
+echo "--- Démarrage du Bot Discord en arrière-plan... ---"
+python3 bot_runner.py &
 
-# Lancer le bot Discord au premier plan
-python catalogue_final.py
+# Attendre un peu pour que le bot se connecte
+sleep 3
+
+# Lancer le serveur web Gunicorn au premier plan
+echo "--- Démarrage du serveur web Flask/Gunicorn... ---"
+gunicorn --workers 3 --bind 0.0.0.0:10000 app:app

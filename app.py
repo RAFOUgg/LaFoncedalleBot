@@ -36,18 +36,6 @@ SHOPIFY_ADMIN_ACCESS_TOKEN = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "ratings.db")
 
-
-# --- Lancement du Bot Discord en arrière-plan ---
-def run_bot():
-    asyncio.set_event_loop(asyncio.new_event_loop())
-    asyncio.run(catalogue_final.main())
-
-if not os.environ.get("WERKZEUG_RUN_MAIN"):
-    bot_thread = threading.Thread(target=run_bot)
-    bot_thread.daemon = True
-    bot_thread.start()
-
-
 # --- Initialisation de la Base de Données ---
 def initialize_db():
     """Initialise les tables pour la liaison de comptes dans la DB partagée."""

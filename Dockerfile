@@ -25,6 +25,7 @@ COPY . .
 # Étape 6: Exposer le port que gunicorn utilisera
 EXPOSE 10000
 
-# Étape 7: Définir la commande pour lancer l'application en production
-# 'app:app' signifie : dans le fichier app.py, trouve la variable 'app' (qui est votre instance Flask)
-CMD ["gunicorn", "--workers", "3", "--bind", "0.0.0.0:10000", "app:app"]
+RUN chmod +x ./start.sh
+
+# Étape 8: Définir la commande pour lancer l'application via le script
+CMD ["./start.sh"]
