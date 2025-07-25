@@ -10,6 +10,7 @@ import asyncio
 import smtplib, ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.header import Header
 from config import SHOP_URL, SHOPIFY_API_VERSION, FLASK_SECRET_KEY
 import catalogue_final
 
@@ -61,10 +62,18 @@ def start_verification():
     expires_at = int(time.time()) + 600
 
     message = MIMEMultipart("alternative")
-    message["Subject"] = "Votre code de vérification LaFoncedalle"
+    
+    # --- CORRECTION 1 : Gérer l'encodage du sujet ---
+    sujet = "Votre code de vérification LaFoncedalle"
+    message["Subject"] = Header(sujet, 'utf-8')
+    
     message["From"] = SENDER_EMAIL
     message["To"] = email
-    message.attach(MIMEText(f'Bonjour !<br>Voici votre code de vérification : <strong>{code}</strong><br>Ce code expire dans 10 minutes.', "html"))
+
+    # --- CORRECTION 2 : Gérer l'encodage du corps du message ---
+    html_body = f'Bonjour !<br>Voici votre code de vérification : <strong>{code}</strong><br>Ce code expire dans 10 minutes.'
+    part = MIMEText(html_body, "html", "utf-8") # <--- AJOUTEZ "utf-8" ICI
+    message.attach(part)
     
     context = ssl.create_default_context()
     try:
@@ -73,7 +82,10 @@ def start_verification():
             server.sendmail(SENDER_EMAIL, email, message.as_string())
         print(f"E-mail de vérification envoyé avec succès à {email}")
     except Exception as e:
+        # Amélioration du log pour voir l'erreur exacte
+        import traceback
         print(f"Erreur SMTP: {e}")
+        traceback.print_exc() # <--- Affiche plus de détails dans vos logs Render
         return jsonify({"error": "Impossible d'envoyer l'e-mail de vérification."}), 500
 
     cursor.execute("INSERT OR REPLACE INTO verification_codes VALUES (?, ?, ?, ?)", (discord_id, email, code, expires_at))
