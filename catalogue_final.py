@@ -465,8 +465,10 @@ async def on_ready():
     Logger.success("Commandes slash synchronisées sur la guilde de test.")
     await asyncio.to_thread(initialize_database)
     Logger.info("Exécution de la vérification initiale au démarrage...")
-    await check_for_updates(bot, force_publish=False)
+    asyncio.create_task(check_for_updates(bot, force_publish=False))
+    
     try:
+        # Le bot est déjà prêt à enregistrer la vue, même si la vérification tourne encore.
         bot.add_view(MenuView())
         Logger.success("Vue de menu persistante ré-enregistrée avec succès.")
     except Exception as e:
