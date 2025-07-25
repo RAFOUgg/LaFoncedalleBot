@@ -3,7 +3,11 @@
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import requests
 import io
+import os
 import asyncio
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 
 async def create_profile_card(user_data: dict) -> io.BytesIO:
     """Génère une carte de profil visuellement riche avec une police personnalisée et des emojis."""
