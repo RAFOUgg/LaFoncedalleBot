@@ -313,7 +313,7 @@ async def post_weekly_selection(bot_instance: commands.Bot):
             "Voici les 3 produits les mieux notés par la communauté !",
             color=discord.Color.purple()
         )
-        
+
         medals = ["🥇", "🥈", "🥉"]
         for i, (prod_name, avg_score, num_ratings) in enumerate(top_products):
             prod = product_map.get(prod_name.strip().lower())
