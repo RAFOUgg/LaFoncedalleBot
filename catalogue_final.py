@@ -133,7 +133,7 @@ def get_site_data_from_api(): # <--- On revient à une fonction synchrone (def)
         gids_to_resolve = set()
         # ... (copiez-collez ici TOUTE la logique de traitement des produits, inchangée) ...
         # ... (catégorisation, filtres, GID, etc.)
-        hash_keywords = config_manager.get_config("categorization.hash_keywords", []) + ["hash", "résine", "resin", "resine", "piatella", "piattella"]
+        hash_keywords = config_manager.get_config("categorization.hash_keywords", []) + ["hash", "résine", "resin", "resine", "piatella", "piattella", "Frozen"]
         box_keywords = ["box", "pack", "coffret", "gustative"]
         accessoire_keywords = ["briquet", "feuille", "papier", "accessoire", "grinder", "plateau", "clipper", "ocb"]
         social_keywords = ["telegram", "instagram", "tiktok"]
@@ -507,23 +507,30 @@ async def on_ready():
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    # Gestion des permissions refusées
     if isinstance(error, app_commands.CheckFailure):
         embed = discord.Embed(title="🚫 Accès Refusé", description="Désolé, mais tu n'as pas les permissions nécessaires pour utiliser cette commande.", color=discord.Color.red())
         if THUMBNAIL_LOGO_URL: embed.set_thumbnail(url=THUMBNAIL_LOGO_URL)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message(embed=embed, ephemeral=True)
         return
         
-    Logger.error(f"Erreur non gérée dans la commande /{interaction.command.name}: {error}")
-    traceback.print_exc()
-    error_message = "❌ Oups ! Une erreur inattendue est survenue. Le staff a été notifié."
+    # --- CORRECTION ICI ---
+    # On gère le cas où la commande n'est pas trouvée
+    if isinstance(error, app_commands.CommandNotFound):
+        Logger.error(f"Commande non trouvée tentée par {interaction.user}: {error}")
+        error_message = f"🤔 La commande que vous essayez d'utiliser n'existe pas ou n'est pas synchronisée. Veuillez patienter un instant."
+    else:
+        # On construit le message d'erreur standard
+        command_name = interaction.command.name if interaction.command else "commande inconnue"
+        Logger.error(f"Erreur non gérée dans la commande /{command_name}: {error}")
+        traceback.print_exc()
+        error_message = "❌ Oups ! Une erreur inattendue est survenue. Le staff a été notifié."
     
-    # --- LA CORRECTION EST ICI ---
-    # On vérifie si une réponse a déjà été envoyée (ex: defer())
+    # On envoie la réponse
     if interaction.response.is_done():
-        # Si oui, on utilise followup pour envoyer un nouveau message
         await interaction.followup.send(error_message, ephemeral=True)
     else:
-        # Sinon, on envoie la réponse initiale
         await interaction.response.send_message(error_message, ephemeral=True)
 
 
