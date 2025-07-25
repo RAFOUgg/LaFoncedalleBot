@@ -6,6 +6,7 @@ import json
 import hashlib
 import asyncio
 import traceback
+import time
 import time as a_time
 from datetime import time as dt_time, datetime, timedelta
 from typing import List
@@ -79,7 +80,7 @@ def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve:
         Un dictionnaire contenant les données formatées du produit.
     """
     product_data = {}
-    
+    time.sleep(0.5)
     # --- Extraction des données brutes ---
     product_data['name'] = prod.title
     product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"

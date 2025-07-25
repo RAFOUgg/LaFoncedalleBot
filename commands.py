@@ -631,6 +631,7 @@ class SlashCommands(commands.Cog):
 
     @app_commands.command(name="noter", description="Note un produit que tu as acheté sur la boutique.")
     async def noter(self, interaction: discord.Interaction):
+        # [CORRECTION] Defer IMMÉDIATEMENT pour ne pas dépasser les 3 secondes.
         await interaction.response.defer(ephemeral=True, thinking=True)
         await log_user_action(interaction, "a initié la commande /noter")
         try:
