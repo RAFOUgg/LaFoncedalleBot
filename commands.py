@@ -372,40 +372,49 @@ class ProductSelectForGraph(discord.ui.Select):
             await interaction.followup.send("Impossible de générer le graphique (pas assez de données ?).", ephemeral=True)
 
 class PromoPaginatorView(discord.ui.View):
-    def __init__(self, promo_products: List[dict], general_promos: List[str], items_per_page: int = 6):
+    def __init__(self, promo_products: List[dict], general_promos: List[str], items_per_page: int = 5):
         super().__init__(timeout=300)
-        self.promo_products = promo_products
-        self.general_promos_text = "\n".join([f"• {promo}" for promo in general_promos]) if general_promos else "Aucune offre générale en ce moment."
+        
+        # On combine toutes les promotions en une seule liste pour la pagination
+        self.all_items = general_promos + promo_products
+        
         self.items_per_page = items_per_page
         self.current_page = 0
-        self.total_pages = (len(self.promo_products) - 1) // self.items_per_page
-        if self.promo_products and self.total_pages > 0:
-            self.add_item(self.PrevButton())
-            self.add_item(self.NextButton())
-            self.update_buttons()
+        self.total_pages = (len(self.all_items) - 1) // self.items_per_page
+        self.update_buttons()
 
     def update_buttons(self):
-        if len(self.children) >= 2:
+        self.clear_items()
+        if self.total_pages > 0:
+            self.add_item(self.PrevButton())
+            self.add_item(self.NextButton())
             self.children[0].disabled = self.current_page == 0
             self.children[1].disabled = self.current_page >= self.total_pages
 
     def create_embed(self) -> discord.Embed:
+        embed = create_styled_embed(title="💰 Promotions et Offres Spéciales", description="", color=discord.Color.from_rgb(255, 105, 180))
+        
         start_index = self.current_page * self.items_per_page
         end_index = start_index + self.items_per_page
-        page_items = self.promo_products[start_index:end_index]
-        embed = create_styled_embed(title="💰 Promotions et Offres Spéciales", description="", color=discord.Color.from_rgb(255, 105, 180))
-        embed.add_field(name="🎁 Offres sur le site", value=self.general_promos_text, inline=False)
-        product_promo_text = ""
-        if not page_items: product_promo_text = "Aucun produit spécifique n'est en promotion actuellement."
+        page_items = self.all_items[start_index:end_index]
+        
+        promo_text = ""
+        if not self.all_items:
+            promo_text = "Aucune promotion ou offre spéciale en ce moment."
         else:
-            for product in page_items:
-                prix_promo = product.get('price', 'N/A')
-                prix_original = product.get('original_price', '')
-                prix_text = f"**{prix_promo}** ~~{prix_original}~~"
-                product_promo_text += f"**🏷️ [{product.get('name', 'N/A')}]({product.get('product_url', '#')})**\n> {prix_text}\n"
-        embed.add_field(name="🛍️ Produits en Promotion", value=product_promo_text, inline=False)
-        if self.promo_products and self.total_pages > 0:
-             embed.set_footer(text=f"Page {self.current_page + 1} sur {self.total_pages + 1}")
+            for item in page_items:
+                if isinstance(item, str):  # C'est une promo générale (chaîne de caractères)
+                    promo_text += f"🎁 {item}\n\n"
+                elif isinstance(item, dict):  # C'est un produit en promotion
+                    prix_promo = item.get('price', 'N/A')
+                    prix_original = item.get('original_price', '')
+                    prix_text = f"**{prix_promo}** ~~{prix_original}~~"
+                    promo_text += f"**🏷️ [{item.get('name', 'N/A')}]({item.get('product_url', '#')})**\n> {prix_text}\n\n"
+        
+        embed.description = promo_text # On met tout dans la description, qui a une limite de 4096 caractères
+        
+        if self.total_pages >= 0:
+             embed.set_footer(text=f"LaFoncedalle | Page {self.current_page + 1} sur {self.total_pages + 1}")
         return embed
 
     async def update_message(self, interaction: discord.Interaction):
@@ -414,15 +423,13 @@ class PromoPaginatorView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
     class PrevButton(discord.ui.Button):
-        def __init__(self):
-            super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary)
+        def __init__(self): super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary)
         async def callback(self, interaction: discord.Interaction):
             if self.view.current_page > 0: self.view.current_page -= 1
             await self.view.update_message(interaction)
 
     class NextButton(discord.ui.Button):
-        def __init__(self):
-            super().__init__(label="Suivant ➡️", style=discord.ButtonStyle.secondary)
+        def __init__(self): super().__init__(label="Suivant ➡️", style=discord.ButtonStyle.secondary)
         async def callback(self, interaction: discord.Interaction):
             if self.view.current_page < self.view.total_pages: self.view.current_page += 1
             await self.view.update_message(interaction)
@@ -825,7 +832,8 @@ class SlashCommands(commands.Cog):
             """, (user_id,))
             stats_row = c.fetchone()
             user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0}
-            if stats_row: user_stats = dict(zip(stats_row.keys(), stats_row))
+            if stats_row:
+                user_stats.update(dict(zip(stats_row.keys(), stats_row)))
             one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
             c.execute("SELECT user_id FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY COUNT(id) DESC LIMIT 3", (one_month_ago,))
             top_3_monthly_ids = [row['user_id'] for row in c.fetchall()]
