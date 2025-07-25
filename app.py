@@ -2,27 +2,42 @@ import os
 import sqlite3
 import random
 import time
-from flask import Flask, request, jsonify
-import shopify
-from dotenv import load_dotenv
 import threading
 import asyncio
+import traceback # Ajouté pour un meilleur logging d'erreur
+
+# Imports pour l'e-mail
 import smtplib, ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from email.header import Header
+from email.header import Header # [CORRECTION] Importé pour gérer l'encodage du sujet
+
+# Imports Flask et Shopify
+from flask import Flask, request, jsonify
+import shopify
+from dotenv import load_dotenv
+
+# [CORRECTION] Import des variables depuis config.py et catalogue_final pour le bot
 from config import SHOP_URL, SHOPIFY_API_VERSION, FLASK_SECRET_KEY
 import catalogue_final
 
+# --- Initialisation ---
 load_dotenv()
-
 app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY
 
+# Récupération des secrets depuis les variables d'environnement
 SENDER_EMAIL = os.getenv('SENDER_EMAIL')
 INFOMANIAK_APP_PASSWORD = os.getenv('INFOMANIAK_APP_PASSWORD')
 SHOPIFY_ADMIN_ACCESS_TOKEN = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
 
+# [CORRECTION] Unification de la base de données
+# On utilise le même chemin que le bot pour avoir une seule DB
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(BASE_DIR, "ratings.db")
+
+
+# --- Lancement du Bot Discord en arrière-plan ---
 def run_bot():
     asyncio.set_event_loop(asyncio.new_event_loop())
     asyncio.run(catalogue_final.main())
@@ -32,15 +47,23 @@ if not os.environ.get("WERKZEUG_RUN_MAIN"):
     bot_thread.daemon = True
     bot_thread.start()
 
+
+# --- Initialisation de la Base de Données ---
 def initialize_db():
-    conn = sqlite3.connect('database.db')
+    """Initialise les tables pour la liaison de comptes dans la DB partagée."""
+    print(f"INFO: Initialisation des tables de liaison dans la base de données: {DB_FILE}")
+    conn = sqlite3.connect(DB_FILE) # [CORRECTION] Utilise la DB partagée
     cursor = conn.cursor()
+    # Ces tables seront ajoutées à ratings.db si elles n'existent pas
     cursor.execute("CREATE TABLE IF NOT EXISTS user_links (discord_id TEXT PRIMARY KEY, user_email TEXT NOT NULL UNIQUE);")
     cursor.execute("CREATE TABLE IF NOT EXISTS verification_codes (discord_id TEXT PRIMARY KEY, user_email TEXT NOT NULL, code TEXT NOT NULL, expires_at INTEGER NOT NULL);")
     conn.commit()
     conn.close()
 
 initialize_db()
+
+
+# --- Routes de l'API ---
 
 @app.route('/')
 def health_check():
@@ -52,7 +75,7 @@ def start_verification():
     discord_id, email = data.get('discord_id'), data.get('email')
     if not all([discord_id, email]): return jsonify({"error": "Données manquantes."}), 400
 
-    conn = sqlite3.connect('database.db'); cursor = conn.cursor()
+    conn = sqlite3.connect(DB_FILE); cursor = conn.cursor() # [CORRECTION] Utilise la DB partagée
     cursor.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (discord_id,))
     if cursor.fetchone(): conn.close(); return jsonify({"error": "Ce compte Discord est déjà lié."}), 409
     cursor.execute("SELECT discord_id FROM user_links WHERE user_email = ?", (email,))
@@ -63,17 +86,13 @@ def start_verification():
 
     message = MIMEMultipart("alternative")
     
-    # --- CORRECTION 1 : Gérer l'encodage du sujet ---
+    # [CORRECTION] Gestion de l'encodage UTF-8 pour le sujet et le corps de l'e-mail
     sujet = "Votre code de vérification LaFoncedalle"
     message["Subject"] = Header(sujet, 'utf-8')
-    
     message["From"] = SENDER_EMAIL
     message["To"] = email
-
-    # --- CORRECTION 2 : Gérer l'encodage du corps du message ---
     html_body = f'Bonjour !<br>Voici votre code de vérification : <strong>{code}</strong><br>Ce code expire dans 10 minutes.'
-    part = MIMEText(html_body, "html", "utf-8") # <--- AJOUTEZ "utf-8" ICI
-    message.attach(part)
+    message.attach(MIMEText(html_body, "html", "utf-8")) # Spécification explicite de l'UTF-8
     
     context = ssl.create_default_context()
     try:
@@ -82,10 +101,8 @@ def start_verification():
             server.sendmail(SENDER_EMAIL, email, message.as_string())
         print(f"E-mail de vérification envoyé avec succès à {email}")
     except Exception as e:
-        # Amélioration du log pour voir l'erreur exacte
-        import traceback
         print(f"Erreur SMTP: {e}")
-        traceback.print_exc() # <--- Affiche plus de détails dans vos logs Render
+        traceback.print_exc() # Log plus détaillé de l'erreur
         return jsonify({"error": "Impossible d'envoyer l'e-mail de vérification."}), 500
 
     cursor.execute("INSERT OR REPLACE INTO verification_codes VALUES (?, ?, ?, ?)", (discord_id, email, code, expires_at))
@@ -98,7 +115,7 @@ def confirm_verification():
     discord_id = data.get('discord_id')
     code = data.get('code')
 
-    conn = sqlite3.connect('database.db')
+    conn = sqlite3.connect(DB_FILE) # [CORRECTION] Utilise la DB partagée
     cursor = conn.cursor()
     cursor.execute("SELECT user_email, expires_at FROM verification_codes WHERE discord_id = ? AND code = ?", (discord_id, code))
     result = cursor.fetchone()
@@ -122,14 +139,10 @@ def confirm_verification():
 def unlink_account():
     data = request.json
     discord_id = data.get('discord_id')
+    if not discord_id: return jsonify({"error": "ID Discord manquant."}), 400
 
-    if not discord_id:
-        return jsonify({"error": "ID Discord manquant."}), 400
-
-    conn = sqlite3.connect('database.db')
+    conn = sqlite3.connect(DB_FILE) # [CORRECTION] Utilise la DB partagée
     cursor = conn.cursor()
-
-    # Vérifier si un lien existe avant de le supprimer
     cursor.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (discord_id,))
     result = cursor.fetchone()
 
@@ -137,16 +150,20 @@ def unlink_account():
         conn.close()
         return jsonify({"error": "Aucun compte n'est lié à cet ID Discord."}), 404
 
-    # Supprimer la liaison
     cursor.execute("DELETE FROM user_links WHERE discord_id = ?", (discord_id,))
     conn.commit()
     conn.close()
-
-    # Renvoyer l'e-mail qui a été délié pour le message de confirmation
     return jsonify({"success": True, "unlinked_email": result[0]}), 200
 
 @app.route('/api/force-link', methods=['POST'])
 def force_link():
+    # [CORRECTION] Ajout d'une protection par clé secrète sur cet endpoint sensible
+    auth_header = request.headers.get('Authorization')
+    expected_header = f"Bearer {FLASK_SECRET_KEY}"
+
+    if not auth_header or auth_header != expected_header:
+        return jsonify({"error": "Accès non autorisé."}), 403
+
     data = request.json
     discord_id = data.get('discord_id')
     email = data.get('email')
@@ -154,14 +171,10 @@ def force_link():
     if not all([discord_id, email]):
         return jsonify({"error": "ID Discord ou e-mail manquant."}), 400
 
-    conn = sqlite3.connect('database.db')
+    conn = sqlite3.connect(DB_FILE) # [CORRECTION] Utilise la DB partagée
     cursor = conn.cursor()
     
-    # On insère ou on remplace la liaison existante.
-    # C'est parfait pour les tests, car on peut changer l'e-mail lié à la volée.
     cursor.execute("INSERT OR REPLACE INTO user_links (discord_id, user_email) VALUES (?, ?)", (discord_id, email))
-    
-    # On supprime tout code de vérification en attente pour cet utilisateur, pour rester propre.
     cursor.execute("DELETE FROM verification_codes WHERE discord_id = ?", (discord_id,))
     
     conn.commit()
@@ -171,7 +184,7 @@ def force_link():
 
 @app.route('/api/get_purchased_products/<discord_id>')
 def get_purchased_products(discord_id):
-    conn = sqlite3.connect('database.db')
+    conn = sqlite3.connect(DB_FILE) # [CORRECTION] Utilise la DB partagée
     cursor = conn.cursor()
     cursor.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (discord_id,))
     result = cursor.fetchone()

@@ -66,10 +66,79 @@ query getFiles($ids: [ID!]!) {
 
 # Dans catalogue_final.py
 
+def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve: set) -> dict:
+    """
+    Extrait, nettoie et formate les données d'un seul objet produit Shopify.
+    
+    Args:
+        prod: L'objet produit de l'API Shopify.
+        category: La catégorie interne (ex: "weed", "hash").
+        gids_to_resolve: Un set auquel ajouter les GID des métafields à résoudre.
+
+    Returns:
+        Un dictionnaire contenant les données formatées du produit.
+    """
+    product_data = {}
+    
+    # --- Extraction des données brutes ---
+    product_data['name'] = prod.title
+    product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
+    product_data['image'] = prod.image.src if prod.image else None
+    
+    # --- Catégorie et Description ---
+    category_map_display = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
+    product_data['category'] = category_map_display.get(category, category)
+
+    desc_html = prod.body_html
+    if desc_html:
+        soup = BeautifulSoup(desc_html, 'html.parser')
+        # Remplace les <br> par des sauts de ligne pour une meilleure lisibilité
+        for br in soup.find_all("br"): 
+            br.replace_with("\n")
+        product_data['detailed_description'] = soup.get_text(separator="\n", strip=True)
+    else:
+        product_data['detailed_description'] = "Pas de description."
+    
+    # --- Gestion des Variants (Prix, Promo, Épuisé) ---
+    available_variants = [v for v in prod.variants if v.inventory_quantity > 0 or v.inventory_policy == 'continue']
+    product_data['is_sold_out'] = not available_variants
+    
+    if available_variants:
+        min_price_variant = min(available_variants, key=lambda v: float(v.price))
+        price = float(min_price_variant.price)
+        compare_price = float(min_price_variant.compare_at_price) if min_price_variant.compare_at_price else 0.0
+        
+        product_data['is_promo'] = compare_price > price
+        product_data['original_price'] = f"{compare_price:.2f} €".replace('.', ',') if product_data['is_promo'] else None
+        
+        # Ajoute "à partir de" seulement si plusieurs options de prix sont disponibles
+        price_prefix = "à partir de " if len(available_variants) > 1 and price > 0 else ""
+        product_data['price'] = f"{price_prefix}{price:.2f} €".replace('.', ',') if price > 0 else "Cadeau !"
+    else:
+        # Cas où le produit est complètement épuisé
+        product_data['price'] = "N/A"
+        product_data['is_promo'] = False
+        product_data['original_price'] = None
+
+    # --- Extraction des Metafields (Stats) ---
+    product_data['stats'] = {}
+    for meta in prod.metafields():
+        key = meta.key.replace('_', ' ').capitalize()
+        value = meta.value
+        product_data['stats'][key] = value
+        # Si la valeur est un GID, on l'ajoute au set pour le résoudre plus tard
+        if isinstance(value, str) and value.startswith("gid://shopify/"):
+            gids_to_resolve.add(value)
+            
+    return product_data
+
+
+# [MODIFIÉ]
 def get_site_data_from_api():
     """
     Version FINALE ET ROBUSTE : Catégorise les produits en se basant sur leurs collections
     ET ne récupère QUE les produits PUBLIÉS sur la boutique en ligne.
+    Cette version est refactorisée pour utiliser une fonction d'aide.
     """
     Logger.info("Démarrage de la récupération via API Shopify (par collection)...")
     
@@ -86,7 +155,6 @@ def get_site_data_from_api():
         shopify.ShopifyResource.activate_session(session)
 
         # --- ÉTAPE 1 : Récupérer la liste de tous les produits PUBLIÉS ---
-        # On stocke leurs IDs dans un set pour une vérification ultra-rapide.
         published_products_api = shopify.Product.find(published_status='published', limit=250)
         published_product_ids = {prod.id for prod in published_products_api}
         Logger.info(f"{len(published_product_ids)} produits publiés trouvés sur la boutique.")
@@ -99,10 +167,9 @@ def get_site_data_from_api():
             "hash": "hash",
             "weed": "weed",
             "box": "box",
-            # Ajoutez "accessoire" ici si vous avez une collection nommée "Accessoires"
         }
         
-        all_products = {} # Dictionnaire pour stocker les produits traités et éviter les doublons
+        all_products = {} 
         gids_to_resolve = set()
 
         collections = shopify.CustomCollection.find()
@@ -118,94 +185,52 @@ def get_site_data_from_api():
 
             if category:
                 Logger.info(f"Analyse des produits de la collection '{collection.title}'...")
-                
-                # On récupère TOUS les produits de la collection...
                 products_in_collection = collection.products()
                 
                 for prod in products_in_collection:
-                    # ...et on vérifie MANUELLEMENT s'ils sont dans notre liste de produits publiés.
-                    if prod.id not in published_product_ids:
-                        continue # Si non, on l'ignore.
-
-                    if prod.id in all_products:
+                    if prod.id not in published_product_ids or prod.id in all_products:
                         continue
                     
                     if any(kw in prod.title.lower() for kw in ["telegram", "instagram", "tiktok"]):
                         continue
 
-                    # --- Début de l'extraction des données du produit ---
-                    product_data = {}
-                    product_data['name'] = prod.title
-                    product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
-                    product_data['image'] = prod.image.src if prod.image else None
-                    
-                    category_map_display = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
-                    product_data['category'] = category_map_display.get(category, category)
-
-                    desc_html = prod.body_html
-                    if desc_html:
-                        soup = BeautifulSoup(desc_html, 'html.parser')
-                        for br in soup.find_all("br"): br.replace_with("\n")
-                        product_data['detailed_description'] = soup.get_text(separator="\n", strip=True)
-                    else:
-                        product_data['detailed_description'] = "Pas de description."
-                    
-                    available_variants = [v for v in prod.variants if v.inventory_quantity > 0 or v.inventory_policy == 'continue']
-                    product_data['is_sold_out'] = not available_variants
-                    
-                    if available_variants:
-                        min_price_variant = min(available_variants, key=lambda v: float(v.price))
-                        price = float(min_price_variant.price)
-                        compare_price = float(min_price_variant.compare_at_price) if min_price_variant.compare_at_price else 0.0
-                        product_data['is_promo'] = compare_price > price
-                        product_data['original_price'] = f"{compare_price:.2f} €".replace('.', ',') if product_data['is_promo'] else None
-                        price_prefix = "à partir de " if len(available_variants) > 1 and price > 0 else ""
-                        product_data['price'] = f"{price_prefix}{price:.2f} €".replace('.', ',') if price > 0 else "Cadeau !"
-                    else:
-                        product_data['price'] = "N/A"
-                        product_data['is_promo'] = False
-                        product_data['original_price'] = None
-
-                    product_data['stats'] = {}
-                    for meta in prod.metafields():
-                        key = meta.key.replace('_', ' ').capitalize()
-                        value = meta.value
-                        product_data['stats'][key] = value
-                        if isinstance(value, str) and value.startswith("gid://shopify/"):
-                            gids_to_resolve.add(value)
-                    
+                    # On appelle la fonction d'aide pour extraire les données
+                    product_data = _extract_product_data(prod, category, gids_to_resolve)
                     all_products[prod.id] = product_data
-                    # --- Fin de l'extraction ---
 
         # --- Logique de Fallback pour les produits hors-collection (ex: accessoires) ---
+        Logger.info("Recherche des produits hors-collections (type accessoires)...")
         for prod in published_products_api:
             if prod.id in all_products:
                 continue
             
-            # Si un produit publié n'a pas été trouvé dans nos collections principales,
-            # on vérifie s'il s'agit d'un accessoire.
             if any(kw in prod.title.lower() for kw in ["briquet", "feuille", "grinder", "accessoire"]):
-                # On réutilise la même logique d'extraction de données ici
-                # (c'est un peu redondant mais garantit que rien n'est manqué)
-                # ... (vous pouvez copier/coller le bloc d'extraction de données si nécessaire)
-                pass
+                # On réutilise la même fonction d'aide, beaucoup plus propre !
+                product_data = _extract_product_data(prod, "accessoire", gids_to_resolve)
+                all_products[prod.id] = product_data
+                Logger.info(f"Produit accessoire trouvé : {prod.title}")
 
         raw_products_data = list(all_products.values())
         
-        # --- Résolution des GIDs ---
+        # --- ÉTAPE 4 : Résolution des GIDs ---
         gid_url_map = {}
         if gids_to_resolve:
+            Logger.info(f"Résolution de {len(gids_to_resolve)} GIDs pour les fichiers...")
             client = shopify.GraphQL()
             result_json = client.execute(RESOLVE_FILES_QUERY, variables={"ids": list(gids_to_resolve)})
             result = json.loads(result_json)
             for node in result.get('data', {}).get('nodes', []):
                 if node:
-                    gid, url = node.get('id'), node.get('url') or (node.get('image', {}).get('url') if 'image' in node else None)
-                    if gid and url: gid_url_map[gid] = url
+                    gid = node.get('id')
+                    url = node.get('url') or (node.get('image', {}).get('url') if 'image' in node else None)
+                    if gid and url: 
+                        gid_url_map[gid] = url
 
+        # --- ÉTAPE 5 : Finalisation des données ---
         final_products = []
         for product_data in raw_products_data:
             for key, value in product_data['stats'].items():
+                # Remplace les GID par les URL résolues
                 if isinstance(value, str) and value in gid_url_map:
                     product_data['stats'][key] = gid_url_map[value]
             final_products.append(product_data)
@@ -476,8 +501,11 @@ async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = Fa
         Logger.error("Récupération des données API échouée, la vérification s'arrête.")
         return False
     def write_cache():
-        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
-            json.dump(site_data, f, indent=4, ensure_ascii=False)
+        temp_cache_file = CACHE_FILE + ".tmp"
+        with open(temp_cache_file, 'w', encoding='utf-8') as f:
+        json.dump(site_data, f, indent=4, ensure_ascii=False)
+        # Renommer le fichier temporaire écrase l'ancien de manière atomique
+        os.replace(temp_cache_file, CACHE_FILE) 
     await asyncio.to_thread(write_cache)
     Logger.success(f"Cache de produits mis à jour sur le disque avec {len(site_data.get('products', []))} produits.")
 

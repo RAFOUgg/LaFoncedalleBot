@@ -7,25 +7,7 @@ from datetime import datetime, timedelta
 from profil_image_generator import create_profile_card
 from shared_utils import *
 
-async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
-    if await interaction.client.is_owner(interaction.user): return True
-    staff_role_id = await config_manager.get_state('staff_role_id', STAFF_ROLE_ID)
-    if not staff_role_id: return False
-    try: staff_role_id_int = int(staff_role_id)
-    except (ValueError, TypeError): return False
-    return any(role.id == staff_role_id_int for role in interaction.user.roles)
-
 # --- Logique des permissions ---
-async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
-    if await interaction.client.is_owner(interaction.user): return True
-    staff_role_id = await config_manager.get_state('staff_role_id', STAFF_ROLE_ID)
-    if not staff_role_id: return False
-    try: staff_role_id_int = int(staff_role_id)
-    except (ValueError, TypeError): return False
-    return any(role.id == staff_role_id_int for role in interaction.user.roles)
-
-
-# --- Logique des permissions (inchangée) ---
 async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
     if await interaction.client.is_owner(interaction.user): return True
     staff_role_id = await config_manager.get_state('staff_role_id', STAFF_ROLE_ID)
