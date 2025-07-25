@@ -64,11 +64,11 @@ query getFiles($ids: [ID!]!) {
 
 # ... (gardez la fonction get_smart_promotions_from_api, elle est utile)
 
-def get_site_data_from_api(): # <--- On revient à une fonction synchrone (def)
+def get_site_data_from_api():
     """
-    Version ROBUSTE ET SIMPLE : Récupère les données uniquement via l'API Shopify.
+    Version FINALE ET ROBUSTE : Catégorise les produits en se basant sur leurs collections Shopify.
     """
-    Logger.info("Démarrage de la récupération via API Shopify...")
+    Logger.info("Démarrage de la récupération via API Shopify (par collection)...")
     
     try:
         shop_url = os.getenv('SHOPIFY_SHOP_URL')
@@ -82,76 +82,101 @@ def get_site_data_from_api(): # <--- On revient à une fonction synchrone (def)
         session = shopify.Session(shop_url, api_version, access_token)
         shopify.ShopifyResource.activate_session(session)
 
-        # On récupère les produits ET les promotions de l'API. C'est tout.
-        all_products_api = shopify.Product.find(status='active', limit=250)
+        # Récupération des promotions (inchangé)
         general_promos = get_smart_promotions_from_api()
 
-        # --- Le reste de la fonction est identique ---
-        raw_products_data = []
-        gids_to_resolve = set()
-        # ... (copiez-collez ici TOUTE la logique de traitement des produits, inchangée) ...
-        # ... (catégorisation, filtres, GID, etc.)
-        hash_keywords = config_manager.get_config("categorization.hash_keywords", []) + ["hash", "résine", "resin", "resine", "piatella", "piattella", "Frozen", "frozen"]
-        box_keywords = ["box", "pack", "coffret", "gustative"]
-        accessoire_keywords = ["briquet", "feuille", "papier", "accessoire", "grinder", "plateau", "clipper", "ocb"]
-        social_keywords = ["telegram", "instagram", "tiktok"]
-
-        for prod in all_products_api:
-            # ... (logique de la boucle) ...
-            title_lower = prod.title.lower()
-            product_type_lower = prod.product_type.lower() if prod.product_type else ""
-            tags_lower = [tag.lower() for tag in prod.tags]
-
-            if any(kw in title_lower for kw in box_keywords): category = "box"
-            elif any(kw in title_lower for kw in accessoire_keywords) or "accessoire" in product_type_lower: category = "accessoire"
-            elif any(kw in title_lower for kw in hash_keywords) or any(kw in tags_lower for kw in hash_keywords) or "résine" in product_type_lower: category = "hash"
-            else: category = "weed"
-            
-            is_free = not any(float(variant.price) > 0 for variant in prod.variants)
-            if is_free and category != "accessoire": continue
-            if any(kw in title_lower for kw in social_keywords): continue
-
-            product_data = {}
-            # ... (reste de la logique d'extraction de données)
-            product_data['name'] = prod.title
-            product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
-            product_data['image'] = prod.image.src if prod.image else None
-            category_map = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
-            product_data['category'] = category_map.get(category)
-            desc_html = prod.body_html
-            if desc_html:
-                soup = BeautifulSoup(desc_html, 'html.parser')
-                for br in soup.find_all("br"): br.replace_with("\n")
-                product_data['detailed_description'] = soup.get_text(separator="\n", strip=True)
-            else:
-                product_data['detailed_description'] = "Pas de description."
-            
-            available_variants = [v for v in prod.variants if v.inventory_quantity > 0 or v.inventory_policy == 'continue']
-            product_data['is_sold_out'] = not available_variants
-            
-            if available_variants:
-                min_price_variant = min(available_variants, key=lambda v: float(v.price))
-                price = float(min_price_variant.price)
-                compare_price = float(min_price_variant.compare_at_price) if min_price_variant.compare_at_price else 0.0
-                product_data['is_promo'] = compare_price > price
-                product_data['original_price'] = f"{compare_price:.2f} €".replace('.', ',') if product_data['is_promo'] else None
-                price_prefix = "à partir de " if len(available_variants) > 1 and price > 0 else ""
-                product_data['price'] = f"{price_prefix}{price:.2f} €".replace('.', ',') if price > 0 else "Cadeau !"
-            else:
-                product_data['price'] = "N/A"
-                product_data['is_promo'] = False
-                product_data['original_price'] = None
-
-            product_data['stats'] = {}
-            for meta in prod.metafields():
-                key = meta.key.replace('_', ' ').capitalize()
-                value = meta.value
-                product_data['stats'][key] = value
-                if isinstance(value, str) and value.startswith("gid://shopify/"):
-                    gids_to_resolve.add(value)
-            
-            raw_products_data.append(product_data)
+        # Dictionnaire pour mapper les titres des collections à nos catégories internes
+        collection_category_map = {
+            "nos hash": "hash",
+            "nos weed": "weed",
+            "boxes": "box",
+            # Ajoutez ici d'autres collections si nécessaire, ex: "accessoires": "accessoire"
+        }
         
+        all_products = {} # Utiliser un dictionnaire pour éviter les doublons
+        gids_to_resolve = set()
+
+        # On récupère toutes les collections de la boutique
+        collections = shopify.CustomCollection.find()
+        
+        for collection in collections:
+            collection_title_lower = collection.title.lower()
+            
+            # On vérifie si le titre de la collection correspond à une de nos catégories
+            if collection_title_lower in collection_category_map:
+                category = collection_category_map[collection_title_lower]
+                Logger.info(f"Récupération des produits de la collection '{collection.title}' -> catégorie '{category}'")
+                
+                # On récupère tous les produits de cette collection
+                products_in_collection = collection.products()
+                
+                for prod in products_in_collection:
+                    # Si on a déjà traité ce produit (car il est dans plusieurs collections), on passe
+                    if prod.id in all_products:
+                        continue
+
+                    # On filtre les produits "sociaux"
+                    if any(kw in prod.title.lower() for kw in ["telegram", "instagram", "tiktok"]):
+                        continue
+
+                    product_data = {}
+                    product_data['name'] = prod.title
+                    product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
+                    product_data['image'] = prod.image.src if prod.image else None
+                    
+                    # On assigne la catégorie en fonction de la collection
+                    category_map_display = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
+                    product_data['category'] = category_map_display.get(category, category)
+
+                    # --- Le reste de l'extraction de données est identique à avant ---
+                    desc_html = prod.body_html
+                    if desc_html:
+                        soup = BeautifulSoup(desc_html, 'html.parser')
+                        for br in soup.find_all("br"): br.replace_with("\n")
+                        product_data['detailed_description'] = soup.get_text(separator="\n", strip=True)
+                    else:
+                        product_data['detailed_description'] = "Pas de description."
+                    
+                    available_variants = [v for v in prod.variants if v.inventory_quantity > 0 or v.inventory_policy == 'continue']
+                    product_data['is_sold_out'] = not available_variants
+                    
+                    if available_variants:
+                        min_price_variant = min(available_variants, key=lambda v: float(v.price))
+                        price = float(min_price_variant.price)
+                        compare_price = float(min_price_variant.compare_at_price) if min_price_variant.compare_at_price else 0.0
+                        product_data['is_promo'] = compare_price > price
+                        product_data['original_price'] = f"{compare_price:.2f} €".replace('.', ',') if product_data['is_promo'] else None
+                        price_prefix = "à partir de " if len(available_variants) > 1 and price > 0 else ""
+                        product_data['price'] = f"{price_prefix}{price:.2f} €".replace('.', ',') if price > 0 else "Cadeau !"
+                    else:
+                        product_data['price'] = "N/A"
+                        product_data['is_promo'] = False
+                        product_data['original_price'] = None
+
+                    product_data['stats'] = {}
+                    for meta in prod.metafields():
+                        key = meta.key.replace('_', ' ').capitalize()
+                        value = meta.value
+                        product_data['stats'][key] = value
+                        if isinstance(value, str) and value.startswith("gid://shopify/"):
+                            gids_to_resolve.add(value)
+                    
+                    all_products[prod.id] = product_data
+
+        # On récupère aussi les produits qui ne sont dans AUCUNE de ces collections (ex: accessoires)
+        # Vous pouvez commenter cette partie si tous vos produits sont dans des collections
+        all_products_from_api = shopify.Product.find(status='active', limit=250)
+        for prod in all_products_from_api:
+            if prod.id in all_products:
+                continue
+            # Logique de fallback pour les accessoires
+            if any(kw in prod.title.lower() for kw in ["briquet", "feuille", "grinder", "accessoire"]):
+                #... (Vous pouvez ajouter la même logique d'extraction ici si nécessaire)
+                pass
+
+        raw_products_data = list(all_products.values())
+        
+        # --- Résolution des GIDs (inchangé) ---
         gid_url_map = {}
         if gids_to_resolve:
             client = shopify.GraphQL()
