@@ -90,24 +90,27 @@ def get_site_data_from_api():
             "nos hash": "hash",
             "nos weed": "weed",
             "boxes": "box",
-            # Ajoutez ici d'autres collections si nécessaire, ex: "accessoires": "accessoire"
         }
         
-        all_products = {} # Utiliser un dictionnaire pour éviter les doublons
+        all_products = {} 
         gids_to_resolve = set()
 
-        # On récupère toutes les collections de la boutique
         collections = shopify.CustomCollection.find()
         
         for collection in collections:
             collection_title_lower = collection.title.lower()
             
-            # On vérifie si le titre de la collection correspond à une de nos catégories
-            if collection_title_lower in collection_category_map:
-                category = collection_category_map[collection_title_lower]
+            # --- NOUVELLE LOGIQUE PLUS SOUPLE ---
+            category = None
+            for keyword, cat in collection_keyword_map.items():
+                if keyword in collection_title_lower:
+                    category = cat
+                    break # On a trouvé la catégorie, on arrête de chercher
+
+            # Si on a trouvé une catégorie correspondante pour cette collection
+            if category:
                 Logger.info(f"Récupération des produits de la collection '{collection.title}' -> catégorie '{category}'")
                 
-                # On récupère tous les produits de cette collection
                 products_in_collection = collection.products()
                 
                 for prod in products_in_collection:
@@ -321,10 +324,12 @@ async def post_weekly_selection(bot_instance: commands.Bot):
 
 # Dans catalogue_final.py
 
+# Dans catalogue_final.py
+
 def get_smart_promotions_from_api():
     """
     Interroge l'API Shopify pour trouver toutes les promotions VRAIMENT disponibles
-    (actives, non épuisées, et non-destinées aux tests).
+    (actives, non épuisées, publiques et non-destinées aux tests).
     """
     Logger.info("Recherche des promotions intelligentes et disponibles via l'API...")
     promo_texts = []
@@ -338,33 +343,36 @@ def get_smart_promotions_from_api():
                 continue
 
             # --- VÉRIFICATION N°2 : Convention de nommage pour les tests ---
-            # On ignore les règles qui semblent être des tests.
             title_lower = rule.title.lower()
             if title_lower.startswith(('test', '_', 'z-')):
                 continue
 
             discount_codes = shopify.DiscountCode.find(price_rule_id=rule.id)
+            is_shipping_offer = "livraison" in title_lower
 
-            # --- VÉRIFICATION N°3 : Limite d'utilisation ---
-            if discount_codes:
+            # --- VÉRIFICATION N°3 (CORRIGÉE) : Ne garder que les offres publiques ---
+            # Une offre est publique si elle a un code de réduction OU si c'est une offre de livraison.
+            # On ignore les offres automatiques qui ne concernent pas la livraison.
+            if not discount_codes and not is_shipping_offer:
+                continue
+
+            # --- VÉRIFICATION N°4 (CORRIGÉE) : Limite d'utilisation ---
+            # On ne fait cette vérification que s'il y a un code et une limite.
+            if discount_codes and rule.usage_limit is not None:
                 code = discount_codes[0]
-                # Si la règle a une limite d'utilisation...
-                if rule.usage_limit is not None:
-                    # ... et que le nombre d'utilisations est supérieur ou égal à la limite...
-                    if code.usage_count >= rule.usage_limit:
-                        # ... alors la promotion est épuisée, on l'ignore.
-                        continue
+                if code.usage_count >= rule.usage_limit:
+                    # La promotion est épuisée, on l'ignore.
+                    continue
             
-            # Si toutes les vérifications sont passées, on formate le texte.
+            # Si toutes les vérifications sont passées, on peut formater le texte.
             code_text = f" (avec le code `{discount_codes[0].code}`)" if discount_codes else ""
             
             value = float(rule.value)
             value_type = rule.value_type
 
-            if "livraison" in title_lower:
+            if is_shipping_offer:
                  promo_texts.append(f"🚚 {rule.title}")
             elif value_type == 'percentage':
-                # Affiche un entier s'il n'y a pas de décimale
                 promo_texts.append(f"💰 {abs(value):.0f}% de réduction sur {rule.title}{code_text}")
             elif value_type == 'fixed_amount':
                 promo_texts.append(f"💰 {abs(value):.2f}€ de réduction sur {rule.title}{code_text}")
