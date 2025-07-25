@@ -92,55 +92,8 @@ class PromoPaginatorView(discord.ui.View):
             if self.view.current_page < self.view.total_pages: self.view.current_page += 1
             await self.view.update_message(i)
 
-# Dans commands.py
-
-class ProfileView(discord.ui.View):
-    def __init__(self, target_user, user_stats, user_ratings, shopify_data, can_reset, bot):
-        super().__init__(timeout=300)
-        self.target_user = target_user
-        self.user_stats = user_stats
-        self.user_ratings = user_ratings
-        self.shopify_data = shopify_data
-        self.can_reset = can_reset
-        self.bot = bot
-        
-        # On désactive le bouton "Voir les notes" s'il n'y en a pas.
-        if not self.user_ratings:
-            self.show_notes_button.disabled = True
-        
-        # On retire le bouton "Réinitialiser" si l'utilisateur n'est pas staff.
-        if not self.can_reset:
-            self.remove_item(self.reset_button)
-
-    @discord.ui.button(label="Voir les notes en détail", style=discord.ButtonStyle.secondary, emoji="📝")
-    async def show_notes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        paginator = RatingsPaginatorView(self.target_user, self.user_ratings)
-        embed = paginator.create_embed()
-        await interaction.response.send_message(embed=embed, view=paginator, ephemeral=True)
-
-    @discord.ui.button(label="Afficher la Carte de Profil", style=discord.ButtonStyle.secondary, emoji="🖼️")
-    async def show_card_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        
-        card_data = {
-            "name": str(self.target_user), 
-            "avatar_url": self.target_user.display_avatar.url, 
-            **self.user_stats, 
-            **self.shopify_data
-        }
-        image_buffer = await create_profile_card(card_data)
-        image_file = discord.File(fp=image_buffer, filename="profile_card.png")
-        
-        await interaction.followup.send(file=image_file, ephemeral=True)
-    
-    @discord.ui.button(label="Réinitialiser les notes", style=discord.ButtonStyle.danger, emoji="🗑️")
-    async def reset_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        view = ConfirmResetNotesView(self.target_user, self.bot)
-        await interaction.response.send_message(f"Voulez-vous vraiment supprimer toutes les notes de {self.target_user.mention} ?", view=view, ephemeral=True)
-
-# VUE POUR PAGINER LES NOTES (AMÉLIORÉE)
 class RatingsPaginatorView(discord.ui.View):
-    def __init__(self, target_user, user_ratings, items_per_page=2): # On affiche 2 produits par page pour plus de clarté
+    def __init__(self, target_user, user_ratings, items_per_page=2):
         super().__init__(timeout=180)
         self.target_user = target_user
         self.user_ratings = user_ratings
@@ -168,20 +121,12 @@ class RatingsPaginatorView(discord.ui.View):
             avg = (r.get('visual_score', 0) + r.get('smell_score', 0) + r.get('touch_score', 0) + r.get('taste_score', 0) + r.get('effects_score', 0)) / 5
             date = datetime.fromisoformat(r['rating_timestamp']).strftime('%d/%m/%Y')
             
-            # --- AFFICHAGE DÉTAILLÉ ---
             details_text = (
-                f"Visuel : `{r.get('visual_score', 'N/A')}/10` | "
-                f"Odeur : `{r.get('smell_score', 'N/A')}/10`\n"
-                f"Toucher : `{r.get('touch_score', 'N/A')}/10` | "
-                f"Goût : `{r.get('taste_score', 'N/A')}/10`\n"
-                f"Effets : `{r.get('effects_score', 'N/A')}/10`"
+                f"Visuel: `{r.get('visual_score', 'N/A')}` | Odeur: `{r.get('smell_score', 'N/A')}` | Toucher: `{r.get('touch_score', 'N/A')}`\n"
+                f"Goût: `{r.get('taste_score', 'N/A')}` | Effets: `{r.get('effects_score', 'N/A')}`"
             )
             
-            embed.add_field(
-                name=f"⭐ {r['product_name']} - Note globale : {avg:.2f}/10 ({date})", 
-                value=details_text, 
-                inline=False
-            )
+            embed.add_field(name=f"⭐ {r['product_name']} ({avg:.2f}/10) - {date}", value=details_text, inline=False)
         
         if self.total_pages >= 0:
             embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages + 1}")
@@ -193,16 +138,53 @@ class RatingsPaginatorView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
     class PrevButton(discord.ui.Button):
-        def __init__(self, disabled): super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary, disabled=disabled)
+        def __init__(self, disabled): super().__init__(label="⬅️", style=discord.ButtonStyle.secondary, disabled=disabled)
         async def callback(self, i: discord.Interaction):
             if self.view.current_page > 0: self.view.current_page -= 1
             await self.view.update_message(i)
 
     class NextButton(discord.ui.Button):
-        def __init__(self, disabled): super().__init__(label="Suivant ➡️", style=discord.ButtonStyle.secondary, disabled=disabled)
+        def __init__(self, disabled): super().__init__(label="➡️", style=discord.ButtonStyle.secondary, disabled=disabled)
         async def callback(self, i: discord.Interaction):
             if self.view.current_page < self.view.total_pages: self.view.current_page += 1
             await self.view.update_message(i)
+
+class ProfileView(discord.ui.View):
+    def __init__(self, target_user, user_stats, user_ratings, shopify_data, can_reset, bot):
+        super().__init__(timeout=300)
+        self.target_user = target_user
+        self.user_stats = user_stats
+        self.user_ratings = user_ratings
+        self.shopify_data = shopify_data
+        self.can_reset = can_reset
+        self.bot = bot
+        
+        if not self.user_ratings:
+            self.show_notes_button.disabled = True
+        if not self.can_reset:
+            self.remove_item(self.reset_button)
+
+    @discord.ui.button(label="Voir les notes en détail", style=discord.ButtonStyle.secondary, emoji="📝")
+    async def show_notes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        paginator = RatingsPaginatorView(self.target_user, self.user_ratings)
+        embed = paginator.create_embed()
+        await interaction.response.send_message(embed=embed, view=paginator, ephemeral=True)
+
+    @discord.ui.button(label="Afficher la Carte de Profil", style=discord.ButtonStyle.secondary, emoji="🖼️")
+    async def show_card_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        card_data = {
+            "name": str(self.target_user), "avatar_url": self.target_user.display_avatar.url, 
+            **self.user_stats, **self.shopify_data
+        }
+        image_buffer = await create_profile_card(card_data)
+        image_file = discord.File(fp=image_buffer, filename="profile_card.png")
+        await interaction.followup.send(file=image_file, ephemeral=True)
+    
+    @discord.ui.button(label="Réinitialiser les notes", style=discord.ButtonStyle.danger, emoji="🗑️")
+    async def reset_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = ConfirmResetNotesView(self.target_user, self.bot)
+        await interaction.response.send_message(f"Voulez-vous vraiment supprimer toutes les notes de {self.target_user.mention} ?", view=view, ephemeral=True)
             
 class ProductView(discord.ui.View):
     def __init__(self, products: List[dict], category: str = None):
@@ -1065,39 +1047,35 @@ class SlashCommands(commands.Cog):
             user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0}
             if stats_row:
                 user_stats.update(dict(zip(stats_row.keys(), stats_row)))
+
             one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
             c.execute("SELECT user_id FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY COUNT(id) DESC LIMIT 3", (one_month_ago,))
             top_3_monthly_ids = [row['user_id'] for row in c.fetchall()]
             user_stats['is_top_3_monthly'] = user_id in top_3_monthly_ids
             conn.close()
+            
             shopify_data = {}
             api_url = f"{APP_URL}/api/get_purchased_products/{user_id}"
             try:
                 res = requests.get(api_url, timeout=10)
-                # On vérifie si la requête a réussi ET si la réponse est bien du JSON
                 if res.ok:
-                    try:
-                        shopify_data = res.json()
+                    try: shopify_data = res.json()
                     except requests.exceptions.JSONDecodeError:
-                        Logger.error(f"L'API Flask a renvoyé une réponse non-JSON pour {user_id}. Contenu : {res.text[:200]}")
-                else:
-                    # Si la requête échoue (ex: erreur 500), on loggue le statut
-                    Logger.warning(f"L'API Flask a retourné un statut {res.status_code} pour {user_id}.")
-
-            except requests.exceptions.RequestException as e: 
-                Logger.error(f"API Flask inaccessible pour {user_id}: {e}")
+                        Logger.error(f"L'API Flask a renvoyé une réponse non-JSON pour {user_id}. Contenu: {res.text[:200]}")
+                else: Logger.warning(f"L'API Flask a retourné un statut {res.status_code} pour {user_id}.")
+            except requests.exceptions.RequestException as e: Logger.error(f"API Flask inaccessible pour {user_id}: {e}")
             
             return user_stats, user_ratings, shopify_data
 
         try:
             user_stats, user_ratings, shopify_data = await asyncio.to_thread(_fetch_user_data_sync, target_user.id)
+
             if user_stats['count'] == 0 and not shopify_data.get('purchase_count', 0) > 0:
                 await interaction.followup.send("Cet utilisateur n'a aucune activité enregistrée.", ephemeral=True); return
 
             embed = discord.Embed(title=f"Profil de {target_user.display_name}", color=target_user.color)
             embed.set_thumbnail(url=target_user.display_avatar.url)
 
-            # Champ pour l'activité sur la boutique
             shop_activity_text = "Compte non lié. Utilisez `/lier_compte`."
             if shopify_data.get('purchase_count', 0) > 0:
                 shop_activity_text = (
@@ -1106,7 +1084,6 @@ class SlashCommands(commands.Cog):
                 )
             embed.add_field(name="🛍️ Activité sur la Boutique", value=shop_activity_text, inline=False)
 
-            # Champ pour l'activité sur le Discord (notes)
             discord_activity_text = "Aucune note enregistrée."
             if user_stats.get('count', 0) > 0:
                 discord_activity_text = (
@@ -1120,11 +1097,8 @@ class SlashCommands(commands.Cog):
             embed.add_field(name="📝 Activité sur le Discord", value=discord_activity_text, inline=False)
             
             can_reset = membre and membre.id != interaction.user.id and await is_staff_or_owner(interaction)
-            
-            # On passe bien TOUS les arguments nécessaires
             view = ProfileView(target_user, user_stats, user_ratings, shopify_data, can_reset, self.bot)
 
-            # On envoie l'embed principal avec les boutons
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
         except Exception as e:
