@@ -69,6 +69,40 @@ initialize_db()
 def health_check():
     return "L'application pont Shopify-Discord est en ligne.", 200
 
+
+@app.route('/debug-filesystem')
+def debug_filesystem():
+    """
+    Endpoint temporaire pour diagnostiquer l'état du système de fichiers
+    à l'intérieur du conteneur Render.
+    """
+    base_path = '/app'
+    assets_path = os.path.join(base_path, 'assets')
+    font_path = os.path.join(assets_path, 'Gobold-Bold.ttf') # On teste avec une police
+
+    results = {
+        "1_current_working_directory": os.getcwd(),
+        "2_base_path_contents": [],
+        "3_assets_dir_exists": os.path.exists(assets_path),
+        "4_assets_dir_contents": [],
+        "5_font_file_exists": os.path.exists(font_path),
+        "6_font_file_readable": False,
+        "7_error_log": None
+    }
+
+    try:
+        results["2_base_path_contents"] = os.listdir(base_path)
+        if results["3_assets_dir_exists"]:
+            results["4_assets_dir_contents"] = os.listdir(assets_path)
+        if results["5_font_file_exists"]:
+            with open(font_path, 'rb') as f:
+                results["6_font_file_readable"] = True # Si on arrive ici, le fichier est lisible
+    except Exception as e:
+        results["7_error_log"] = traceback.format_exc()
+
+    return jsonify(results)
+
+
 @app.route('/api/start-verification', methods=['POST'])
 def start_verification():
     data = request.json

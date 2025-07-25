@@ -291,21 +291,27 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
         await asyncio.to_thread(_save)
         await interaction.followup.send(f"✅ Merci ! Note de **{sum(scores.values())/5:.2f}/10** pour **{self.product_name}** enregistrée.", ephemeral=True)
 
+# Dans commands.py
+
+# D'abord, la vue
 class NotationProductSelectView(discord.ui.View):
     def __init__(self, products: list, user: discord.User):
         super().__init__(timeout=180)
-        self.products = products # <--- AJOUTER CETTE LIGNE
+        # On stocke la liste complète des produits pour plus tard
+        self.products = products 
         if products:
+            # On passe la liste complète au Select
             self.add_item(self.ProductSelect(products, user))
 
+    # Ensuite, le menu déroulant (Select) à l'intérieur de la vue
     class ProductSelect(discord.ui.Select):
         def __init__(self, products: list, user: discord.User):
             self.user = user
             
-            # [CORRECTION FINALE] On tronque à la fois le label ET la value à 100 caractères.
+            # [CORRECTION] On tronque à la fois le label ET la value à 100 caractères
             options = [
                 discord.SelectOption(label=p[:100], value=p[:100]) 
-                for p in products[:25]
+                for p in products[:25] # On ne peut afficher que 25 options max
             ]
             
             if not options:
@@ -318,11 +324,17 @@ class NotationProductSelectView(discord.ui.View):
                 await interaction.response.edit_message(content="Aucun produit sélectionné.", view=None)
                 return
             
-            # Important : La valeur retournée sera tronquée.
-            # Il faut retrouver le nom complet du produit pour l'envoyer au Modal.
+            # On récupère la valeur tronquée qui a été sélectionnée
             selected_value = self.values[0]
-            full_product_name = next((p for p in self.view.products if p.startswith(selected_value)), selected_value)
             
+            # On retrouve le nom complet du produit en comparant le début des noms
+            # de la liste originale (stockée dans la vue) avec la valeur tronquée.
+            full_product_name = next(
+                (p for p in self.view.products if p.startswith(selected_value)),
+                selected_value  # Si on ne trouve pas (improbable), on utilise la valeur tronquée
+            )
+            
+            # On envoie le nom complet au Modal pour l'enregistrement
             await interaction.response.send_modal(RatingModal(full_product_name, self.user))
 
 class TopRatersPaginatorView(discord.ui.View):
