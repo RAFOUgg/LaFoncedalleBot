@@ -294,21 +294,36 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
 class NotationProductSelectView(discord.ui.View):
     def __init__(self, products: list, user: discord.User):
         super().__init__(timeout=180)
+        self.products = products # <--- AJOUTER CETTE LIGNE
         if products:
             self.add_item(self.ProductSelect(products, user))
 
     class ProductSelect(discord.ui.Select):
         def __init__(self, products: list, user: discord.User):
             self.user = user
-            options = [discord.SelectOption(label=p, value=p) for p in products[:25]]
+            
+            # [CORRECTION FINALE] On tronque à la fois le label ET la value à 100 caractères.
+            options = [
+                discord.SelectOption(label=p[:100], value=p[:100]) 
+                for p in products[:25]
+            ]
+            
             if not options:
                 options = [discord.SelectOption(label="Aucun produit à noter", value="disabled", default=True)]
+            
             super().__init__(placeholder="Choisissez un produit à noter...", options=options)
         
         async def callback(self, interaction: discord.Interaction):
             if not self.values or self.values[0] == "disabled":
-                await interaction.response.edit_message(content="Aucun produit sélectionné.", view=None); return
-            await interaction.response.send_modal(RatingModal(self.values[0], self.user))
+                await interaction.response.edit_message(content="Aucun produit sélectionné.", view=None)
+                return
+            
+            # Important : La valeur retournée sera tronquée.
+            # Il faut retrouver le nom complet du produit pour l'envoyer au Modal.
+            selected_value = self.values[0]
+            full_product_name = next((p for p in self.view.products if p.startswith(selected_value)), selected_value)
+            
+            await interaction.response.send_modal(RatingModal(full_product_name, self.user))
 
 class TopRatersPaginatorView(discord.ui.View):
     def __init__(self, top_raters, guild, items_per_page=5): # On met un peu moins de noteurs par page pour la lisibilité

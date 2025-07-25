@@ -5,8 +5,8 @@ import requests
 import io
 import os
 import asyncio
+import traceback # <-- Importez traceback
 
-# On s'assure que le chemin est absolu et part de l'emplacement du fichier
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 
@@ -15,26 +15,36 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
 
     def _generate():
         fonts = {}
-        # --- Configuration des Polices (Plus Robuste) ---
-        try:
-            font_paths = {
-                "name": os.path.join(ASSETS_DIR, "Gobold-Bold.ttf"),
-                "title": os.path.join(ASSETS_DIR, "Gobold-Bold.ttf"),
-                "regular": os.path.join(ASSETS_DIR, "Gobold-Regular.ttf"),
-                "emoji": os.path.join(ASSETS_DIR, "NotoColorEmoji.ttf"),
-            }
-            
-            print(f"INFO [ImageGen]: Recherche des polices dans {ASSETS_DIR}. Fichier existe: {os.path.exists(font_paths['name'])}")
+        font_paths = {
+            "name": os.path.join(ASSETS_DIR, "Gobold-Bold.ttf"),
+            "title": os.path.join(ASSETS_DIR, "Gobold-Bold.ttf"),
+            "regular": os.path.join(ASSETS_DIR, "Gobold-Regular.ttf"),
+            "emoji": os.path.join(ASSETS_DIR, "NotoColorEmoji.ttf"),
+        }
 
-            fonts['name'] = ImageFont.truetype(font_paths['name'], 65)
+        try:
+            # [AMÉLIORATION DU DEBUG]
+            font_to_check = font_paths['name']
+            print(f"INFO [ImageGen]: Tentative de chargement de la police depuis le chemin: {font_to_check}")
+            if not os.path.exists(font_to_check):
+                # Cette erreur sera maintenant visible dans les logs Render
+                raise FileNotFoundError(f"Le fichier de police n'existe pas au chemin spécifié: {font_to_check}")
+
+            fonts['name'] = ImageFont.truetype(font_to_check, 65)
             fonts['title'] = ImageFont.truetype(font_paths['title'], 42)
             fonts['regular'] = ImageFont.truetype(font_paths['regular'], 40)
             fonts['badge'] = ImageFont.truetype(font_paths['name'], 42)
             fonts['emoji'] = ImageFont.truetype(font_paths['emoji'], 40)
-        except IOError as e:
-            print(f"ERREUR [ImageGen]: Impossible de charger une police personnalisée : {e}. Utilisation des polices par défaut.")
+            print("SUCCESS [ImageGen]: Toutes les polices personnalisées ont été chargées avec succès.")
+
+        except Exception as e:
+            # [AMÉLIORATION DU DEBUG]
+            print(f"ERREUR CRITIQUE [ImageGen]: Impossible de charger la police personnalisée. Erreur: {e}")
+            print(traceback.format_exc()) # Imprime la trace complète de l'erreur
+            print("INFO [ImageGen]: Utilisation des polices par défaut en secours.")
             fonts = {k: ImageFont.load_default() for k in ['name', 'title', 'regular', 'badge', 'emoji']}
 
+        # ... Le reste du code de génération d'image ne change pas ...
         # --- Création du fond et de la zone de dessin ---
         bg = Image.new("RGBA", (1200, 600), (27, 27, 31))
         draw = ImageDraw.Draw(bg)
