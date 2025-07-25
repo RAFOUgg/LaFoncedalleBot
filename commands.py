@@ -32,7 +32,7 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
 
 # VUE POUR PAGINER LES NOTES (VERSION AMÉLIORÉE ++)
 class RatingsPaginatorView(discord.ui.View):
-    def __init__(self, target_user, user_ratings, items_per_page=1): # Une seule note par page pour un max de détails
+    def __init__(self, target_user, user_ratings, items_per_page=1):
         super().__init__(timeout=180)
         self.target_user = target_user
         self.user_ratings = user_ratings
@@ -40,7 +40,6 @@ class RatingsPaginatorView(discord.ui.View):
         self.current_page = 0
         self.total_pages = (len(self.user_ratings) - 1) // self.items_per_page
         
-        # On charge les détails des produits depuis le cache une seule fois
         try:
             with open(CACHE_FILE, 'r', encoding='utf-8') as f:
                 site_data = json.load(f)
@@ -59,49 +58,27 @@ class RatingsPaginatorView(discord.ui.View):
     def create_embed(self) -> discord.Embed:
         if not self.user_ratings:
             return discord.Embed(description="Aucune note à afficher.")
-
-        # On récupère l'index de la note pour la page actuelle
-        start = self.current_page * self.items_per_page
         
-        # On s'assure de ne pas dépasser la liste
-        if start >= len(self.user_ratings):
-             return discord.Embed(description="Erreur de pagination.")
-
-        current_rating = self.user_ratings[start]
+        current_rating = self.user_ratings[self.current_page]
         product_name = current_rating['product_name']
-        
         product_details = self.product_map.get(product_name.strip().lower(), {})
-
         date = datetime.fromisoformat(current_rating['rating_timestamp']).strftime('%d/%m/%Y')
+        
         embed = discord.Embed(
             title=f"Avis sur : {product_name}",
             description=f"*Noté par {self.target_user.display_name} le {date}*",
             color=discord.Color.green(),
             url=product_details.get('product_url', CATALOG_URL)
         )
-
         if product_details.get('image'):
             embed.set_thumbnail(url=product_details['image'])
         
-        embed.add_field(
-            name="Description du Produit",
-            value=product_details.get('detailed_description', 'Non disponible.')[:1024],
-            inline=False
-        )
-        embed.add_field(
-            name="Prix",
-            value=product_details.get('price', 'N/A'),
-            inline=True
-        )
+        embed.add_field(name="Description du Produit", value=product_details.get('detailed_description', 'Non disponible.')[:1024], inline=False)
+        embed.add_field(name="Prix", value=product_details.get('price', 'N/A'), inline=True)
         
-        avg_score = (current_rating.get('visual_score', 0) + ... + current_rating.get('effects_score', 0)) / 5
-        embed.add_field(
-            name="Note Globale Donnée",
-            value=f"**{avg_score:.2f} / 10**",
-            inline=True
-        )
+        avg_score = (current_rating.get('visual_score', 0) + current_rating.get('smell_score', 0) + current_rating.get('touch_score', 0) + current_rating.get('taste_score', 0) + current_rating.get('effects_score', 0)) / 5
+        embed.add_field(name="Note Globale Donnée", value=f"**{avg_score:.2f} / 10**", inline=True)
 
-        # On ajoute les 5 notes détaillées de l'utilisateur
         notes_text = (
             f"👀 **Visuel:** `{current_rating.get('visual_score', 'N/A')}`\n"
             f"👃 **Odeur:** `{current_rating.get('smell_score', 'N/A')}`\n"
@@ -112,11 +89,7 @@ class RatingsPaginatorView(discord.ui.View):
         embed.add_field(name=f"Notes Détaillées de {self.target_user.display_name}", value=notes_text, inline=False)
 
         if current_rating.get('comment'):
-            embed.add_field(
-                name="💬 Commentaire",
-                value=f"```{current_rating['comment']}```",
-                inline=False
-            )
+            embed.add_field(name="💬 Commentaire", value=f"```{current_rating['comment']}```", inline=False)
 
         if self.total_pages >= 0:
             embed.set_footer(text=f"Note {self.current_page + 1} sur {len(self.user_ratings)}")
@@ -142,17 +115,9 @@ class RatingsPaginatorView(discord.ui.View):
 class ProfileView(discord.ui.View):
     def __init__(self, target_user, user_stats, user_ratings, shopify_data, can_reset, bot):
         super().__init__(timeout=300)
-        self.target_user = target_user
-        self.user_stats = user_stats
-        self.user_ratings = user_ratings
-        self.shopify_data = shopify_data
-        self.can_reset = can_reset
-        self.bot = bot
-        
-        if not self.user_ratings:
-            self.show_notes_button.disabled = True
-        if not self.can_reset:
-            self.remove_item(self.reset_button)
+        self.target_user, self.user_stats, self.user_ratings, self.shopify_data, self.can_reset, self.bot = target_user, user_stats, user_ratings, shopify_data, can_reset, bot
+        if not self.user_ratings: self.show_notes_button.disabled = True
+        if not self.can_reset: self.remove_item(self.reset_button)
 
     @discord.ui.button(label="Voir les notes en détail", style=discord.ButtonStyle.secondary, emoji="📝")
     async def show_notes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -163,10 +128,7 @@ class ProfileView(discord.ui.View):
     @discord.ui.button(label="Afficher la Carte de Profil", style=discord.ButtonStyle.secondary, emoji="🖼️")
     async def show_card_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
-        card_data = {
-            "name": str(self.target_user), "avatar_url": self.target_user.display_avatar.url, 
-            **self.user_stats, **self.shopify_data
-        }
+        card_data = {"name": str(self.target_user), "avatar_url": self.target_user.display_avatar.url, **self.user_stats, **self.shopify_data}
         image_buffer = await create_profile_card(card_data)
         image_file = discord.File(fp=image_buffer, filename="profile_card.png")
         await interaction.followup.send(file=image_file, ephemeral=True)
@@ -174,7 +136,7 @@ class ProfileView(discord.ui.View):
     @discord.ui.button(label="Réinitialiser les notes", style=discord.ButtonStyle.danger, emoji="🗑️")
     async def reset_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         view = ConfirmResetNotesView(self.target_user, self.bot)
-        await interaction.response.send_message(f"Voulez-vous vraiment supprimer toutes les notes de {self.target_user.mention} ?", view=view, ephemeral=True)
+        await interaction.response.send_message(f"Voulez-vous vraiment supprimer les notes de {self.target_user.mention} ?", view=view, ephemeral=True)
             
 class ProductView(discord.ui.View):
     def __init__(self, products: List[dict], category: str = None):
@@ -698,8 +660,7 @@ class SlashCommands(commands.Cog):
     async def noter(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
         await log_user_action(interaction, "a initié la commande /noter")
-        
-        try: # On encapsule tout dans un try/except pour attraper toutes les erreurs
+        try:
             def fetch_purchased_products():
                 import requests
                 try:
@@ -711,23 +672,17 @@ class SlashCommands(commands.Cog):
                     Logger.error(f"Erreur API get_purchased_products: {e}"); return []
             
             purchased_products = await asyncio.to_thread(fetch_purchased_products)
-            
-            # LOG DE DÉBOGAGE
             Logger.info(f"Produits achetés trouvés pour {interaction.user}: {purchased_products}")
 
             if purchased_products is None:
-                await interaction.followup.send("Ton compte Discord n'est pas lié. Utilise `/lier_compte`.", ephemeral=True)
-                return
+                await interaction.followup.send("Ton compte Discord n'est pas lié. Utilise `/lier_compte`.", ephemeral=True); return
             if not purchased_products:
-                await interaction.followup.send("Aucun produit trouvé dans ton historique d'achats pouvant être noté.", ephemeral=True)
-                return
+                await interaction.followup.send("Aucun produit trouvé dans ton historique d'achats pouvant être noté.", ephemeral=True); return
             
             view = NotationProductSelectView(purchased_products, interaction.user)
             await interaction.followup.send("Veuillez choisir un produit à noter :", view=view, ephemeral=True)
-        
         except Exception as e:
-            Logger.error(f"Erreur majeure dans la commande /noter : {e}")
-            traceback.print_exc()
+            Logger.error(f"Erreur majeure dans la commande /noter : {e}"); traceback.print_exc()
             await interaction.followup.send("❌ Oups, une erreur est survenue lors de la préparation du menu de notation.", ephemeral=True)
 
     @app_commands.command(name="top_noteurs", description="Affiche le classement des membres qui ont noté le plus de produits.")

@@ -17,7 +17,6 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
         fonts = {}
         # --- Configuration des Polices (Plus Robuste) ---
         try:
-            # On vérifie l'existence des fichiers avant de les charger
             font_paths = {
                 "name": os.path.join(ASSETS_DIR, "Gobold-Bold.ttf"),
                 "title": os.path.join(ASSETS_DIR, "Gobold-Bold.ttf"),
@@ -25,17 +24,15 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
                 "emoji": os.path.join(ASSETS_DIR, "NotoColorEmoji.ttf"),
             }
             
-            # Log de débogage pour voir si les chemins sont corrects
             print(f"INFO [ImageGen]: Recherche des polices dans {ASSETS_DIR}. Fichier existe: {os.path.exists(font_paths['name'])}")
 
             fonts['name'] = ImageFont.truetype(font_paths['name'], 65)
             fonts['title'] = ImageFont.truetype(font_paths['title'], 42)
             fonts['regular'] = ImageFont.truetype(font_paths['regular'], 40)
-            fonts['badge'] = ImageFont.truetype(font_paths['name'], 42) # Réutilise Gobold-Bold
+            fonts['badge'] = ImageFont.truetype(font_paths['name'], 42)
             fonts['emoji'] = ImageFont.truetype(font_paths['emoji'], 40)
         except IOError as e:
             print(f"ERREUR [ImageGen]: Impossible de charger une police personnalisée : {e}. Utilisation des polices par défaut.")
-            # Polices de secours
             fonts = {k: ImageFont.load_default() for k in ['name', 'title', 'regular', 'badge', 'emoji']}
 
         # --- Création du fond et de la zone de dessin ---
@@ -89,7 +86,7 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
         draw.text((x_col2, y_pos), "Activité Boutique", font=fonts['title'], fill=(255, 255, 255))
         y_pos += 70
 
-        if user_data.get("purchase_count") is not None and user_data.get("purchase_count") > 0:
+        if user_data.get("purchase_count", 0) > 0:
             draw_text_with_emoji(x_col2, y_pos, "🛍️", f"Commandes : {user_data.get('purchase_count', 0)}", (220, 220, 220))
             draw_text_with_emoji(x_col2, y_pos + 55, "💳", f"Dépensé : {user_data.get('total_spent', 0):.2f} €", (220, 220, 220))
         else:
