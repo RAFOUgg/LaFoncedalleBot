@@ -29,6 +29,69 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
 
 # --- VUES ET MODALES ---
 
+# Dans commands.py, avant la ligne "class SlashCommands(commands.Cog):"
+
+class PromoPaginatorView(discord.ui.View):
+    def __init__(self, promo_products: List[dict], general_promos: List[str], items_per_page: int = 5):
+        super().__init__(timeout=300)
+        
+        # On combine toutes les promotions en une seule liste pour la pagination
+        self.all_items = general_promos + promo_products
+        
+        self.items_per_page = items_per_page
+        self.current_page = 0
+        self.total_pages = (len(self.all_items) - 1) // self.items_per_page
+        self.update_buttons()
+
+    def update_buttons(self):
+        self.clear_items()
+        if self.total_pages > 0:
+            self.add_item(self.PrevButton(disabled=self.current_page == 0))
+            self.add_item(self.NextButton(disabled=self.current_page >= self.total_pages))
+
+    def create_embed(self) -> discord.Embed:
+        embed = create_styled_embed(title="💰 Promotions et Offres Spéciales", description="", color=discord.Color.from_rgb(255, 105, 180))
+        
+        start_index = self.current_page * self.items_per_page
+        end_index = start_index + self.items_per_page
+        page_items = self.all_items[start_index:end_index]
+        
+        promo_text = ""
+        if not self.all_items:
+            promo_text = "Aucune promotion ou offre spéciale en ce moment."
+        else:
+            for item in page_items:
+                if isinstance(item, str):
+                    promo_text += f"🎁 {item}\n\n"
+                elif isinstance(item, dict):
+                    prix_promo = item.get('price', 'N/A')
+                    prix_original = item.get('original_price', '')
+                    prix_text = f"**{prix_promo}** ~~{prix_original}~~"
+                    promo_text += f"**🏷️ [{item.get('name', 'N/A')}]({item.get('product_url', '#')})**\n> {prix_text}\n\n"
+        
+        embed.description = promo_text
+        
+        if self.total_pages >= 0:
+             embed.set_footer(text=f"LaFoncedalle | Page {self.current_page + 1} sur {self.total_pages + 1}")
+        return embed
+
+    async def update_message(self, interaction: discord.Interaction):
+        self.update_buttons()
+        embed = self.create_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    class PrevButton(discord.ui.Button):
+        def __init__(self, disabled): super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary, disabled=disabled)
+        async def callback(self, i: discord.Interaction):
+            if self.view.current_page > 0: self.view.current_page -= 1
+            await self.view.update_message(i)
+
+    class NextButton(discord.ui.Button):
+        def __init__(self, disabled): super().__init__(label="Suivant ➡️", style=discord.ButtonStyle.secondary, disabled=disabled)
+        async def callback(self, i: discord.Interaction):
+            if self.view.current_page < self.view.total_pages: self.view.current_page += 1
+            await self.view.update_message(i)
+
 class ProfileView(discord.ui.View):
     def __init__(self, target_user, user_ratings, can_reset, bot):
         super().__init__(timeout=300)
@@ -820,21 +883,35 @@ class SlashCommands(commands.Cog):
         view = ContactButtonsView(contact_info)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
-    @app_commands.command(name="debug", description="Force la republication du menu (staff uniquement)")
+    # Dans commands.py, à l'intérieur de la classe SlashCommands
+
+    @app_commands.command(name="debug", description="[STAFF] Force la republication du menu et synchronise les commandes.")
     @app_commands.check(is_staff_or_owner)
     async def debug(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        Logger.info(f"Publication forcée demandée par {interaction.user} via /debug...")
+        Logger.info(f"Débogage forcé demandé par {interaction.user}...")
+
+        # --- NOUVELLE ÉTAPE : SYNCHRONISATION DES COMMANDES ---
+        try:
+            synced = await self.bot.tree.sync()
+            Logger.success(f"{len(synced)} commandes synchronisées avec Discord.")
+            await interaction.followup.send(f"✅ {len(synced)} commandes synchronisées.", ephemeral=True)
+        except Exception as e:
+            Logger.error(f"Échec de la synchronisation des commandes : {e}")
+            await interaction.followup.send("⚠️ Échec de la synchronisation des commandes.", ephemeral=True)
+
+        # --- ANCIENNE LOGIQUE : REPUBLICATION DU MENU ---
+        Logger.info("Publication forcée du menu...")
         try:
             updates_found = await self.bot.check_for_updates(self.bot, force_publish=True)
             if updates_found:
                 await interaction.followup.send("✅ Menu mis à jour et republié avec mention.", ephemeral=True)
             else:
-                await interaction.followup.send("✅ Tentative de republication effectuée. Le menu était déjà à jour mais a été republié.", ephemeral=True)
+                await interaction.followup.send("✅ Tentative de republication effectuée (le menu était déjà à jour).", ephemeral=True)
         except Exception as e:
             Logger.error(f"Erreur critique lors de /debug : {e}")
             traceback.print_exc()
-            await interaction.followup.send("❌ Une erreur est survenue. Consultez les logs.", ephemeral=True)
+            await interaction.followup.send("❌ Une erreur est survenue lors de la republication du menu.", ephemeral=True)
 
     @app_commands.command(name="check", description="Vérifie si de nouveaux produits sont disponibles (cooldown 12h).")
     async def check(self, interaction: discord.Interaction):
