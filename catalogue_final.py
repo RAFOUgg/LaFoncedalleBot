@@ -79,7 +79,7 @@ def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve:
     Returns:
         Un dictionnaire contenant les données formatées du produit.
     """
-    product_data = {}
+    product_data['stats'] = {}
     time.sleep(0.5)
     # --- Extraction des données brutes ---
     product_data['name'] = prod.title
@@ -122,10 +122,11 @@ def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve:
         product_data['original_price'] = None
 
     # --- Extraction des Metafields (Stats) ---
-    for meta in prod.metafields(): # C'est cet appel qui est trop rapide.
+    for meta in prod.metafields():
         key = meta.key.replace('_', ' ').capitalize()
         value = meta.value
-        product_data['stats'][key] = value
+        product_data['stats'][key] = value # <- Cette ligne ne plantera plus
+        # Si la valeur est un GID, on l'ajoute au set pour le résoudre plus tard
         if isinstance(value, str) and value.startswith("gid://shopify/"):
             gids_to_resolve.add(value)
             
