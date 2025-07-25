@@ -57,48 +57,6 @@ query getFiles($ids: [ID!]!) {
   }
 }
 """
-
-def get_smart_promotions_from_api():
-    """
-    Interroge l'API Shopify pour trouver toutes les promotions actives
-    (codes de réduction et offres automatiques).
-    """
-    Logger.info("Recherche des promotions intelligentes via l'API (PriceRule)...")
-    promo_texts = []
-    try:
-        # La session Shopify doit déjà être activée par la fonction appelante
-        price_rules = shopify.PriceRule.find()
-
-        for rule in price_rules:
-            # On ne prend que les règles actuellement actives
-            now = datetime.utcnow().isoformat()
-            if rule.starts_at > now or (rule.ends_at and rule.ends_at < now):
-                continue
-
-            # On cherche le code de réduction associé (s'il y en a un)
-            discount_codes = shopify.DiscountCode.find(price_rule_id=rule.id)
-            code_text = f" (avec le code `{discount_codes[0].code}`)" if discount_codes else " (automatique)"
-
-            title = rule.title
-            value = float(rule.value)
-            value_type = rule.value_type
-
-            # On formate le texte de la promotion pour qu'il soit lisible
-            if "livraison" in title.lower():
-                 promo_texts.append(f"🚚 {title}")
-            elif value_type == 'percentage':
-                promo_texts.append(f"💰 {abs(value)}% de réduction sur {title}{code_text}")
-            elif value_type == 'fixed_amount':
-                promo_texts.append(f"💰 {abs(value)}€ de réduction sur {title}{code_text}")
-            else: # shipping, etc.
-                promo_texts.append(f"🎁 {title}{code_text}")
-                
-        Logger.success(f"{len(promo_texts)} promotions actives trouvées.")
-        return promo_texts
-
-    except Exception as e:
-        Logger.error(f"Erreur lors de la récupération des PriceRule : {e}")
-        return ["Impossible de récupérer les promotions en cours."] # Fallback
     
 # Dans catalogue_final.py
 
@@ -336,7 +294,44 @@ async def post_weekly_selection(bot_instance: commands.Bot):
         Logger.error(f"Erreur lors de la génération de la sélection : {e}")
         traceback.print_exc()
 
+def get_smart_promotions_from_api():
+    """
+    Interroge l'API Shopify pour trouver les promotions les plus pertinentes.
+    """
+    Logger.info("Recherche des promotions intelligentes via l'API (PriceRule)...")
+    promo_texts = []
+    try:
+        price_rules = shopify.PriceRule.find()
+        for rule in price_rules:
+            now = datetime.utcnow().isoformat()
+            if rule.starts_at > now or (rule.ends_at and rule.ends_at < now):
+                continue
 
+            discount_codes = shopify.DiscountCode.find(price_rule_id=rule.id)
+            # --- AMÉLIORATION DU FILTRE ---
+            # On ne garde que les offres de livraison et les offres AVEC un code.
+            is_shipping_offer = "livraison" in rule.title.lower()
+            if not discount_codes and not is_shipping_offer:
+                continue
+            
+            code_text = f" (avec le code `{discount_codes[0].code}`)" if discount_codes else ""
+            title = rule.title
+            value = float(rule.value)
+            value_type = rule.value_type
+
+            if is_shipping_offer:
+                 promo_texts.append(f"🚚 {title}")
+            elif value_type == 'percentage':
+                promo_texts.append(f"💰 {abs(value):.0f}% de réduction sur {title}{code_text}")
+            elif value_type == 'fixed_amount':
+                promo_texts.append(f"💰 {abs(value):.2f}€ de réduction sur {title}{code_text}")
+            
+        Logger.success(f"{len(promo_texts)} promotions pertinentes trouvées.")
+        return promo_texts
+
+    except Exception as e:
+        Logger.error(f"Erreur lors de la récupération des PriceRule : {e}")
+        return ["Promotions en cours de chargement..."]
 async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: bool = False):
     Logger.info(f"Publication du menu (mention: {mention})...")
     channel = bot_instance.get_channel(CHANNEL_ID)
@@ -346,7 +341,16 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
 
     products = site_data.get('products', [])
     promos_list = site_data.get('general_promos', [])
-    general_promos_text = "\n".join([f"• {promo.strip()}" for promo in promos_list if promo.strip()]) or "Aucune promotion générale en cours."
+    products = site_data.get('products', [])
+    promos_list = site_data.get('general_promos', [])
+    promos_to_show = promos_list[:5] # On n'affiche que les 5 premières
+    general_promos_text = "\n".join([f"• {promo.strip()}" for promo in promos_to_show if promo.strip()])
+    
+    if len(promos_list) > 5:
+        general_promos_text += "\n• ... et plus ! Utilisez `/promos` pour tout voir."
+    elif not promos_list:
+        general_promos_text = "Aucune promotion générale en cours."
+
     hash_count, weed_count, box_count, accessoire_count = get_product_counts(products)
 
     description_text = (f"__**📦 Produits disponibles :**__\n\n"
