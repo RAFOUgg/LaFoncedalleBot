@@ -58,29 +58,14 @@ query getFiles($ids: [ID!]!) {
   }
 }
 """
-    
-# Dans catalogue_final.py
-
-# Dans catalogue_final.py
-
-# ... (gardez la fonction get_smart_promotions_from_api, elle est utile)
-
-# Dans catalogue_final.py
 
 def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve: set) -> dict:
     """
     Extrait, nettoie et formate les données d'un seul objet produit Shopify.
-    
-    Args:
-        prod: L'objet produit de l'API Shopify.
-        category: La catégorie interne (ex: "weed", "hash").
-        gids_to_resolve: Un set auquel ajouter les GID des métafields à résoudre.
-
-    Returns:
-        Un dictionnaire contenant les données formatées du produit.
     """
-    product_data['stats'] = {}
-    time.sleep(0.5)
+    # ÉTAPE 1 : Créer le dictionnaire principal vide. C'est la ligne la plus importante.
+    product_data = {}
+    
     # --- Extraction des données brutes ---
     product_data['name'] = prod.title
     product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
@@ -93,7 +78,6 @@ def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve:
     desc_html = prod.body_html
     if desc_html:
         soup = BeautifulSoup(desc_html, 'html.parser')
-        # Remplace les <br> par des sauts de ligne pour une meilleure lisibilité
         for br in soup.find_all("br"): 
             br.replace_with("\n")
         product_data['detailed_description'] = soup.get_text(separator="\n", strip=True)
@@ -108,25 +92,26 @@ def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve:
         min_price_variant = min(available_variants, key=lambda v: float(v.price))
         price = float(min_price_variant.price)
         compare_price = float(min_price_variant.compare_at_price) if min_price_variant.compare_at_price else 0.0
-        
         product_data['is_promo'] = compare_price > price
         product_data['original_price'] = f"{compare_price:.2f} €".replace('.', ',') if product_data['is_promo'] else None
-        
-        # Ajoute "à partir de" seulement si plusieurs options de prix sont disponibles
         price_prefix = "à partir de " if len(available_variants) > 1 and price > 0 else ""
         product_data['price'] = f"{price_prefix}{price:.2f} €".replace('.', ',') if price > 0 else "Cadeau !"
     else:
-        # Cas où le produit est complètement épuisé
         product_data['price'] = "N/A"
         product_data['is_promo'] = False
         product_data['original_price'] = None
 
     # --- Extraction des Metafields (Stats) ---
+    # ÉTAPE 2 : Créer le sous-dictionnaire pour les stats.
+    product_data['stats'] = {}
+    
+    # ÉTAPE 3 : Mettre la pause AVANT l'appel réseau pour respecter les limites de l'API.
+    time.sleep(0.5) 
+    
     for meta in prod.metafields():
         key = meta.key.replace('_', ' ').capitalize()
         value = meta.value
-        product_data['stats'][key] = value # <- Cette ligne ne plantera plus
-        # Si la valeur est un GID, on l'ajoute au set pour le résoudre plus tard
+        product_data['stats'][key] = value
         if isinstance(value, str) and value.startswith("gid://shopify/"):
             gids_to_resolve.add(value)
             
