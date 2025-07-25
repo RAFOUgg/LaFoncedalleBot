@@ -71,6 +71,7 @@ def get_site_data_from_api():
     Logger.info("Démarrage de la récupération via API Shopify (Avec résolution GraphQL)...")
     
     try:
+        # ... (La partie connexion à l'API ne change pas) ...
         shop_url = os.getenv('SHOPIFY_SHOP_URL')
         api_version = os.getenv('SHOPIFY_API_VERSION')
         access_token = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
@@ -88,44 +89,55 @@ def get_site_data_from_api():
         hash_keywords = config_manager.get_config("categorization.hash_keywords", []) + ["hash", "résine", "resin", "resine"]
         box_keywords = ["box", "pack", "coffret", "gustative"]
         accessoire_keywords = ["briquet", "feuille", "papier", "accessoire", "grinder", "plateau", "clipper", "ocb"]
+        social_keywords = ["telegram", "instagram", "tiktok"]
 
         for prod in all_products_api:
-            category = "weed"
             title_lower = prod.title.lower()
             product_type_lower = prod.product_type.lower() if prod.product_type else ""
             tags_lower = [tag.lower() for tag in prod.tags]
 
-            if any(kw in title_lower for kw in box_keywords): category = "box"
-            elif any(kw in title_lower for kw in hash_keywords) or any(kw in tags_lower for kw in hash_keywords) or "résine" in product_type_lower: category = "hash"
-            elif any(kw in title_lower for kw in accessoire_keywords) or "accessoire" in product_type_lower: category = "accessoire"
-            
+            # --- ÉTAPE 1 : CATÉGORISATION (CORRIGÉE) ---
+            if any(kw in title_lower for kw in box_keywords): 
+                category = "box"
+            elif any(kw in title_lower for kw in accessoire_keywords) or "accessoire" in product_type_lower:
+                category = "accessoire"
+            elif any(kw in title_lower for kw in hash_keywords) or any(kw in tags_lower for kw in hash_keywords) or "résine" in product_type_lower:
+                category = "hash"
+            else:
+                # CORRECTION : On assigne la catégorie par défaut si aucune autre ne correspond.
+                category = "weed"
+
+            # --- ÉTAPE 2 : FILTRAGE (DÉPLACÉ ET CORRIGÉ) ---
+            # Le calcul et le filtre s'appliquent maintenant à TOUS les produits, après la catégorisation.
             is_free = not any(float(variant.price) > 0 for variant in prod.variants)
             if is_free and category != "accessoire":
                 Logger.info(f"Produit gratuit '{prod.title}' ignoré car non-accessoire.")
-                continue
-            if any(kw in title_lower for kw in ["telegram", "instagram", "tiktok"]):
-                continue
+                continue # On passe au produit suivant
+            
+            if any(kw in title_lower for kw in social_keywords):
+                Logger.info(f"Produit social '{prod.title}' ignoré.")
+                continue # On passe au produit suivant
 
+            # --- ÉTAPE 3 : EXTRACTION DES DONNÉES (SI LE PRODUIT N'EST PAS FILTRÉ) ---
             product_data = {}
             product_data['name'] = prod.title
             product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
             product_data['image'] = prod.image.src if prod.image else None
             
             category_map = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
-            product_data['category'] = category_map.get(category, category)
+            product_data['category'] = category_map.get(category) # Pas besoin de 'category' en fallback
 
             desc_html = prod.body_html
             if desc_html:
-                # --- CORRECTION DU PARSING HTML ---
-                # On remplace les balises de saut de ligne par le caractère newline
-                desc_html = re.sub(r'<br\s*/?>', '\n', desc_html, flags=re.IGNORECASE)
-                desc_html = re.sub(r'</p>', '\n\n', desc_html, flags=re.IGNORECASE)
-                # Ensuite, on nettoie le reste des balises HTML
                 soup = BeautifulSoup(desc_html, 'html.parser')
-                product_data['detailed_description'] = soup.get_text(strip=True)
+                # OPTIMISATION : On demande à BeautifulSoup de remplacer les <br>
+                for br in soup.find_all("br"):
+                    br.replace_with("\n")
+                product_data['detailed_description'] = soup.get_text(separator="\n", strip=True)
             else:
                 product_data['detailed_description'] = "Pas de description."
 
+            # ... (Le reste de la fonction (prix, stats, etc.) est correct et ne change pas) ...
             available_variants = [v for v in prod.variants if v.inventory_quantity > 0 or v.inventory_policy == 'continue']
             product_data['is_sold_out'] = not available_variants
             
@@ -149,13 +161,12 @@ def get_site_data_from_api():
                 key = meta.key.replace('_', ' ').capitalize()
                 value = meta.value
                 product_data['stats'][key] = value
-
                 if isinstance(value, str) and value.startswith("gid://shopify/"):
                     gids_to_resolve.add(value)
             
             raw_products_data.append(product_data)
 
-        # ... (le reste de la fonction est inchangé) ...
+        # ... (le reste de la fonction est inchangé et correct) ...
         gid_url_map = {}
         if gids_to_resolve:
             Logger.info(f"Résolution de {len(gids_to_resolve)} GIDs de fichiers via GraphQL...")
@@ -170,7 +181,6 @@ def get_site_data_from_api():
                         url = node.get('url') or (node.get('image', {}).get('url') if 'image' in node else None)
                         if gid and url:
                             gid_url_map[gid] = url
-
             except Exception as e:
                 Logger.error(f"Erreur lors de la résolution GraphQL des fichiers : {e}")
 
@@ -180,11 +190,9 @@ def get_site_data_from_api():
                 if isinstance(value, str) and value in gid_url_map:
                     Logger.info(f"URL résolue pour {product_data['name']} ({key})")
                     product_data['stats'][key] = gid_url_map[value]
-            
             final_products.append(product_data)
 
         general_promos = config_manager.get_config("general.general_promos", [])
-        
         Logger.success(f"Récupération API terminée. {len(final_products)} produits valides trouvés.")
         return {"timestamp": a_time.time(), "products": final_products, "general_promos": general_promos}
 
@@ -195,7 +203,6 @@ def get_site_data_from_api():
     finally:
         if 'shopify' in locals() and shopify.ShopifyResource.get_session():
             shopify.ShopifyResource.clear_session()
-
 
 async def post_weekly_selection(bot_instance: commands.Bot):
     Logger.info("Génération et publication de la sélection de la semaine...")
