@@ -1006,6 +1006,36 @@ class SlashCommands(commands.Cog):
         except Exception as e:
             Logger.error(f"Erreur /profil pour {target_user.display_name}: {e}"); traceback.print_exc()
             await interaction.followup.send("❌ Erreur lors de la récupération du profil.", ephemeral=True)
+    @app_commands.command(name="lier_force", description="[STAFF] Lie un compte à un e-mail sans vérification.")
+    @app_commands.check(is_staff_or_owner) # <-- Sécurité !
+    @app_commands.describe(
+        membre="Le membre à qui lier le compte (ou vous-même si non spécifié).",
+        email="L'adresse e-mail à lier au compte."
+    )
+    async def lier_force(self, interaction: discord.Interaction, email: str, membre: Optional[discord.Member] = None):
+        await interaction.response.defer(ephemeral=True)
+        
+        target_user = membre or interaction.user
+        
+        api_url = f"{APP_URL}/api/force-link"
+        payload = {"discord_id": str(target_user.id), "email": email}
+        
+        try:
+            import requests
+            response = requests.post(api_url, json=payload, timeout=15)
+            
+            if response.ok:
+                await interaction.followup.send(
+                    f"✅ **Succès !** Le compte de {target_user.mention} est maintenant lié à l'e-mail `{email}`.",
+                    ephemeral=True
+                )
+            else:
+                error_message = response.json().get("error", "Une erreur inconnue est survenue.")
+                await interaction.followup.send(f"❌ **Échec :** {error_message}", ephemeral=True)
+                
+        except Exception as e:
+            Logger.error(f"Erreur API /force-link : {e}")
+            await interaction.followup.send("❌ Impossible de contacter le service de liaison. Réessayez plus tard.", ephemeral=True)
 
     @app_commands.command(name="lier_compte", description="Démarre la liaison de ton compte via ton e-mail.")
     @app_commands.describe(email="L'adresse e-mail de tes commandes.")

@@ -164,6 +164,30 @@ def unlink_account():
     # Renvoyer l'e-mail qui a été délié pour le message de confirmation
     return jsonify({"success": True, "unlinked_email": result[0]}), 200
 
+@app.route('/api/force-link', methods=['POST'])
+def force_link():
+    data = request.json
+    discord_id = data.get('discord_id')
+    email = data.get('email')
+
+    if not all([discord_id, email]):
+        return jsonify({"error": "ID Discord ou e-mail manquant."}), 400
+
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    
+    # On insère ou on remplace la liaison existante.
+    # C'est parfait pour les tests, car on peut changer l'e-mail lié à la volée.
+    cursor.execute("INSERT OR REPLACE INTO user_links (discord_id, user_email) VALUES (?, ?)", (discord_id, email))
+    
+    # On supprime tout code de vérification en attente pour cet utilisateur, pour rester propre.
+    cursor.execute("DELETE FROM verification_codes WHERE discord_id = ?", (discord_id,))
+    
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"success": True, "message": f"Compte {discord_id} forcé à être lié à {email}."}), 200
+
 @app.route('/api/get_purchased_products/<discord_id>')
 def get_purchased_products(discord_id):
     conn = sqlite3.connect('database.db')
