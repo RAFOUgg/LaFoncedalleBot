@@ -319,44 +319,67 @@ async def post_weekly_selection(bot_instance: commands.Bot):
         Logger.error(f"Erreur lors de la génération de la sélection : {e}")
         traceback.print_exc()
 
+# Dans catalogue_final.py
+
 def get_smart_promotions_from_api():
     """
-    Interroge l'API Shopify pour trouver les promotions les plus pertinentes.
+    Interroge l'API Shopify pour trouver toutes les promotions VRAIMENT disponibles
+    (actives, non épuisées, et non-destinées aux tests).
     """
-    Logger.info("Recherche des promotions intelligentes via l'API (PriceRule)...")
+    Logger.info("Recherche des promotions intelligentes et disponibles via l'API...")
     promo_texts = []
     try:
         price_rules = shopify.PriceRule.find()
+
         for rule in price_rules:
+            # --- VÉRIFICATION N°1 : Période de validité ---
             now = datetime.utcnow().isoformat()
             if rule.starts_at > now or (rule.ends_at and rule.ends_at < now):
                 continue
 
-            discount_codes = shopify.DiscountCode.find(price_rule_id=rule.id)
-            # --- AMÉLIORATION DU FILTRE ---
-            # On ne garde que les offres de livraison et les offres AVEC un code.
-            is_shipping_offer = "livraison" in rule.title.lower()
-            if not discount_codes and not is_shipping_offer:
+            # --- VÉRIFICATION N°2 : Convention de nommage pour les tests ---
+            # On ignore les règles qui semblent être des tests.
+            title_lower = rule.title.lower()
+            if title_lower.startswith(('test', '_', 'z-')):
                 continue
+
+            discount_codes = shopify.DiscountCode.find(price_rule_id=rule.id)
+
+            # --- VÉRIFICATION N°3 : Limite d'utilisation ---
+            if discount_codes:
+                code = discount_codes[0]
+                # Si la règle a une limite d'utilisation...
+                if rule.usage_limit is not None:
+                    # ... et que le nombre d'utilisations est supérieur ou égal à la limite...
+                    if code.usage_count >= rule.usage_limit:
+                        # ... alors la promotion est épuisée, on l'ignore.
+                        continue
             
+            # Si toutes les vérifications sont passées, on formate le texte.
             code_text = f" (avec le code `{discount_codes[0].code}`)" if discount_codes else ""
-            title = rule.title
+            
             value = float(rule.value)
             value_type = rule.value_type
 
-            if is_shipping_offer:
-                 promo_texts.append(f"🚚 {title}")
+            if "livraison" in title_lower:
+                 promo_texts.append(f"🚚 {rule.title}")
             elif value_type == 'percentage':
-                promo_texts.append(f"💰 {abs(value):.0f}% de réduction sur {title}{code_text}")
+                # Affiche un entier s'il n'y a pas de décimale
+                promo_texts.append(f"💰 {abs(value):.0f}% de réduction sur {rule.title}{code_text}")
             elif value_type == 'fixed_amount':
-                promo_texts.append(f"💰 {abs(value):.2f}€ de réduction sur {title}{code_text}")
+                promo_texts.append(f"💰 {abs(value):.2f}€ de réduction sur {rule.title}{code_text}")
+                
+        if not promo_texts:
+            Logger.info("Aucune promotion publique et active trouvée.")
+            return ["Aucune promotion spéciale en ce moment."]
             
-        Logger.success(f"{len(promo_texts)} promotions pertinentes trouvées.")
+        Logger.success(f"{len(promo_texts)} promotions disponibles trouvées.")
         return promo_texts
 
     except Exception as e:
         Logger.error(f"Erreur lors de la récupération des PriceRule : {e}")
-        return ["Promotions en cours de chargement..."]
+        return ["Impossible de charger les promotions."]
+    
 async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: bool = False):
     Logger.info(f"Publication du menu (mention: {mention})...")
     channel = bot_instance.get_channel(CHANNEL_ID)
