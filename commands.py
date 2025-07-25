@@ -92,6 +92,8 @@ class PromoPaginatorView(discord.ui.View):
             if self.view.current_page < self.view.total_pages: self.view.current_page += 1
             await self.view.update_message(i)
 
+# Dans commands.py
+
 class ProfileView(discord.ui.View):
     def __init__(self, target_user, user_stats, user_ratings, shopify_data, can_reset, bot):
         super().__init__(timeout=300)
@@ -118,7 +120,6 @@ class ProfileView(discord.ui.View):
 
     @discord.ui.button(label="Afficher la Carte de Profil", style=discord.ButtonStyle.secondary, emoji="🖼️")
     async def show_card_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # --- LOGIQUE CORRIGÉE ---
         await interaction.response.defer(ephemeral=True, thinking=True)
         
         card_data = {
@@ -1120,7 +1121,8 @@ class SlashCommands(commands.Cog):
             
             can_reset = membre and membre.id != interaction.user.id and await is_staff_or_owner(interaction)
             
-            view = ProfileView(target_user, user_ratings, can_reset, self.bot)
+            # On passe bien TOUS les arguments nécessaires
+            view = ProfileView(target_user, user_stats, user_ratings, shopify_data, can_reset, self.bot)
 
             # On envoie l'embed principal avec les boutons
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
