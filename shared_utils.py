@@ -175,11 +175,33 @@ async def log_user_action(interaction: discord.Interaction, action_description: 
         await asyncio.to_thread(lambda: open(USER_LOG_FILE, 'a', encoding='utf-8').write(log_message))
     except Exception as e: Logger.error(f"Impossible d'écrire dans le log : {e}")
 
+# Dans shared_utils.py
+
 def initialize_database():
-    conn = sqlite3.connect(DB_FILE); cursor = conn.cursor()
-    cursor.execute(''' CREATE TABLE IF NOT EXISTS ratings (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, user_name TEXT NOT NULL, product_name TEXT NOT NULL, visual_score REAL, smell_score REAL, touch_score REAL, taste_score REAL, effects_score REAL, rating_timestamp TEXT NOT NULL, UNIQUE(user_id, product_name)) ''')
-    conn.commit(); conn.close()
-    Logger.success(f"Base de données '{DB_FILE}' initialisée.")
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute(''' CREATE TABLE IF NOT EXISTS ratings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                        user_id INTEGER NOT NULL, 
+                        user_name TEXT NOT NULL, 
+                        product_name TEXT NOT NULL, 
+                        visual_score REAL, 
+                        smell_score REAL, 
+                        touch_score REAL, 
+                        taste_score REAL, 
+                        effects_score REAL, 
+                        rating_timestamp TEXT NOT NULL, 
+                        UNIQUE(user_id, product_name)) ''')
+    try:
+        cursor.execute("ALTER TABLE ratings ADD COLUMN comment TEXT")
+        Logger.info("Colonne 'comment' ajoutée à la base de données.")
+    except sqlite3.OperationalError:
+        # La colonne existe déjà, on ne fait rien.
+        pass
+
+    conn.commit()
+    conn.close()
+    Logger.success(f"Base de données '{DB_FILE}' initialisée et à jour.")
 
 def filter_catalog_products(products: list) -> list:
     """

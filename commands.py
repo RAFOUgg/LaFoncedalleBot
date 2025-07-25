@@ -92,14 +92,28 @@ class PromoPaginatorView(discord.ui.View):
             if self.view.current_page < self.view.total_pages: self.view.current_page += 1
             await self.view.update_message(i)
 
+# Dans commands.py
+
+# ... (les autres classes de vue)
+
+# VUE POUR PAGINER LES NOTES (VERSION AMÉLIORÉE ++)
 class RatingsPaginatorView(discord.ui.View):
-    def __init__(self, target_user, user_ratings, items_per_page=2):
+    def __init__(self, target_user, user_ratings, items_per_page=1): # Une seule note par page pour un max de détails
         super().__init__(timeout=180)
         self.target_user = target_user
         self.user_ratings = user_ratings
         self.items_per_page = items_per_page
         self.current_page = 0
         self.total_pages = (len(self.user_ratings) - 1) // self.items_per_page
+        
+        # On charge les détails des produits depuis le cache une seule fois
+        try:
+            with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+                site_data = json.load(f)
+            self.product_map = {p['name'].strip().lower(): p for p in site_data.get('products', [])}
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.product_map = {}
+        
         self.update_buttons()
 
     def update_buttons(self):
@@ -109,27 +123,68 @@ class RatingsPaginatorView(discord.ui.View):
             self.add_item(self.NextButton(disabled=self.current_page >= self.total_pages))
     
     def create_embed(self) -> discord.Embed:
-        embed = discord.Embed(title=f"Détail des notes de {self.target_user.display_name}", color=discord.Color.green())
-        start = self.current_page * self.items_per_page
-        end = start + self.items_per_page
-        
         if not self.user_ratings:
-            embed.description = "Aucune note à afficher."
-            return embed
+            return discord.Embed(description="Aucune note à afficher.")
 
-        for r in self.user_ratings[start:end]:
-            avg = (r.get('visual_score', 0) + r.get('smell_score', 0) + r.get('touch_score', 0) + r.get('taste_score', 0) + r.get('effects_score', 0)) / 5
-            date = datetime.fromisoformat(r['rating_timestamp']).strftime('%d/%m/%Y')
-            
-            details_text = (
-                f"Visuel: `{r.get('visual_score', 'N/A')}` | Odeur: `{r.get('smell_score', 'N/A')}` | Toucher: `{r.get('touch_score', 'N/A')}`\n"
-                f"Goût: `{r.get('taste_score', 'N/A')}` | Effets: `{r.get('effects_score', 'N/A')}`"
-            )
-            
-            embed.add_field(name=f"⭐ {r['product_name']} ({avg:.2f}/10) - {date}", value=details_text, inline=False)
+        # On récupère la note de la page actuelle
+        current_rating = self.user_ratings[self.current_page]
+        product_name = current_rating['product_name']
         
+        # On cherche les détails du produit correspondant dans notre map
+        product_details = self.product_map.get(product_name.strip().lower(), {})
+
+        # On commence par créer un embed avec le nom du produit et la date
+        date = datetime.fromisoformat(current_rating['rating_timestamp']).strftime('%d/%m/%Y')
+        embed = discord.Embed(
+            title=f"Avis sur : {product_name}",
+            description=f"*Noté par {self.target_user.display_name} le {date}*",
+            color=discord.Color.green(),
+            url=product_details.get('product_url', CATALOG_URL)
+        )
+
+        # On ajoute l'image du produit si elle existe
+        if product_details.get('image'):
+            embed.set_thumbnail(url=product_details['image'])
+        
+        # On ajoute la description et le prix du produit
+        embed.add_field(
+            name="Description du Produit",
+            value=product_details.get('detailed_description', 'Non disponible.')[:1024],
+            inline=False
+        )
+        embed.add_field(
+            name="Prix",
+            value=product_details.get('price', 'N/A'),
+            inline=True
+        )
+        
+        # On calcule la note moyenne de l'utilisateur pour ce produit
+        avg_score = (current_rating.get('visual_score', 0) + current_rating.get('smell_score', 0) + current_rating.get('touch_score', 0) + current_rating.get('taste_score', 0) + current_rating.get('effects_score', 0)) / 5
+        embed.add_field(
+            name="Note Globale Donnée",
+            value=f"**{avg_score:.2f} / 10**",
+            inline=True
+        )
+
+        # On ajoute les 5 notes détaillées de l'utilisateur
+        notes_text = (
+            f"👀 **Visuel:** `{current_rating.get('visual_score', 'N/A')}`\n"
+            f"👃 **Odeur:** `{current_rating.get('smell_score', 'N/A')}`\n"
+            f"🤏 **Toucher:** `{current_rating.get('touch_score', 'N/A')}`\n"
+            f"👅 **Goût:** `{current_rating.get('taste_score', 'N/A')}`\n"
+            f"🧠 **Effets:** `{current_rating.get('effects_score', 'N/A')}`"
+        )
+        embed.add_field(name=f"Notes Détaillées de {self.target_user.display_name}", value=notes_text, inline=False)
+
+        if r.get('comment'):
+                embed.add_field(
+                    name="💬 Commentaire",
+                    value=f"```{r['comment']}```", # On l'encadre pour un meilleur affichage
+                    inline=False
+                )
+
         if self.total_pages >= 0:
-            embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages + 1}")
+            embed.set_footer(text=f"Note {self.current_page + 1} sur {self.total_pages + 1}")
         return embed
 
     async def update_message(self, interaction: discord.Interaction):
@@ -138,13 +193,13 @@ class RatingsPaginatorView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
     class PrevButton(discord.ui.Button):
-        def __init__(self, disabled): super().__init__(label="⬅️", style=discord.ButtonStyle.secondary, disabled=disabled)
+        def __init__(self, disabled): super().__init__(label="⬅️ Avis Précédent", style=discord.ButtonStyle.secondary, disabled=disabled)
         async def callback(self, i: discord.Interaction):
             if self.view.current_page > 0: self.view.current_page -= 1
             await self.view.update_message(i)
 
     class NextButton(discord.ui.Button):
-        def __init__(self, disabled): super().__init__(label="➡️", style=discord.ButtonStyle.secondary, disabled=disabled)
+        def __init__(self, disabled): super().__init__(label="Avis Suivant ➡️", style=discord.ButtonStyle.secondary, disabled=disabled)
         async def callback(self, i: discord.Interaction):
             if self.view.current_page < self.view.total_pages: self.view.current_page += 1
             await self.view.update_message(i)
@@ -350,18 +405,31 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
     def __init__(self, product_name: str, user: discord.User):
         super().__init__(timeout=None)
         self.product_name, self.user = product_name, user
-        self.visual_score = discord.ui.TextInput(label="👀 Note Visuel /10", placeholder="Ex: 5.5", required=True)
+        
+        # Champs de notation (inchangés)
+        self.visual_score = discord.ui.TextInput(label="👀 Note Visuel /10", placeholder="Ex: 8.5", required=True)
         self.smell_score = discord.ui.TextInput(label="👃🏼 Note Odeur /10", placeholder="Ex: 9", required=True)
-        self.touch_score = discord.ui.TextInput(label="🤏🏼 Note Toucher /10", placeholder="Ex: 7.5", required=True)
-        self.taste_score = discord.ui.TextInput(label="👅 Note Goût /10", placeholder="Ex: 8.2", required=True)
-        self.effects_score = discord.ui.TextInput(label="🧠 Note Effets /10", placeholder="Ex: 6", required=True)
-        for item in [self.visual_score, self.smell_score, self.touch_score, self.taste_score, self.effects_score]:
+        self.touch_score = discord.ui.TextInput(label="🤏🏼 Note Toucher /10", placeholder="Ex: 7", required=True)
+        self.taste_score = discord.ui.TextInput(label="👅 Note Goût /10", placeholder="Ex: 8", required=True)
+        self.effects_score = discord.ui.TextInput(label="🧠 Note Effets /10", placeholder="Ex: 9.5", required=True)
+        
+        # --- NOUVEAU CHAMP COMMENTAIRE ---
+        self.comment = discord.ui.TextInput(
+            label="💬 Ton commentaire (optionnel)",
+            style=discord.TextStyle.paragraph, # Permet d'écrire sur plusieurs lignes
+            placeholder="Un goût incroyable, effets très relaxants, je recommande...",
+            required=False, # Le commentaire n'est pas obligatoire
+            max_length=500 # On limite la longueur pour éviter les abus
+        )
+
+        for item in [self.visual_score, self.smell_score, self.touch_score, self.taste_score, self.effects_score, self.comment]:
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         scores = {}
         try:
+            # ... (la logique de récupération des scores est inchangée) ...
             scores['visual'] = float(self.visual_score.value.replace(',', '.'))
             scores['smell'] = float(self.smell_score.value.replace(',', '.'))
             scores['touch'] = float(self.touch_score.value.replace(',', '.'))
@@ -374,9 +442,18 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
         except ValueError:
             await interaction.followup.send("❌ Veuillez n'entrer que des nombres pour les notes (ex: 8 ou 8.5).", ephemeral=True); return
         
+        # On récupère la valeur du commentaire
+        comment_text = self.comment.value or None # Met None si le champ est vide
+
         def _save():
             conn = sqlite3.connect(DB_FILE); c = conn.cursor()
-            c.execute("INSERT OR REPLACE INTO ratings VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (self.user.id, str(self.user), self.product_name, scores['visual'], scores['smell'], scores['touch'], scores['taste'], scores['effects'], datetime.utcnow().isoformat()))
+            # --- MISE À JOUR DE LA REQUÊTE SQL ---
+            c.execute("""
+                INSERT OR REPLACE INTO ratings 
+                (user_id, user_name, product_name, visual_score, smell_score, touch_score, taste_score, effects_score, rating_timestamp, comment) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (self.user.id, str(self.user), self.product_name, scores['visual'], scores['smell'], scores['touch'], 
+                  scores['taste'], scores['effects'], datetime.utcnow().isoformat(), comment_text))
             conn.commit(); conn.close()
         
         await asyncio.to_thread(_save)
@@ -402,7 +479,7 @@ class NotationProductSelectView(discord.ui.View):
         
 
 class TopRatersPaginatorView(discord.ui.View):
-    def __init__(self, top_raters, guild, items_per_page=6):
+    def __init__(self, top_raters, guild, items_per_page=5): # On met un peu moins de noteurs par page pour la lisibilité
         super().__init__(timeout=180)
         self.top_raters = top_raters
         self.guild = guild
@@ -423,34 +500,30 @@ class TopRatersPaginatorView(discord.ui.View):
         start_index = self.current_page * self.items_per_page
         end_index = start_index + self.items_per_page
         page_raters = self.top_raters[start_index:end_index]
+        
         embed = discord.Embed(title="🏆 Top des Noteurs", description="Classement basé sur le nombre de notes uniques.", color=discord.Color.gold())
+        
         for i, rater_data in enumerate(page_raters):
-            user_id, last_user_name, rating_count, global_average, min_note, max_note = rater_data
+            user_id = rater_data.get('user_id')
+            last_user_name = rater_data.get('last_user_name')
+            rating_count = rater_data.get('rating_count')
+            global_average = rater_data.get('global_avg', 0)
+            best_product = rater_data.get('best_rated_product', 'N/A') # On récupère le produit préféré
+            
             rank = start_index + i + 1
             member = self.guild.get_member(user_id)
             name = member.mention if member else f"{last_user_name} (parti)"
-            embed.add_field(name=f"#{rank} - {name}", value=f"> Notes : **{rating_count}** | Moyenne : **{global_average:.2f}/10**", inline=False)
+            
+            # --- NOUVEL AFFICHAGE ---
+            value_text = (
+                f"> **Notes :** `{rating_count}` | **Moyenne :** `{global_average:.2f}/10`\n"
+                f"> **Produit Préféré :** ⭐ *{best_product}*"
+            )
+            
+            embed.add_field(name=f"#{rank} - {name}", value=value_text, inline=False)
+            
         embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages + 1}")
         return embed
-
-    async def update_message(self, interaction: discord.Interaction):
-        self.update_buttons()
-        embed = self.create_embed_for_page()
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    class PrevButton(discord.ui.Button):
-        def __init__(self):
-            super().__init__(label="⬅️", style=discord.ButtonStyle.secondary)
-        async def callback(self, interaction: discord.Interaction):
-            if self.view.current_page > 0: self.view.current_page -= 1
-            await self.view.update_message(interaction)
-
-    class NextButton(discord.ui.Button):
-        def __init__(self):
-            super().__init__(label="➡️", style=discord.ButtonStyle.secondary)
-        async def callback(self, interaction: discord.Interaction):
-            if self.view.current_page < self.view.total_pages: self.view.current_page += 1
-            await self.view.update_message(interaction)
             
 class RankingPaginatorView(discord.ui.View):
     def __init__(self, all_products_ratings, product_map, items_per_page=5):
@@ -799,37 +872,69 @@ class SlashCommands(commands.Cog):
         view = NotationProductSelectView(purchased_products, interaction.user)
         await interaction.followup.send("Veuillez choisir un produit à noter :", view=view, ephemeral=True)
 
+    # Dans commands.py -> class SlashCommands
+
     @app_commands.command(name="top_noteurs", description="Affiche le classement des membres qui ont noté le plus de produits.")
     @app_commands.guild_only()
     async def top_noteurs(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True) 
         await log_user_action(interaction, "a demandé le classement des top noteurs.")
+        
         def _fetch_top_raters_sync():
             conn = sqlite3.connect(DB_FILE)
+            conn.row_factory = sqlite3.Row # Important pour accéder aux colonnes par leur nom
             cursor = conn.cursor()
+            
+            # --- NOUVELLE REQUÊTE SQL PLUS COMPLÈTE ---
             cursor.execute("""
                 WITH UserAverageNotes AS (
-                    SELECT user_id, user_name, (COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0 AS avg_note
+                    SELECT
+                        user_id,
+                        user_name,
+                        product_name,
+                        (COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0 AS avg_note,
+                        -- On utilise ROW_NUMBER pour trouver la meilleure note de chaque utilisateur
+                        ROW_NUMBER() OVER(PARTITION BY user_id ORDER BY (COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) DESC, rating_timestamp DESC) as rn
                     FROM ratings
+                ),
+                UserStats AS (
+                    SELECT
+                        user_id,
+                        COUNT(user_id) as rating_count,
+                        AVG(avg_note) as global_avg
+                    FROM UserAverageNotes
+                    GROUP BY user_id
+                ),
+                BestProduct AS (
+                    SELECT
+                        user_id,
+                        product_name as best_rated_product
+                    FROM UserAverageNotes
+                    WHERE rn = 1
                 )
                 SELECT
-                    uan.user_id,
-                    (SELECT user_name FROM ratings WHERE user_id = uan.user_id ORDER BY rating_timestamp DESC LIMIT 1) as last_name,
-                    COUNT(uan.user_id) as count,
-                    AVG(uan.avg_note) as g_avg,
-                    MIN(uan.avg_note) as min_n,
-                    MAX(uan.avg_note) as max_n
-                FROM UserAverageNotes uan GROUP BY uan.user_id ORDER BY count DESC, g_avg DESC;
+                    us.user_id,
+                    (SELECT user_name FROM ratings WHERE user_id = us.user_id ORDER BY rating_timestamp DESC LIMIT 1) as last_user_name,
+                    us.rating_count,
+                    us.global_avg,
+                    bp.best_rated_product
+                FROM UserStats us
+                JOIN BestProduct bp ON us.user_id = bp.user_id
+                ORDER BY us.rating_count DESC, us.global_avg DESC;
             """)
-            results = cursor.fetchall()
+            
+            results = [dict(row) for row in cursor.fetchall()]
             conn.close()
             return results
+            
         try:
             top_raters = await asyncio.to_thread(_fetch_top_raters_sync)
             if not top_raters:
                 await interaction.followup.send("Personne n'a encore noté de produit !", ephemeral=True)
                 return
-            paginator = TopRatersPaginatorView(top_raters, interaction.guild, items_per_page=6)
+            
+            # On passe les données à la vue qui saura comment les afficher
+            paginator = TopRatersPaginatorView(top_raters, interaction.guild)
             embed = paginator.create_embed_for_page()
             await interaction.followup.send(embed=embed, view=paginator, ephemeral=True)
         except Exception as e:
