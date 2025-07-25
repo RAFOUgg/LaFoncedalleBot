@@ -66,7 +66,8 @@ query getFiles($ids: [ID!]!) {
 
 def get_site_data_from_api():
     """
-    Version FINALE avec débogage des collections.
+    Version FINALE ET ROBUSTE : Catégorise les produits en se basant sur leurs collections
+    ET ne récupère QUE les produits PUBLIÉS sur la boutique en ligne.
     """
     Logger.info("Démarrage de la récupération via API Shopify (par collection)...")
     
@@ -88,18 +89,12 @@ def get_site_data_from_api():
             "hash": "hash",
             "weed": "weed",
             "box": "box",
-            "accessoire": "accessoire"
         }
         
         all_products = {}
         gids_to_resolve = set()
 
         collections = shopify.CustomCollection.find()
-        
-        # --- BLOC DE DÉBOGAGE ACTIF ---
-        collection_titles_found = [c.title for c in collections]
-        Logger.warning(f"Collections trouvées sur Shopify ({len(collection_titles_found)}): {collection_titles_found}")
-        # --- FIN BLOC DE DÉBOGAGE ---
         
         for collection in collections:
             collection_title_lower = collection.title.lower()
@@ -111,8 +106,10 @@ def get_site_data_from_api():
                     break
 
             if category:
-                Logger.info(f"MATCH! Collection '{collection.title}' -> Catégorie '{category}'. Récupération des produits...")
-                products_in_collection = collection.products()
+                Logger.info(f"Récupération des produits PUBLIÉS de la collection '{collection.title}'...")
+                
+                # --- CORRECTION N°1 : On ajoute le filtre ici ---
+                products_in_collection = collection.products(published_status='published')
                 
                 for prod in products_in_collection:
                     if prod.id in all_products:
@@ -125,10 +122,8 @@ def get_site_data_from_api():
                     product_data['name'] = prod.title
                     product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
                     product_data['image'] = prod.image.src if prod.image else None
-                    
                     category_map_display = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
                     product_data['category'] = category_map_display.get(category, category)
-
                     desc_html = prod.body_html
                     if desc_html:
                         soup = BeautifulSoup(desc_html, 'html.parser')
@@ -136,10 +131,8 @@ def get_site_data_from_api():
                         product_data['detailed_description'] = soup.get_text(separator="\n", strip=True)
                     else:
                         product_data['detailed_description'] = "Pas de description."
-                    
                     available_variants = [v for v in prod.variants if v.inventory_quantity > 0 or v.inventory_policy == 'continue']
                     product_data['is_sold_out'] = not available_variants
-                    
                     if available_variants:
                         min_price_variant = min(available_variants, key=lambda v: float(v.price))
                         price = float(min_price_variant.price)
@@ -152,7 +145,6 @@ def get_site_data_from_api():
                         product_data['price'] = "N/A"
                         product_data['is_promo'] = False
                         product_data['original_price'] = None
-
                     product_data['stats'] = {}
                     for meta in prod.metafields():
                         key = meta.key.replace('_', ' ').capitalize()
@@ -160,8 +152,12 @@ def get_site_data_from_api():
                         product_data['stats'][key] = value
                         if isinstance(value, str) and value.startswith("gid://shopify/"):
                             gids_to_resolve.add(value)
-                    
                     all_products[prod.id] = product_data
+
+        all_products_from_api = shopify.Product.find(published_status='published', limit=250)
+        for prod in all_products_from_api:
+            if prod.id in all_products:
+                continue
 
         raw_products_data = list(all_products.values())
         
@@ -182,7 +178,7 @@ def get_site_data_from_api():
                     product_data['stats'][key] = gid_url_map[value]
             final_products.append(product_data)
 
-        Logger.success(f"Récupération API terminée. {len(final_products)} produits valides trouvés.")
+        Logger.success(f"Récupération API terminée. {len(final_products)} produits PUBLIÉS valides trouvés.")
         return {"timestamp": a_time.time(), "products": final_products, "general_promos": general_promos}
 
     except Exception as e:
