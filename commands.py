@@ -2,8 +2,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import json
-import time
-from typing import List, Optional, Tuple 
+from typing import List, Optional
 import sqlite3
 from datetime import datetime, timedelta
 import traceback
@@ -12,11 +11,20 @@ import os
 from profil_image_generator import create_profile_card
 
 from shared_utils import (
-    log_user_action, Logger, executor, CACHE_FILE, CATALOG_URL, DB_FILE, STAFF_ROLE_ID,
+    log_user_action, Logger, CACHE_FILE, CATALOG_URL, DB_FILE, STAFF_ROLE_ID,
     config_manager, create_styled_embed, TIKTOK_EMOJI, LFONCEDALLE_EMOJI, TELEGRAM_EMOJI, 
-    INSTAGRAM_EMOJI, SELECTION_CHANNEL_ID, SUCETTE_EMOJI, NITRO_CODES_FILE, CLAIMED_CODES_FILE, 
-    paris_tz, get_product_counts, categorize_products, filter_catalog_products, APP_URL, get_general_promos
+    INSTAGRAM_EMOJI, SUCETTE_EMOJI, NITRO_CODES_FILE, CLAIMED_CODES_FILE, 
+    paris_tz, get_product_counts, categorize_products, APP_URL
 )
+
+# --- Logique des permissions ---
+async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
+    if await interaction.client.is_owner(interaction.user): return True
+    staff_role_id = await config_manager.get_state('staff_role_id', STAFF_ROLE_ID)
+    if not staff_role_id: return False
+    try: staff_role_id_int = int(staff_role_id)
+    except (ValueError, TypeError): return False
+    return any(role.id == staff_role_id_int for role in interaction.user.roles)
 
 
 # --- Logique des permissions (inchangée) ---
@@ -41,12 +49,9 @@ class RatingsPaginatorView(discord.ui.View):
         self.total_pages = (len(self.user_ratings) - 1) // self.items_per_page
         
         try:
-            with open(CACHE_FILE, 'r', encoding='utf-8') as f:
-                site_data = json.load(f)
+            with open(CACHE_FILE, 'r', encoding='utf-8') as f: site_data = json.load(f)
             self.product_map = {p['name'].strip().lower(): p for p in site_data.get('products', [])}
-        except (FileNotFoundError, json.JSONDecodeError):
-            self.product_map = {}
-        
+        except (FileNotFoundError, json.JSONDecodeError): self.product_map = {}
         self.update_buttons()
 
     def update_buttons(self):
@@ -56,40 +61,22 @@ class RatingsPaginatorView(discord.ui.View):
             self.add_item(self.NextButton(disabled=self.current_page >= self.total_pages))
     
     def create_embed(self) -> discord.Embed:
-        if not self.user_ratings:
-            return discord.Embed(description="Aucune note à afficher.")
-
+        if not self.user_ratings: return discord.Embed(description="Aucune note à afficher.")
         current_rating = self.user_ratings[self.current_page]
         product_name = current_rating['product_name']
         product_details = self.product_map.get(product_name.strip().lower(), {})
         date = datetime.fromisoformat(current_rating['rating_timestamp']).strftime('%d/%m/%Y')
-        
         embed = discord.Embed(title=f"Avis sur : {product_name}", url=product_details.get('product_url', CATALOG_URL), color=discord.Color.green())
-        if product_details.get('image'):
-            embed.set_thumbnail(url=product_details['image'])
-        
+        if product_details.get('image'): embed.set_thumbnail(url=product_details['image'])
         embed.add_field(name="Description du Produit", value=product_details.get('detailed_description', 'Non disponible.')[:1024], inline=False)
         embed.add_field(name="Prix", value=product_details.get('price', 'N/A'), inline=True)
-        
-        # --- CORRECTION DE LA LIGNE SUIVANTE ---
         avg_score = (current_rating.get('visual_score', 0) + current_rating.get('smell_score', 0) + current_rating.get('touch_score', 0) + current_rating.get('taste_score', 0) + current_rating.get('effects_score', 0)) / 5
-        
         embed.add_field(name="Note Globale Donnée", value=f"**{avg_score:.2f} / 10**", inline=True)
-
-        notes_text = (
-            f"👀 **Visuel:** `{current_rating.get('visual_score', 'N/A')}`\n"
-            f"👃 **Odeur:** `{current_rating.get('smell_score', 'N/A')}`\n"
-            f"🤏 **Toucher:** `{current_rating.get('touch_score', 'N/A')}`\n"
-            f"👅 **Goût:** `{current_rating.get('taste_score', 'N/A')}`\n"
-            f"🧠 **Effets:** `{current_rating.get('effects_score', 'N/A')}`"
-        )
+        notes_text = (f"👀 **Visuel:** `{current_rating.get('visual_score', 'N/A')}`\n👃 **Odeur:** `{current_rating.get('smell_score', 'N/A')}`\n🤏 **Toucher:** `{current_rating.get('touch_score', 'N/A')}`\n👅 **Goût:** `{current_rating.get('taste_score', 'N/A')}`\n🧠 **Effets:** `{current_rating.get('effects_score', 'N/A')}`")
         embed.add_field(name=f"Notes Détaillées de {self.target_user.display_name}", value=notes_text, inline=False)
-
         if current_rating.get('comment'):
             embed.add_field(name="💬 Commentaire", value=f"```{current_rating['comment']}```", inline=False)
-
-        if self.total_pages >= 0:
-            embed.set_footer(text=f"Note {self.current_page + 1} sur {len(self.user_ratings)}")
+        if self.total_pages >= 0: embed.set_footer(text=f"Note {self.current_page + 1} sur {len(self.user_ratings)}")
         return embed
 
     async def update_message(self, interaction: discord.Interaction):
@@ -133,7 +120,7 @@ class ProfileView(discord.ui.View):
     @discord.ui.button(label="Réinitialiser les notes", style=discord.ButtonStyle.danger, emoji="🗑️")
     async def reset_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         view = ConfirmResetNotesView(self.target_user, self.bot)
-        await interaction.response.send_message(f"Voulez-vous vraiment supprimer les notes de {self.target_user.mention} ?", view=view, ephemeral=True)
+        await interaction.response.send_message(f"Voulez-vous vraiment supprimer toutes les notes de {self.target_user.mention} ?", view=view, ephemeral=True)
             
 class ProductView(discord.ui.View):
     def __init__(self, products: List[dict], category: str = None):
@@ -335,30 +322,20 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
 class NotationProductSelectView(discord.ui.View):
     def __init__(self, products: list, user: discord.User):
         super().__init__(timeout=180)
-        # On s'assure que la liste des produits n'est pas vide avant de créer le Select
         if products:
             self.add_item(self.ProductSelect(products, user))
-        else:
-            # Sécurité au cas où la liste serait vide après le fetch
-            pass
 
     class ProductSelect(discord.ui.Select):
         def __init__(self, products: list, user: discord.User):
             self.user = user
-            # On s'assure que les options ne sont pas vides
             options = [discord.SelectOption(label=p, value=p) for p in products[:25]]
             if not options:
-                # Créer une option désactivée si aucune n'est disponible
                 options = [discord.SelectOption(label="Aucun produit à noter", value="disabled", default=True)]
-            
             super().__init__(placeholder="Choisissez un produit à noter...", options=options)
         
         async def callback(self, interaction: discord.Interaction):
             if not self.values or self.values[0] == "disabled":
-                await interaction.response.send_message("Aucun produit sélectionné.", ephemeral=True)
-                return
-            
-            # On envoie le modal pour la notation
+                await interaction.response.edit_message(content="Aucun produit sélectionné.", view=None); return
             await interaction.response.send_modal(RatingModal(self.values[0], self.user))
 
 class TopRatersPaginatorView(discord.ui.View):

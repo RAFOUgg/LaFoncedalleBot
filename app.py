@@ -85,13 +85,15 @@ def start_verification():
     code = str(random.randint(100000, 999999))
     expires_at = int(time.time()) + 600
 
-    message = Mail(
-        from_email=SENDER_EMAIL,
-        to_emails=email,
-        subject='Votre code de vérification LaFoncedalle',
-        html_content=f'Bonjour !<br>Voici votre code de vérification pour lier votre compte Discord : <strong>{code}</strong><br>Ce code expire dans 10 minutes.'
-    )
-    
+    message = MIMEMultipart("alternative")
+    message["Subject"] = "Votre code de vérification LaFoncedalle"
+    message["From"] = SENDER_EMAIL
+    message["To"] = email
+
+    html_content = f'Bonjour !<br>Voici votre code de vérification pour lier votre compte Discord : <strong>{code}</strong><br>Ce code expire dans 10 minutes.'
+    message.attach(MIMEText(html_content, "html"))
+    context = ssl.create_default_context()
+
     # --- CORRECTION DE LA GESTION D'ERREUR SENDGRID ---
     try:
         sg = SendGridAPIClient(SENDGRID_API_KEY)
