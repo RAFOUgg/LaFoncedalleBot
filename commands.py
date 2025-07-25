@@ -961,6 +961,30 @@ class SlashCommands(commands.Cog):
         except Exception as e:
             Logger.error(f"Erreur dans /promos : {e}"); traceback.print_exc()
             await interaction.followup.send("❌ Erreur lors de la récupération des promotions.", ephemeral=True)
+    
+    @app_commands.command(name="promos", description="Affiche toutes les promotions en cours.")
+    async def promos(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await log_user_action(interaction, "a demandé les promotions.")
+        try:
+            def _read_cache_sync():
+                try:
+                    with open(CACHE_FILE, 'r', encoding='utf-8') as f: return json.load(f)
+                except (FileNotFoundError, json.JSONDecodeError): return {}
+
+            site_data = await asyncio.to_thread(_read_cache_sync)
+            if not site_data:
+                await interaction.followup.send("Infos sur les promotions indisponibles.", ephemeral=True); return
+            
+            promo_products = [p for p in site_data.get('products', []) if p.get('is_promo')]
+            general_promos = site_data.get('general_promos', [])
+            
+            paginator = PromoPaginatorView(promo_products, general_promos)
+            embed = paginator.create_embed()
+            await interaction.followup.send(embed=embed, view=paginator, ephemeral=True)
+        except Exception as e:
+            Logger.error(f"Erreur dans /promos : {e}"); traceback.print_exc()
+            await interaction.followup.send("❌ Erreur lors de la récupération des promotions.", ephemeral=True)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SlashCommands(bot))
