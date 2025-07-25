@@ -22,10 +22,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Étape 5: Copier tout le reste de votre application dans le conteneur
 COPY . .
 
-# Étape 6: Exposer le port que gunicorn utilisera
-EXPOSE 10000
+# [CORRECTION] Étape 6: Forcer le système à trouver et enregistrer les nouvelles polices
+RUN fc-cache -f -v
 
+# Étape 7: Rendre le script de démarrage exécutable
 RUN chmod +x ./start.sh
 
-# Étape 8: Définir la commande pour lancer l'application via le script
+# Étape 8: Exposer le port que gunicorn utilisera
+EXPOSE 10000
+
+# Étape 9: Définir la commande pour lancer l'application via le script
 CMD ["./start.sh"]

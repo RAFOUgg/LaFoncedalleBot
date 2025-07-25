@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 
 # [CORRECTION] Import des variables depuis config.py et catalogue_final pour le bot
 from config import SHOP_URL, SHOPIFY_API_VERSION, FLASK_SECRET_KEY
-import catalogue_final
+
 
 # --- Initialisation ---
 load_dotenv()
