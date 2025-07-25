@@ -1073,8 +1073,19 @@ class SlashCommands(commands.Cog):
             api_url = f"{APP_URL}/api/get_purchased_products/{user_id}"
             try:
                 res = requests.get(api_url, timeout=10)
-                if res.ok: shopify_data = res.json()
-            except requests.exceptions.RequestException as e: Logger.error(f"API Flask inaccessible pour {user_id}: {e}")
+                # On vérifie si la requête a réussi ET si la réponse est bien du JSON
+                if res.ok:
+                    try:
+                        shopify_data = res.json()
+                    except requests.exceptions.JSONDecodeError:
+                        Logger.error(f"L'API Flask a renvoyé une réponse non-JSON pour {user_id}. Contenu : {res.text[:200]}")
+                else:
+                    # Si la requête échoue (ex: erreur 500), on loggue le statut
+                    Logger.warning(f"L'API Flask a retourné un statut {res.status_code} pour {user_id}.")
+
+            except requests.exceptions.RequestException as e: 
+                Logger.error(f"API Flask inaccessible pour {user_id}: {e}")
+            
             return user_stats, user_ratings, shopify_data
 
         try:
