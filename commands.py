@@ -1,21 +1,19 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-import json
+import json, time, sqlite3, traceback, asyncio, os
 from typing import List, Optional
-import sqlite3
 from datetime import datetime, timedelta
-import traceback
-import asyncio
-import os
 from profil_image_generator import create_profile_card
+from shared_utils import *
 
-from shared_utils import (
-    log_user_action, Logger, CACHE_FILE, CATALOG_URL, DB_FILE, STAFF_ROLE_ID,
-    config_manager, create_styled_embed, TIKTOK_EMOJI, LFONCEDALLE_EMOJI, TELEGRAM_EMOJI, 
-    INSTAGRAM_EMOJI, SUCETTE_EMOJI, NITRO_CODES_FILE, CLAIMED_CODES_FILE, 
-    paris_tz, get_product_counts, categorize_products, APP_URL
-)
+async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
+    if await interaction.client.is_owner(interaction.user): return True
+    staff_role_id = await config_manager.get_state('staff_role_id', STAFF_ROLE_ID)
+    if not staff_role_id: return False
+    try: staff_role_id_int = int(staff_role_id)
+    except (ValueError, TypeError): return False
+    return any(role.id == staff_role_id_int for role in interaction.user.roles)
 
 # --- Logique des permissions ---
 async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
@@ -42,16 +40,11 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
 class RatingsPaginatorView(discord.ui.View):
     def __init__(self, target_user, user_ratings, items_per_page=1):
         super().__init__(timeout=180)
-        self.target_user = target_user
-        self.user_ratings = user_ratings
-        self.items_per_page = items_per_page
-        self.current_page = 0
+        self.target_user, self.user_ratings, self.items_per_page, self.current_page = target_user, user_ratings, items_per_page, 0
         self.total_pages = (len(self.user_ratings) - 1) // self.items_per_page
-        
         try:
-            with open(CACHE_FILE, 'r', encoding='utf-8') as f: site_data = json.load(f)
-            self.product_map = {p['name'].strip().lower(): p for p in site_data.get('products', [])}
-        except (FileNotFoundError, json.JSONDecodeError): self.product_map = {}
+            with open(CACHE_FILE, 'r', encoding='utf-8') as f: self.product_map = {p['name'].strip().lower(): p for p in json.load(f).get('products', [])}
+        except: self.product_map = {}
         self.update_buttons()
 
     def update_buttons(self):
@@ -62,27 +55,26 @@ class RatingsPaginatorView(discord.ui.View):
     
     def create_embed(self) -> discord.Embed:
         if not self.user_ratings: return discord.Embed(description="Aucune note à afficher.")
-        current_rating = self.user_ratings[self.current_page]
-        product_name = current_rating['product_name']
-        product_details = self.product_map.get(product_name.strip().lower(), {})
-        date = datetime.fromisoformat(current_rating['rating_timestamp']).strftime('%d/%m/%Y')
-        embed = discord.Embed(title=f"Avis sur : {product_name}", url=product_details.get('product_url', CATALOG_URL), color=discord.Color.green())
-        if product_details.get('image'): embed.set_thumbnail(url=product_details['image'])
-        embed.add_field(name="Description du Produit", value=product_details.get('detailed_description', 'Non disponible.')[:1024], inline=False)
-        embed.add_field(name="Prix", value=product_details.get('price', 'N/A'), inline=True)
-        avg_score = (current_rating.get('visual_score', 0) + current_rating.get('smell_score', 0) + current_rating.get('touch_score', 0) + current_rating.get('taste_score', 0) + current_rating.get('effects_score', 0)) / 5
-        embed.add_field(name="Note Globale Donnée", value=f"**{avg_score:.2f} / 10**", inline=True)
-        notes_text = (f"👀 **Visuel:** `{current_rating.get('visual_score', 'N/A')}`\n👃 **Odeur:** `{current_rating.get('smell_score', 'N/A')}`\n🤏 **Toucher:** `{current_rating.get('touch_score', 'N/A')}`\n👅 **Goût:** `{current_rating.get('taste_score', 'N/A')}`\n🧠 **Effets:** `{current_rating.get('effects_score', 'N/A')}`")
-        embed.add_field(name=f"Notes Détaillées de {self.target_user.display_name}", value=notes_text, inline=False)
-        if current_rating.get('comment'):
-            embed.add_field(name="💬 Commentaire", value=f"```{current_rating['comment']}```", inline=False)
+        rating = self.user_ratings[self.current_page]
+        p_name, p_details = rating['product_name'], self.product_map.get(rating['product_name'].strip().lower(), {})
+        date = datetime.fromisoformat(rating['rating_timestamp']).strftime('%d/%m/%Y')
+        embed = discord.Embed(title=f"Avis sur : {p_name}", url=p_details.get('product_url'), color=discord.Color.green())
+        if p_details.get('image'): embed.set_thumbnail(url=p_details['image'])
+        embed.add_field(name="Description du Produit", value=p_details.get('detailed_description', 'N/A')[:1024], inline=False)
+        embed.add_field(name="Prix", value=p_details.get('price', 'N/A'), inline=True)
+        avg = sum(rating.get(s, 0) for s in ['visual_score', 'smell_score', 'touch_score', 'taste_score', 'effects_score']) / 5
+        embed.add_field(name="Note Globale Donnée", value=f"**{avg:.2f} / 10**", inline=True)
+        notes = (f"👀 Visuel: `{rating.get('visual_score', 'N/A')}`\n👃 Odeur: `{rating.get('smell_score', 'N/A')}`\n"
+                 f"🤏 Toucher: `{rating.get('touch_score', 'N/A')}`\n👅 Goût: `{rating.get('taste_score', 'N/A')}`\n"
+                 f"🧠 Effets: `{rating.get('effects_score', 'N/A')}`")
+        embed.add_field(name=f"Notes Détaillées de {self.target_user.display_name}", value=notes, inline=False)
+        if rating.get('comment'): embed.add_field(name="💬 Commentaire", value=f"```{rating['comment']}```", inline=False)
         if self.total_pages >= 0: embed.set_footer(text=f"Note {self.current_page + 1} sur {len(self.user_ratings)}")
         return embed
 
-    async def update_message(self, interaction: discord.Interaction):
+    async def update_message(self, i: discord.Interaction):
         self.update_buttons()
-        embed = self.create_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        await i.response.edit_message(embed=self.create_embed(), view=self)
 
     class PrevButton(discord.ui.Button):
         def __init__(self, disabled): super().__init__(label="⬅️ Avis Précédent", style=discord.ButtonStyle.secondary, disabled=disabled)
@@ -104,23 +96,21 @@ class ProfileView(discord.ui.View):
         if not self.can_reset: self.remove_item(self.reset_button)
 
     @discord.ui.button(label="Voir les notes en détail", style=discord.ButtonStyle.secondary, emoji="📝")
-    async def show_notes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def show_notes_button(self, i: discord.Interaction, button: discord.ui.Button):
         paginator = RatingsPaginatorView(self.target_user, self.user_ratings)
-        embed = paginator.create_embed()
-        await interaction.response.send_message(embed=embed, view=paginator, ephemeral=True)
+        await i.response.send_message(embed=paginator.create_embed(), view=paginator, ephemeral=True)
 
     @discord.ui.button(label="Afficher la Carte de Profil", style=discord.ButtonStyle.secondary, emoji="🖼️")
-    async def show_card_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True, thinking=True)
+    async def show_card_button(self, i: discord.Interaction, button: discord.ui.Button):
+        await i.response.defer(ephemeral=True, thinking=True)
         card_data = {"name": str(self.target_user), "avatar_url": self.target_user.display_avatar.url, **self.user_stats, **self.shopify_data}
         image_buffer = await create_profile_card(card_data)
-        image_file = discord.File(fp=image_buffer, filename="profile_card.png")
-        await interaction.followup.send(file=image_file, ephemeral=True)
+        await i.followup.send(file=discord.File(fp=image_buffer, filename="profile_card.png"), ephemeral=True)
     
     @discord.ui.button(label="Réinitialiser les notes", style=discord.ButtonStyle.danger, emoji="🗑️")
-    async def reset_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        view = ConfirmResetNotesView(self.target_user, self.bot)
-        await interaction.response.send_message(f"Voulez-vous vraiment supprimer toutes les notes de {self.target_user.mention} ?", view=view, ephemeral=True)
+    async def reset_button(self, i: discord.Interaction, button: discord.ui.Button):
+        await i.response.send_message(f"Voulez-vous vraiment supprimer toutes les notes de {self.target_user.mention} ?", view=ConfirmResetNotesView(self.target_user, self.bot), ephemeral=True)
+        
             
 class ProductView(discord.ui.View):
     def __init__(self, products: List[dict], category: str = None):

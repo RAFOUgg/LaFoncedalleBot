@@ -3,43 +3,34 @@ import sqlite3
 import random
 import time
 from flask import Flask, request, jsonify
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
 import shopify
 from dotenv import load_dotenv
 import threading
 import asyncio
-
-# Importer la configuration simple et le point d'entrée du bot
+import smtplib, ssl
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from config import SHOP_URL, SHOPIFY_API_VERSION, FLASK_SECRET_KEY
-import catalogue_final # On importe le module du bot
+import catalogue_final
 
-# Charger les variables d'environnement
 load_dotenv()
 
-# --- Configuration ---
 app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY
 
-# Clés secrètes depuis l'environnement
-SENDGRID_API_KEY = os.getenv('SENDGRID_API_KEY')
 SENDER_EMAIL = os.getenv('SENDER_EMAIL')
+INFOMANIAK_APP_PASSWORD = os.getenv('INFOMANIAK_APP_PASSWORD')
 SHOPIFY_ADMIN_ACCESS_TOKEN = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
 
-# --- Lancement du Bot Discord en arrière-plan ---
 def run_bot():
-    # Crée une nouvelle boucle d'événements pour le thread du bot
     asyncio.set_event_loop(asyncio.new_event_loop())
-    # Utilise la fonction main() de catalogue_final.py pour démarrer le bot
     asyncio.run(catalogue_final.main())
 
-# On s'assure que le bot ne se lance qu'une seule fois
 if not os.environ.get("WERKZEUG_RUN_MAIN"):
     bot_thread = threading.Thread(target=run_bot)
     bot_thread.daemon = True
     bot_thread.start()
 
-# --- Base de données ---
 def initialize_db():
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
@@ -50,37 +41,21 @@ def initialize_db():
 
 initialize_db()
 
-# --- Routes API ---
-
 @app.route('/')
 def health_check():
-    return "L'application pont Shopify-Discord est en ligne et prête pour la vérification par e-mail.", 200
+    return "L'application pont Shopify-Discord est en ligne.", 200
 
-# --- CETTE FONCTION MANQUAIT ---
 @app.route('/api/start-verification', methods=['POST'])
 def start_verification():
     data = request.json
-    discord_id = data.get('discord_id')
-    email = data.get('email')
+    discord_id, email = data.get('discord_id'), data.get('email')
+    if not all([discord_id, email]): return jsonify({"error": "Données manquantes."}), 400
 
-    if not all([discord_id, email]):
-        return jsonify({"error": "ID Discord ou e-mail manquant."}), 400
-
-    conn = sqlite3.connect('database.db')
-    cursor = conn.cursor()
-
-    # Vérification complète de l'existence
+    conn = sqlite3.connect('database.db'); cursor = conn.cursor()
     cursor.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (discord_id,))
-    existing_link = cursor.fetchone()
-    if existing_link:
-        conn.close()
-        return jsonify({"error": f"votre compte Discord est déjà lié à l'e-mail `{existing_link[0]}`."}), 409
-
+    if cursor.fetchone(): conn.close(); return jsonify({"error": "Ce compte Discord est déjà lié."}), 409
     cursor.execute("SELECT discord_id FROM user_links WHERE user_email = ?", (email,))
-    email_taken = cursor.fetchone()
-    if email_taken:
-        conn.close()
-        return jsonify({"error": "cette adresse e-mail est déjà utilisée par un autre compte Discord."}), 409
+    if cursor.fetchone(): conn.close(); return jsonify({"error": "Cet e-mail est déjà utilisé."}), 409
     
     code = str(random.randint(100000, 999999))
     expires_at = int(time.time()) + 600
@@ -89,28 +64,20 @@ def start_verification():
     message["Subject"] = "Votre code de vérification LaFoncedalle"
     message["From"] = SENDER_EMAIL
     message["To"] = email
-
-    html_content = f'Bonjour !<br>Voici votre code de vérification pour lier votre compte Discord : <strong>{code}</strong><br>Ce code expire dans 10 minutes.'
-    message.attach(MIMEText(html_content, "html"))
+    message.attach(MIMEText(f'Bonjour !<br>Voici votre code de vérification : <strong>{code}</strong><br>Ce code expire dans 10 minutes.', "html"))
+    
     context = ssl.create_default_context()
-
-    # --- CORRECTION DE LA GESTION D'ERREUR SENDGRID ---
     try:
-        sg = SendGridAPIClient(SENDGRID_API_KEY)
-        response = sg.send(message)
-        # On vérifie explicitement si l'API a renvoyé une erreur
-        if response.status_code >= 300:
-             raise Exception(f"SendGrid a retourné une erreur: {response.status_code} {response.body}")
+        with smtplib.SMTP_SSL("mail.infomaniak.com", 465, context=context) as server:
+            server.login(SENDER_EMAIL, INFOMANIAK_APP_PASSWORD)
+            server.sendmail(SENDER_EMAIL, email, message.as_string())
+        print(f"E-mail de vérification envoyé avec succès à {email}")
     except Exception as e:
-        print(f"Erreur SendGrid: {e}") # Pour vos logs
-        conn.close()
-        # On renvoie une erreur 500 que notre bot pourra intercepter
+        print(f"Erreur SMTP: {e}")
         return jsonify({"error": "Impossible d'envoyer l'e-mail de vérification."}), 500
 
-    cursor.execute("INSERT OR REPLACE INTO verification_codes (discord_id, user_email, code, expires_at) VALUES (?, ?, ?, ?)",(discord_id, email, code, expires_at))
-    conn.commit()
-    conn.close()
-
+    cursor.execute("INSERT OR REPLACE INTO verification_codes VALUES (?, ?, ?, ?)", (discord_id, email, code, expires_at))
+    conn.commit(); conn.close()
     return jsonify({"success": True}), 200
 
 @app.route('/api/confirm-verification', methods=['POST'])
