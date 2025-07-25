@@ -96,7 +96,8 @@ def get_site_data_from_api():
         gids_to_resolve = set()
 
         collections = shopify.CustomCollection.find()
-        
+        collection_titles_found = [c.title for c in collections]
+        Logger.warning(f"Collections trouvées sur Shopify ({len(collection_titles_found)}): {collection_titles_found}")
         for collection in collections:
             collection_title_lower = collection.title.lower()
             
