@@ -91,7 +91,7 @@ def get_site_data_from_api(): # <--- On revient à une fonction synchrone (def)
         gids_to_resolve = set()
         # ... (copiez-collez ici TOUTE la logique de traitement des produits, inchangée) ...
         # ... (catégorisation, filtres, GID, etc.)
-        hash_keywords = config_manager.get_config("categorization.hash_keywords", []) + ["hash", "résine", "resin", "resine", "piatella", "piattella", "Frozen"]
+        hash_keywords = config_manager.get_config("categorization.hash_keywords", []) + ["hash", "résine", "resin", "resine", "piatella", "piattella", "Frozen", "frozen"]
         box_keywords = ["box", "pack", "coffret", "gustative"]
         accessoire_keywords = ["briquet", "feuille", "papier", "accessoire", "grinder", "plateau", "clipper", "ocb"]
         social_keywords = ["telegram", "instagram", "tiktok"]
