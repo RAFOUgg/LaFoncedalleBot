@@ -680,7 +680,10 @@ class SlashCommands(commands.Cog):
 
     @app_commands.command(name="noter", description="Note un produit que tu as acheté sur la boutique.")
     async def noter(self, interaction: discord.Interaction):
+        # 1. On répond IMMÉDIATEMENT à Discord pour éviter le timeout.
         await interaction.response.defer(ephemeral=True, thinking=True)
+        
+        # 2. SEULEMENT ENSUITE, on commence le travail long.
         await log_user_action(interaction, "a initié la commande /noter")
         
         def fetch_purchased_products():
@@ -695,6 +698,7 @@ class SlashCommands(commands.Cog):
         
         purchased_products = await asyncio.to_thread(fetch_purchased_products)
         
+        # 3. On envoie la réponse finale avec followup, car on a déjà "defer".
         if purchased_products is None:
             await interaction.followup.send("Ton compte Discord n'est pas lié. Utilise `/lier_compte`.", ephemeral=True)
             return
