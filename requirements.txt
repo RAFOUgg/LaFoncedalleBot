@@ -15,4 +15,3 @@ numpy
 matplotlib
 pillow
 colorama
-sendgrid  
