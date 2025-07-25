@@ -11,7 +11,6 @@ from datetime import time as dt_time, datetime, timedelta
 from typing import List
 import sqlite3
 import re
-from playwright.async_api import async_playwright
 import asyncio # Assurez-vous qu'il est bien importé
 # Imports des librairies nécessaires
 import shopify
@@ -58,57 +57,7 @@ query getFiles($ids: [ID!]!) {
   }
 }
 """
-async def scrape_visual_promos(url: str) -> list:
-    """
-    Scrape le site web pour trouver des promotions visuelles (bannières, pop-ups)
-    qui ne sont pas accessibles via l'API.
-    """
-    Logger.info("Démarrage du scraping pour les promotions visuelles...")
-    promo_texts = []
-    
-    # --- IMPORTANT : Sélecteurs CSS à potentiellement ajuster ---
-    # Pour trouver ces sélecteurs :
-    # 1. Allez sur votre site.
-    # 2. Faites un clic droit sur la bannière ou le pop-up -> "Inspecter".
-    # 3. Cherchez une classe (class="...") ou un ID (id="...") unique pour l'élément.
-    POPUP_SELECTOR = ".needsclick"  # J'ai trouvé ce sélecteur en inspectant le code source de votre pop-up
-    BANNER_SELECTOR = ".announcement-bar"  # Un sélecteur commun pour les bannières, à vérifier
 
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch()
-            page = await browser.new_page()
-            await page.goto(url)
-
-            # Tenter de trouver le pop-up (avec un timeout au cas où il n'apparaît pas)
-            try:
-                # On attend que le pop-up soit visible, 10 secondes max
-                await page.wait_for_selector(POPUP_SELECTOR, state='visible', timeout=10000)
-                popup_text = await page.locator(POPUP_SELECTOR).inner_text()
-                # On nettoie le texte pour ne garder que l'essentiel
-                cleaned_text = ' '.join(popup_text.split())
-                promo_texts.append(f"✨ Offre Pop-up : {cleaned_text}")
-                Logger.success(f"Pop-up trouvé : {cleaned_text}")
-            except asyncio.TimeoutError:
-                Logger.info("Aucun pop-up de promotion n'est apparu pendant le scraping.")
-
-            # Tenter de trouver la bannière d'annonce
-            try:
-                banner_elements = page.locator(BANNER_SELECTOR)
-                count = await banner_elements.count()
-                if count > 0:
-                    banner_text = await banner_elements.first.inner_text()
-                    promo_texts.append(f"📢 Annonce : {banner_text}")
-                    Logger.success(f"Bannière trouvée : {banner_text}")
-            except Exception:
-                 Logger.info("Aucune bannière de promotion trouvée.")
-
-            await browser.close()
-            
-    except Exception as e:
-        Logger.error(f"Erreur durant le scraping visuel : {e}")
-
-    return promo_texts
 def get_smart_promotions_from_api():
     """
     Interroge l'API Shopify pour trouver toutes les promotions actives
@@ -153,81 +102,44 @@ def get_smart_promotions_from_api():
     
 # Dans catalogue_final.py
 
-async def get_site_data_from_api():
-    """
-    Version HYBRIDE AMÉLIORÉE : Gère les erreurs partielles pour une meilleure résilience.
-    """
-    Logger.info("Démarrage de la récupération HYBRIDE (API + Scraping)...")
-    
-    # On initialise les listes pour s'assurer qu'elles existent même en cas d'erreur
-    all_products_api = []
-    general_promos = []
+# Dans catalogue_final.py
 
+# ... (gardez la fonction get_smart_promotions_from_api, elle est utile)
+
+def get_site_data_from_api(): # <--- On revient à une fonction synchrone (def)
+    """
+    Version ROBUSTE ET SIMPLE : Récupère les données uniquement via l'API Shopify.
+    """
+    Logger.info("Démarrage de la récupération via API Shopify...")
+    
     try:
         shop_url = os.getenv('SHOPIFY_SHOP_URL')
         api_version = os.getenv('SHOPIFY_API_VERSION')
         access_token = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
 
         if not all([shop_url, api_version, access_token]): 
-            Logger.error("Identifiants Shopify manquants dans la configuration.")
+            Logger.error("Identifiants Shopify manquants.")
             return None
 
         session = shopify.Session(shop_url, api_version, access_token)
         shopify.ShopifyResource.activate_session(session)
 
-        # --- ÉTAPE 1 : LANCEMENT DES TÂCHES AVEC GESTION D'ERREUR ---
-        products_task = asyncio.to_thread(shopify.Product.find, status='active', limit=250)
-        api_promos_task = asyncio.to_thread(get_smart_promotions_from_api)
-        visual_promos_task = scrape_visual_promos(CATALOG_URL)
+        # On récupère les produits ET les promotions de l'API. C'est tout.
+        all_products_api = shopify.Product.find(status='active', limit=250)
+        general_promos = get_smart_promotions_from_api()
 
-        # On utilise return_exceptions=True pour ne pas planter toute la fonction
-        results = await asyncio.gather(
-            products_task,
-            api_promos_task,
-            visual_promos_task,
-            return_exceptions=True
-        )
-        
-        # --- ÉTAPE 2 : TRAITEMENT SÉCURISÉ DES RÉSULTATS ---
-        
-        # Traitement des produits (essentiel)
-        if isinstance(results[0], Exception):
-            Logger.error(f"Échec critique de la récupération des produits : {results[0]}")
-            # Si on ne peut même pas avoir les produits, on arrête tout.
-            return None
-        all_products_api = results[0]
-
-        # Traitement des promotions API
-        api_promos = []
-        if isinstance(results[1], Exception):
-            Logger.warning(f"Échec de la récupération des promotions API : {results[1]}")
-        else:
-            api_promos = results[1]
-
-        # Traitement des promotions scrapées
-        visual_promos = []
-        if isinstance(results[2], Exception):
-            Logger.warning(f"Échec de la récupération des promotions visuelles : {results[2]}")
-        else:
-            visual_promos = results[2]
-            
-        # Fusion des promotions
-        final_promos = set(api_promos)
-        final_promos.update(visual_promos)
-        general_promos = list(final_promos)
-
-        # --- ÉTAPE 3 : TRAITEMENT DES PRODUITS (INCHANGÉ) ---
-        # Cette partie ne s'exécutera que si la récupération des produits a réussi.
+        # --- Le reste de la fonction est identique ---
         raw_products_data = []
         gids_to_resolve = set()
-        # ... (Toute votre logique de boucle pour traiter chaque produit reste ici) ...
-        # ... (copiez le bloc complet de la réponse précédente) ...
+        # ... (copiez-collez ici TOUTE la logique de traitement des produits, inchangée) ...
+        # ... (catégorisation, filtres, GID, etc.)
         hash_keywords = config_manager.get_config("categorization.hash_keywords", []) + ["hash", "résine", "resin", "resine", "piatella", "piattella"]
         box_keywords = ["box", "pack", "coffret", "gustative"]
         accessoire_keywords = ["briquet", "feuille", "papier", "accessoire", "grinder", "plateau", "clipper", "ocb"]
         social_keywords = ["telegram", "instagram", "tiktok"]
 
         for prod in all_products_api:
+            # ... (logique de la boucle) ...
             title_lower = prod.title.lower()
             product_type_lower = prod.product_type.lower() if prod.product_type else ""
             tags_lower = [tag.lower() for tag in prod.tags]
@@ -242,13 +154,12 @@ async def get_site_data_from_api():
             if any(kw in title_lower for kw in social_keywords): continue
 
             product_data = {}
+            # ... (reste de la logique d'extraction de données)
             product_data['name'] = prod.title
             product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
             product_data['image'] = prod.image.src if prod.image else None
-            
             category_map = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
             product_data['category'] = category_map.get(category)
-            
             desc_html = prod.body_html
             if desc_html:
                 soup = BeautifulSoup(desc_html, 'html.parser')
@@ -256,7 +167,7 @@ async def get_site_data_from_api():
                 product_data['detailed_description'] = soup.get_text(separator="\n", strip=True)
             else:
                 product_data['detailed_description'] = "Pas de description."
-
+            
             available_variants = [v for v in prod.variants if v.inventory_quantity > 0 or v.inventory_policy == 'continue']
             product_data['is_sold_out'] = not available_variants
             
@@ -283,11 +194,10 @@ async def get_site_data_from_api():
             
             raw_products_data.append(product_data)
         
-        # ... (votre logique de résolution GraphQL reste ici) ...
         gid_url_map = {}
         if gids_to_resolve:
             client = shopify.GraphQL()
-            result_json = await asyncio.to_thread(client.execute, RESOLVE_FILES_QUERY, variables={"ids": list(gids_to_resolve)})
+            result_json = client.execute(RESOLVE_FILES_QUERY, variables={"ids": list(gids_to_resolve)})
             result = json.loads(result_json)
             for node in result.get('data', {}).get('nodes', []):
                 if node:
@@ -305,9 +215,9 @@ async def get_site_data_from_api():
         return {"timestamp": a_time.time(), "products": final_products, "general_promos": general_promos}
 
     except Exception as e:
-        Logger.error(f"Une erreur imprévue est survenue dans get_site_data_from_api : {repr(e)}")
+        Logger.error(f"CRITIQUE lors de la récupération via API Shopify : {repr(e)}")
         traceback.print_exc()
-        return None # Retourne None en cas d'erreur non gérée
+        return None
     finally:
         if 'shopify' in locals() and shopify.ShopifyResource.get_session():
             shopify.ShopifyResource.clear_session()
@@ -477,9 +387,10 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
 async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = False):
     Logger.info(f"Vérification du menu... (Forcé: {force_publish})")
     
-    # --- CORRECTION DE L'APPEL ---
-    # On appelle directement la fonction async, sans passer par un executor.
-    site_data = await get_site_data_from_api()
+    # --- ON REVIENT À L'ANCIENNE MÉTHODE D'APPEL ---
+    site_data = await bot_instance.loop.run_in_executor(
+        executor, get_site_data_from_api
+    )
     
     if not site_data or 'products' not in site_data:
         Logger.error("Récupération des données API échouée, la vérification s'arrête.")
