@@ -1180,5 +1180,4 @@ class SlashCommands(commands.Cog):
             await interaction.followup.send("❌ Erreur lors de la récupération des promotions.", ephemeral=True)
 
 async def setup(bot: commands.Bot):
-    bot.tree.add_command(SlashCommands.config_group)
     await bot.add_cog(SlashCommands(bot))

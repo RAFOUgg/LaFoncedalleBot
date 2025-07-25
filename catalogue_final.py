@@ -339,10 +339,6 @@ async def post_weekly_selection(bot_instance: commands.Bot):
         Logger.error(f"Erreur lors de la génération de la sélection : {e}")
         traceback.print_exc()
 
-# Dans catalogue_final.py
-
-# Dans catalogue_final.py
-
 def get_smart_promotions_from_api():
     """
     Interroge l'API Shopify pour trouver toutes les promotions VRAIMENT disponibles
@@ -405,8 +401,6 @@ def get_smart_promotions_from_api():
         Logger.error(f"Erreur lors de la récupération des PriceRule : {e}")
         return ["Impossible de charger les promotions."]
     
-# Dans catalogue_final.py
-
 async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: bool = False):
     Logger.info(f"Publication du menu (mention: {mention})...")
     
@@ -481,8 +475,6 @@ async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = Fa
     if not site_data or 'products' not in site_data:
         Logger.error("Récupération des données API échouée, la vérification s'arrête.")
         return False
-
-    # ... Le reste de la fonction (write_cache, hash, publish_menu) est correct et ne change pas.
     def write_cache():
         with open(CACHE_FILE, 'w', encoding='utf-8') as f:
             json.dump(site_data, f, indent=4, ensure_ascii=False)
