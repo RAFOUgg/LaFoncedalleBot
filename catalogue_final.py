@@ -492,7 +492,6 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
 async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = False):
     Logger.info(f"Vérification du menu... (Forcé: {force_publish})")
     
-    # --- ON REVIENT À L'ANCIENNE MÉTHODE D'APPEL ---
     site_data = await bot_instance.loop.run_in_executor(
         executor, get_site_data_from_api
     )
@@ -500,12 +499,14 @@ async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = Fa
     if not site_data or 'products' not in site_data:
         Logger.error("Récupération des données API échouée, la vérification s'arrête.")
         return False
+        
     def write_cache():
-        temp_cache_file = CACHE_FILE + ".tmp"
-        with open(temp_cache_file, 'w', encoding='utf-8') as f:
-        json.dump(site_data, f, indent=4, ensure_ascii=False)
-        # Renommer le fichier temporaire écrase l'ancien de manière atomique
-        os.replace(temp_cache_file, CACHE_FILE) 
+        # L'erreur est probablement ici. La ligne json.dump doit être indentée
+        # pour faire partie du bloc "with".
+        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+            # [CORRECTION] Assurez-vous que cette ligne est bien indentée
+            json.dump(site_data, f, indent=4, ensure_ascii=False)
+
     await asyncio.to_thread(write_cache)
     Logger.success(f"Cache de produits mis à jour sur le disque avec {len(site_data.get('products', []))} produits.")
 
