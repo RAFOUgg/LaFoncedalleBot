@@ -335,22 +335,28 @@ class NotationProductSelectView(discord.ui.View):
             super().__init__(placeholder="Choisissez un produit à noter...", options=options)
         
         async def callback(self, interaction: discord.Interaction):
-            if not self.values or self.values[0] == "disabled":
-                await interaction.response.edit_message(content="Aucun produit sélectionné.", view=None)
-                return
+            try: # --- AJOUT D'UN BLOC TRY/EXCEPT COMPLET ---
+                if not self.values or self.values[0] == "disabled":
+                    await interaction.response.edit_message(content="Aucun produit sélectionné.", view=None)
+                    return
+                
+                selected_value = self.values[0]
+                
+                full_product_name = next(
+                    (p for p in self.view.products if p.startswith(selected_value)),
+                    selected_value
+                )
+                
+                Logger.info(f"Produit '{full_product_name}' sélectionné. Affichage du modal de notation.")
+                await interaction.response.send_modal(RatingModal(full_product_name, self.user))
             
-            # On récupère la valeur tronquée qui a été sélectionnée
-            selected_value = self.values[0]
-            
-            # On retrouve le nom complet du produit en comparant le début des noms
-            # de la liste originale (stockée dans la vue) avec la valeur tronquée.
-            full_product_name = next(
-                (p for p in self.view.products if p.startswith(selected_value)),
-                selected_value
-            )
-            
-            # On envoie le nom complet au Modal pour l'enregistrement
-            await interaction.response.send_modal(RatingModal(full_product_name, self.user))
+            except Exception as e:
+                # Si le modal ne s'affiche pas, cette erreur nous dira pourquoi.
+                Logger.error(f"Échec de l'affichage du modal de notation : {e}")
+                traceback.print_exc()
+                # On informe l'utilisateur que quelque chose s'est mal passé
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ Oups, une erreur est survenue lors de l'ouverture du formulaire de notation.", ephemeral=True)
 
 class TopRatersPaginatorView(discord.ui.View):
     def __init__(self, top_raters, guild, items_per_page=5): # On met un peu moins de noteurs par page pour la lisibilité
@@ -646,7 +652,6 @@ class SlashCommands(commands.Cog):
 
     @app_commands.command(name="noter", description="Note un produit que tu as acheté sur la boutique.")
     async def noter(self, interaction: discord.Interaction):
-        # [CORRECTION] Cette ligne DOIT être la toute première pour éviter le timeout de 3 secondes.
         await interaction.response.defer(ephemeral=True, thinking=True)
         await log_user_action(interaction, "a initié la commande /noter")
         try:

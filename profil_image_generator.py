@@ -45,7 +45,7 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
             print("SUCCESS [ImageGen]: Toutes les polices personnalisées ont été chargées avec succès.")
         except Exception as e:
             print(f"ERREUR CRITIQUE [ImageGen]: Impossible de charger la police personnalisée. Erreur: {e}")
-            print(traceback.format_exc())
+            print(traceback.format_exc()) # CETTE LIGNE EST LA PLUS IMPORTANTE
             print("INFO [ImageGen]: Utilisation des polices par défaut en secours.")
             # Utiliser des tailles différentes pour la police par défaut pour garder une hiérarchie
             default_font = ImageFont.load_default()
