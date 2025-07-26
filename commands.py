@@ -206,10 +206,9 @@ class MenuView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    async def _load_and_categorize_products(self) -> dict:
+    async def _load_and_categorize_products(self, interaction: discord.Interaction) -> dict:
         try:
-            def _read_cache_sync():
-                with open(CACHE_FILE, 'r', encoding='utf-8') as f: return json.load(f)
+            # Cette ligne fonctionnera maintenant
             site_data = interaction.client.product_cache
             if not site_data or 'products' not in site_data:
                 raise ValueError("Les données des produits sont actuellement indisponibles.")
@@ -223,7 +222,7 @@ class MenuView(discord.ui.View):
     async def _handle_button_click(self, interaction: discord.Interaction, category_key: str, category_name: str):
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
-            categorized_products = await self._load_and_categorize_products()
+            categorized_products = await self._load_and_categorize_products(interaction)
             products_for_category = categorized_products.get(category_key, [])
             if not products_for_category:
                 await interaction.followup.send(f"Désolé, aucun produit de type '{category_name}' n'est disponible.", ephemeral=True)
