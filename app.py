@@ -21,17 +21,19 @@ from dotenv import load_dotenv
 
 
 
-# --- Initialisation ---
+# --- Initialisation : Charger les clés secrètes depuis les variables d'environnement ---
 load_dotenv()
 app = Flask(__name__)
-app.secret_key = FLASK_SECRET_KEY
+FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY') # On lit la variable
+app.secret_key = FLASK_SECRET_KEY # On l'assigne à l'application
+SHOP_URL = os.getenv('SHOPIFY_SHOP_URL')
+SHOPIFY_API_VERSION = os.getenv('SHOPIFY_API_VERSION')
 
-# Récupération des secrets depuis les variables d'environnement
+# Récupération des secrets depuis les variables d'environnement SMTP
 SENDER_EMAIL = os.getenv('SENDER_EMAIL')
 INFOMANIAK_APP_PASSWORD = os.getenv('INFOMANIAK_APP_PASSWORD')
 SHOPIFY_ADMIN_ACCESS_TOKEN = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
 
-# [CORRECTION] Unification de la base de données
 # On utilise le même chemin que le bot pour avoir une seule DB
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "ratings.db")
@@ -287,15 +289,22 @@ def get_user_stats(discord_id):
         # Calculer les statistiques
         c.execute("""
             WITH UserAverageNotes AS (
-                SELECT user_id, (COALESCE(visual_score, 0) + ... + COALESCE(effects_score, 0)) / 5.0 AS avg_note
+                SELECT user_id, 
+                       (COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0 AS avg_note
                 FROM ratings
             ), AllRanks AS (
-                SELECT user_id, COUNT(user_id) as rating_count, AVG(avg_note) as global_avg, MIN(avg_note) as min_note, MAX(avg_note) as max_note,
+                SELECT user_id, 
+                       COUNT(user_id) as rating_count, 
+                       AVG(avg_note) as global_avg, 
+                       MIN(avg_note) as min_note, 
+                       MAX(avg_note) as max_note,
                        RANK() OVER (ORDER BY COUNT(user_id) DESC, AVG(avg_note) DESC) as user_rank
-                FROM UserAverageNotes GROUP BY user_id
+                FROM UserAverageNotes 
+                GROUP BY user_id
             )
             SELECT user_rank, rating_count, global_avg, min_note, max_note
-            FROM AllRanks WHERE user_id = ?
+            FROM AllRanks 
+            WHERE user_id = ?
         """, (user_id_int,))
         stats_row = c.fetchone()
         
@@ -318,11 +327,7 @@ def get_user_stats(discord_id):
     except Exception as e:
         print(f"Erreur lors de la récupération des stats pour {discord_id}: {e}")
         return jsonify({"error": "Erreur interne du serveur."}), 500
-    
-SHOP_URL = os.getenv('SHOPIFY_SHOP_URL')
-SHOPIFY_API_VERSION = os.getenv('SHOPIFY_API_VERSION')
-FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY')
-app.secret_key = FLASK_SECRET_KEY
+
 
 if __name__ == '__main__':
     app.run(port=5000, debug=True)

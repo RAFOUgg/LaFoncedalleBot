@@ -302,16 +302,7 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
         except Exception as e:
             Logger.error(f"Erreur API lors de la soumission de la note : {e}")
             await interaction.followup.send("❌ Une erreur est survenue lors de l'enregistrement de votre note. Le staff a été notifié.", ephemeral=True)
-        def _save():
-            conn = sqlite3.connect(DB_FILE); c = conn.cursor()
-            c.execute("""INSERT OR REPLACE INTO ratings (user_id, user_name, product_name, visual_score, smell_score, touch_score, taste_score, effects_score, rating_timestamp, comment) 
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (self.user.id, str(self.user), self.product_name, scores['visual'], scores['smell'], scores['touch'], scores['taste'], scores['effects'], datetime.utcnow().isoformat(), comment_text))
-            conn.commit(); conn.close()
-        
-        await asyncio.to_thread(_save)
-        await interaction.followup.send(f"✅ Merci ! Note de **{sum(scores.values())/5:.2f}/10** pour **{self.product_name}** enregistrée.", ephemeral=True)
 
-# Dans commands.py
 
 # D'abord, la vue
 class NotationProductSelectView(discord.ui.View):

@@ -46,11 +46,7 @@ TELEGRAM_EMOJI = discord.PartialEmoji(name="Telegram_logo", id=13921269445432443
 INSTAGRAM_EMOJI = discord.PartialEmoji(name="Instagram_logo", id=1392125999726071918)
 SUCETTE_EMOJI = discord.PartialEmoji(name="Sucette", id=1392148327851753572)
 
-# --- ORDRE DE DÉFINITION CORRIGÉ ---
-config_manager = ConfigManager(CONFIG_FILE, STATE_FILE)
-CATALOG_URL = os.getenv('CATALOG_URL')
-BASE_URL = "https://la-foncedalle.fr"
-THUMBNAIL_LOGO_URL = config_manager.get_config("contact_info.thumbnail_logo_url", "")
+
 
 # --- Classes Utilitaires ---
 class Logger:
@@ -111,6 +107,9 @@ def get_product_counts(products: list):
         len(categorized["accessoire"])
     )
 
+
+# --- Fonctions Utilitaires Globales ---
+
 class ConfigManager:
     def __init__(self, config_path, state_path):
         self.config_path = config_path
@@ -161,10 +160,11 @@ class ConfigManager:
             Logger.error(f"Impossible de sauvegarder l'état dans '{file_path}': {e}")
             return False
 
-
-
-
-# --- Fonctions Utilitaires Globales ---
+# --- ORDRE DE DÉFINITION CORRIGÉ ---
+config_manager = ConfigManager(CONFIG_FILE, STATE_FILE)
+CATALOG_URL = os.getenv('CATALOG_URL')
+BASE_URL = "https://la-foncedalle.fr"
+THUMBNAIL_LOGO_URL = config_manager.get_config("contact_info.thumbnail_logo_url", "")
 
 async def log_user_action(interaction: discord.Interaction, action_description: str):
     user = interaction.user; guild = interaction.guild
@@ -174,8 +174,6 @@ async def log_user_action(interaction: discord.Interaction, action_description: 
     try:
         await asyncio.to_thread(lambda: open(USER_LOG_FILE, 'a', encoding='utf-8').write(log_message))
     except Exception as e: Logger.error(f"Impossible d'écrire dans le log : {e}")
-
-# Dans shared_utils.py
 
 def initialize_database():
     conn = sqlite3.connect(DB_FILE)
