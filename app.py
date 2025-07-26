@@ -123,13 +123,12 @@ def start_verification():
     context = ssl.create_default_context()
     try:
         with smtplib.SMTP_SSL("mail.infomaniak.com", 465, context=context) as server:
-            # Le login se fait toujours avec l'adresse e-mail pure
+            # L'erreur se produit FORCÉMENT sur l'une de ces deux lignes
             server.login(SENDER_EMAIL, INFOMANIAK_APP_PASSWORD) 
-            # sendmail utilise l'adresse pure pour l'enveloppe, et le message formaté pour l'affichage
             server.sendmail(SENDER_EMAIL, email, message.as_string())
         print(f"E-mail de vérification envoyé avec succès à {email}")
     except Exception as e:
-        # Cette partie est cruciale. Regardez les logs de votre serveur Flask pour voir cette erreur !
+        # CE BLOC EST EXÉCUTÉ
         print(f"ERREUR SMTP CRITIQUE: {e}") 
         traceback.print_exc() 
         return jsonify({"error": "Impossible d'envoyer l'e-mail de vérification."}), 500
