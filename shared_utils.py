@@ -28,7 +28,7 @@ GUILD_ID = int(os.getenv('GUILD_ID')) if os.getenv('GUILD_ID') else None
 # --- Fichiers de données ---
 CACHE_FILE = os.path.join(BASE_DIR, 'scrape_cache.json')
 USER_LOG_FILE = os.path.join(BASE_DIR, "user_actions.log")
-DB_FILE = "/app/ratings.db" 
+DB_FILE = "/app/ratings.db"
 NITRO_CODES_FILE = os.path.join(BASE_DIR, "nitro_codes.txt")
 CLAIMED_CODES_FILE = os.path.join(BASE_DIR, "claimed_nitro_codes.json")
 

@@ -17,7 +17,7 @@ from flask import Flask, request, jsonify
 import shopify
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
-from shared_utils import DB_FILE
+
 # [CORRECTION] Import des variables depuis config.py et catalogue_final pour le bot
 
 
@@ -31,6 +31,7 @@ SHOP_URL = os.getenv('SHOPIFY_SHOP_URL')
 SHOPIFY_API_VERSION = os.getenv('SHOPIFY_API_VERSION')
 
 # Récupération des secrets depuis les variables d'environnement SMTP
+DB_FILE = "/app/ratings.db"
 SENDER_EMAIL = os.getenv('SENDER_EMAIL')
 INFOMANIAK_APP_PASSWORD = os.getenv('INFOMANIAK_APP_PASSWORD')
 SHOPIFY_ADMIN_ACCESS_TOKEN = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')

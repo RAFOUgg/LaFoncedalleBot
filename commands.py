@@ -669,14 +669,14 @@ class ContactButtonsView(discord.ui.View):
 class SlashCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-    
-    # Dans la classe SlashCommands de commands.py
 
-    # Dans la classe SlashCommands de commands.py, remplacez la commande /config
+    config_group = app_commands.Group(name="config", description="Gère la configuration du bot.", guild_only=True)
+    config_roles_group = app_commands.Group(name="roles", parent=config_group, description="Configure les rôles.")
+    config_salons_group = app_commands.Group(name="salons", parent=config_group, description="Configure les salons.")
 
-    config_group = app_commands.Group(name="config", description="Commandes de configuration du bot (Staff).", guild_only=True)
+    # --- Commandes dans le sous-dossier "roles" ---
 
-    @config_group.command(name="role_staff", description="Définit le rôle des administrateurs.")
+    @config_roles_group.command(name="staff", description="Définit le rôle des administrateurs du bot.")
     @app_commands.check(is_staff_or_owner)
     @app_commands.describe(role="Le rôle qui aura les permissions staff.")
     async def set_staff_role(self, interaction: discord.Interaction, role: discord.Role):
@@ -685,7 +685,7 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, f"a défini le Rôle Staff sur {role.name}")
         await interaction.followup.send(f"✅ Le **Rôle Staff** est maintenant {role.mention}.", ephemeral=True)
 
-    @config_group.command(name="role_mention", description="Définit le rôle à mentionner pour les nouveautés.")
+    @config_roles_group.command(name="mention", description="Définit le rôle à mentionner pour les nouveautés.")
     @app_commands.check(is_staff_or_owner)
     @app_commands.describe(role="Le rôle qui sera notifié.")
     async def set_mention_role(self, interaction: discord.Interaction, role: discord.Role):
@@ -694,16 +694,19 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, f"a défini le Rôle à Mentionner sur {role.name}")
         await interaction.followup.send(f"✅ Le **Rôle à Mentionner** est maintenant {role.mention}.", ephemeral=True)
 
-    @config_group.command(name="salon_menu", description="Définit le salon où le menu sera posté.")
+
+    # --- Commandes dans le sous-dossier "salons" ---
+
+    @config_salons_group.command(name="menu", description="Définit le salon où le menu des produits sera posté.")
     @app_commands.check(is_staff_or_owner)
-    @app_commands.describe(salon="Le salon qui affichera le menu des produits.")
+    @app_commands.describe(salon="Le salon qui affichera le menu.")
     async def set_menu_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
         await interaction.response.defer(ephemeral=True)
         await config_manager.update_state('menu_channel_id', salon.id)
         await log_user_action(interaction, f"a défini le Salon du Menu sur {salon.name}")
         await interaction.followup.send(f"✅ Le **Salon du Menu** est maintenant {salon.mention}.", ephemeral=True)
     
-    @config_group.command(name="salon_selection", description="Définit le salon de la sélection de la semaine.")
+    @config_salons_group.command(name="selection", description="Définit le salon de la sélection de la semaine.")
     @app_commands.check(is_staff_or_owner)
     @app_commands.describe(salon="Le salon qui affichera la sélection.")
     async def set_selection_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
@@ -1127,12 +1130,11 @@ class SlashCommands(commands.Cog):
             await interaction.followup.send("❌ Erreur lors de la récupération du profil.", ephemeral=True)
     @app_commands.command(name="lier_force", description="[STAFF] Lie un compte à un e-mail sans vérification.")
     @app_commands.check(is_staff_or_owner)
-    @app_commands.describe(membre="...", email="...")
+    @app_commands.describe(membre="Le membre à lier.", email="L'email à associer.")
     async def lier_force(self, interaction: discord.Interaction, email: str, membre: Optional[discord.Member] = None):
         await interaction.response.defer(ephemeral=True)
-        
         target_user = membre or interaction.user
-        
+        await log_user_action(interaction, f"a forcé la liaison du compte de {target_user.display_name} à {email}")
         api_url = f"{APP_URL}/api/force-link"
         payload = {"discord_id": str(target_user.id), "email": email}
         headers = {
