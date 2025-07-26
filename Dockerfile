@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zlib1g-dev \
     pkg-config \
     fontconfig \
+    libraqm-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Étape 4: Copier le fichier des dépendances Python et les installer

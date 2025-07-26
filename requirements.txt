@@ -16,3 +16,4 @@ matplotlib
 pillow
 colorama
 gevent
+pyraqm
