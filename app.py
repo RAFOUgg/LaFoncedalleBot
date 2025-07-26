@@ -16,7 +16,7 @@ from email.header import Header # [CORRECTION] Importé pour gérer l'encodage d
 from flask import Flask, request, jsonify
 import shopify
 from dotenv import load_dotenv
-
+from datetime import datetime, timedelta
 # [CORRECTION] Import des variables depuis config.py et catalogue_final pour le bot
 
 

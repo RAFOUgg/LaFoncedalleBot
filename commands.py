@@ -1013,7 +1013,6 @@ class SlashCommands(commands.Cog):
     @app_commands.check(is_staff_or_owner)
     @app_commands.describe(membre="...", email="...")
     async def lier_force(self, interaction: discord.Interaction, email: str, membre: Optional[discord.Member] = None):
-        # [CORRECTION] Ajouter le defer au tout début
         await interaction.response.defer(ephemeral=True)
         
         target_user = membre or interaction.user
@@ -1023,7 +1022,7 @@ class SlashCommands(commands.Cog):
         
         try:
             import requests
-            response = requests.post(api_url, json=payload, timeout=15)
+            response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=15)
             
             if response.ok:
                 await interaction.followup.send(
@@ -1041,12 +1040,16 @@ class SlashCommands(commands.Cog):
     @app_commands.command(name="lier_compte", description="Démarre la liaison de ton compte via ton e-mail.")
     @app_commands.describe(email="L'adresse e-mail de tes commandes.")
     async def lier_compte(self, interaction: discord.Interaction, email: str):
-        await interaction.response.defer(ephemeral=True)        
+        # Le defer est LA PREMIÈRE CHOSE à faire. Toujours.
+        await interaction.response.defer(ephemeral=True)
+        
         api_url = f"{APP_URL}/api/start-verification"
         payload = {"discord_id": str(interaction.user.id), "email": email}
+        
         try:
-            import requests
-            response = requests.post(api_url, json=payload, timeout=15)
+            import requests # L'import local est parfait
+            response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=15)
+
             if response.status_code == 200:
                 await interaction.followup.send(f"✅ E-mail de vérification envoyé à **{email}**. Utilise `/verifier` avec le code.", ephemeral=True)
             elif response.status_code == 409:
@@ -1066,7 +1069,7 @@ class SlashCommands(commands.Cog):
         payload = {"discord_id": str(interaction.user.id), "code": code.strip()}
         try:
             import requests
-            response = requests.post(api_url, json=payload, timeout=15)
+            response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=15)
             if response.ok:
                 await interaction.followup.send("🎉 **Félicitations !** Ton compte est maintenant lié. Tu peux utiliser la commande `/noter`.", ephemeral=True)
             else:
@@ -1086,7 +1089,7 @@ class SlashCommands(commands.Cog):
 
         try:
             import requests
-            response = requests.post(api_url, json=payload, timeout=15)
+            response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=15)
 
             if response.status_code == 200:
                 data = response.json()

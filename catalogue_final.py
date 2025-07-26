@@ -488,12 +488,8 @@ async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = Fa
         return False
         
     def write_cache():
-        # L'erreur est probablement ici. La ligne json.dump doit être indentée
-        # pour faire partie du bloc "with".
         with open(CACHE_FILE, 'w', encoding='utf-8') as f:
-            # [CORRECTION] Assurez-vous que cette ligne est bien indentée
             json.dump(site_data, f, indent=4, ensure_ascii=False)
-
     await asyncio.to_thread(write_cache)
     bot_instance.product_cache = site_data
     Logger.success(f"Cache de produits mis à jour sur le disque avec {len(site_data.get('products', []))} produits.")
