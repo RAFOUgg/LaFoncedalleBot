@@ -492,14 +492,32 @@ class RankingPaginatorView(discord.ui.View):
         start_index = self.current_page * self.items_per_page
         end_index = start_index + self.items_per_page
         page_ratings = self.all_products_ratings[start_index:end_index]
-        embed = discord.Embed(title="📈 Classement Général des Produits", description="Moyenne de tous les produits notés par la communauté.", color=discord.Color.blue())
+        
+        embed = discord.Embed(
+            title="📈 Classement Général des Produits", 
+            description="Moyenne de tous les produits notés par la communauté.", 
+            color=discord.Color.purple() # Une couleur plus "brandée"
+        )
+        if self.current_page == 0 and page_ratings:
+            top_product_name = page_ratings[0][0]
+            top_product_info = self.product_map.get(top_product_name.strip().lower())
+            if top_product_info and top_product_info.get('image'):
+                embed.set_thumbnail(url=top_product_info['image'])
+
+        medals = ["🥇", "🥈", "🥉"]
         for i, (name, avg_score, count) in enumerate(page_ratings):
             rank = start_index + i + 1
+            rank_prefix = f"{medals[rank-1]} " if rank <= 3 else "🔹 "
+            field_name = f"{rank_prefix} #{rank} - {name}"
+            value_str = f"> 📊 **Note :** `{avg_score:.2f}/10`\n> 👥 sur la base de **{count} avis**"
             product_info = self.product_map.get(name.strip().lower())
-            value_str = f"**Note : {avg_score:.2f}/10** ({count} avis)"
-            if product_info and product_info.get('product_url'):
-                value_str += f" - [Voir la fiche]({product_info['product_url']})"
-            embed.add_field(name=f"#{rank} - {name}", value=value_str, inline=False)
+            if product_info and not product_info.get('is_sold_out'):
+                product_url = product_info.get('product_url')
+                if product_url:
+                    value_str += f"\n> 🛒 **[Acheter ce produit]({product_url})**"
+            
+            embed.add_field(name=field_name, value=value_str, inline=False)
+            
         embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages + 1}")
         return embed
         
@@ -650,35 +668,43 @@ class SlashCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
     
-    config_group = app_commands.Group(name="config", description="Commandes de configuration du bot (Staff uniquement)")
+    # Dans la classe SlashCommands de commands.py
 
-    @config_group.command(name="salon_menu", description="Définit le salon où le menu automatique sera publié.")
+    @app_commands.command(name="config", description="Configure les paramètres essentiels du bot (Staff uniquement).")
     @app_commands.check(is_staff_or_owner)
-    @app_commands.describe(salon="Le salon textuel à utiliser pour le menu.")
-    async def set_menu_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
-        await config_manager.update_state('menu_channel_id', salon.id)
-        await interaction.response.send_message(f"✅ Le salon pour le menu a été défini sur {salon.mention}.", ephemeral=True)
+    @app_commands.choices(option=[  # <--- On attache les choix à l'argument "option"
+        Choice(name="Rôle Staff", value="staff_role_id"),
+        Choice(name="Rôle à Mentionner", value="mention_role_id"),
+        Choice(name="Salon du Menu", value="menu_channel_id"),
+        Choice(name="Salon de la Sélection", value="selection_channel_id"),
+    ])
+    @app_commands.describe(option="Le paramètre que vous souhaitez modifier.", nouvelle_valeur="Le rôle ou le salon à définir.")
+    async def config(self, interaction: discord.Interaction, option: Choice[str], nouvelle_valeur: Union[discord.Role, discord.TextChannel]):
+        await interaction.response.defer(ephemeral=True)
 
-    @config_group.command(name="salon_selection", description="Définit le salon pour la sélection de la semaine.")
-    @app_commands.check(is_staff_or_owner)
-    @app_commands.describe(salon="Le salon textuel à utiliser.")
-    async def set_selection_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
-        await config_manager.update_state('selection_channel_id', salon.id)
-        await interaction.response.send_message(f"✅ Le salon pour la sélection de la semaine a été défini sur {salon.mention}.", ephemeral=True)
+        setting_key = option.value
+        setting_name = option.name
 
-    @config_group.command(name="role_staff", description="Définit le rôle qui peut utiliser les commandes staff.")
-    @app_commands.check(is_staff_or_owner)
-    @app_commands.describe(role="Le rôle à définir comme staff.")
-    async def set_staff_role(self, interaction: discord.Interaction, role: discord.Role):
-        await config_manager.update_state('staff_role_id', role.id)
-        await interaction.response.send_message(f"✅ Le rôle staff a été défini sur {role.mention}.", ephemeral=True)
-    
-    @config_group.command(name="role_mention", description="Définit le rôle à mentionner lors des mises à jour du menu.")
-    @app_commands.check(is_staff_or_owner)
-    @app_commands.describe(role="Le rôle à mentionner.")
-    async def set_mention_role(self, interaction: discord.Interaction, role: discord.Role):
-        await config_manager.update_state('mention_role_id', role.id)
-        await interaction.response.send_message(f"✅ Le rôle à mentionner a été défini sur {role.mention}.", ephemeral=True)
+        validations = {
+            "staff_role_id": discord.Role,
+            "mention_role_id": discord.Role,
+            "menu_channel_id": discord.TextChannel,
+            "selection_channel_id": discord.TextChannel
+        }
+
+        expected_type = validations.get(setting_key)
+        if not isinstance(nouvelle_valeur, expected_type):
+            type_name = "rôle" if expected_type == discord.Role else "salon textuel"
+            await interaction.followup.send(f"❌ Erreur : Le paramètre '{setting_name}' attend un {type_name}. Veuillez fournir une valeur correcte.", ephemeral=True)
+            return
+
+        try:
+            await config_manager.update_state(setting_key, nouvelle_valeur.id)
+            await log_user_action(interaction, f"a modifié le paramètre '{setting_name}' à '{nouvelle_valeur.name}'")
+            await interaction.followup.send(f"✅ Le paramètre **{setting_name}** a bien été défini sur {nouvelle_valeur.mention}.", ephemeral=True)
+        except Exception as e:
+            Logger.error(f"Erreur lors de la mise à jour de la config '{setting_key}': {e}")
+            await interaction.followup.send("❌ Une erreur interne est survenue lors de la sauvegarde du paramètre.", ephemeral=True)
 
     @app_commands.command(name="menu", description="Affiche le menu interactif des produits disponibles.")
     async def menu(self, interaction: discord.Interaction):
