@@ -6,6 +6,9 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 from profil_image_generator import create_profile_card
 from shared_utils import *
+import dotenv
+
+FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY')
 
 # --- Logique des permissions ---
 async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
@@ -1028,22 +1031,30 @@ class SlashCommands(commands.Cog):
         
         api_url = f"{APP_URL}/api/force-link"
         payload = {"discord_id": str(target_user.id), "email": email}
-        
+        headers = {
+            "Authorization": f"Bearer {FLASK_SECRET_KEY}"
+        }
         try:
-            import requests
-            response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=15)
+        # On utilise aiohttp comme pour l'autre commande, c'est plus propre
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.post(api_url, json=payload, headers=headers, timeout=15) as response:
+                    if response.content_type == 'application/json':
+                        data = await response.json()
+                        if response.ok:
+                            await interaction.followup.send(f"✅ **Succès !** Le compte de {target_user.mention} est maintenant lié à l'e-mail `{email}`.", ephemeral=True)
+                        else:
+                            error_message = data.get("error", "Une erreur inconnue est survenue.")
+                            await interaction.followup.send(f"❌ **Échec :** {error_message}", ephemeral=True)
+                    else:
+                        raw_text = await response.text()
+                        Logger.error(f"L'API /force-link a renvoyé une réponse non-JSON (Status: {response.status})")
+                        Logger.error(f"Réponse brute : {raw_text[:500]}")
+                        await interaction.followup.send("❌ Le serveur a renvoyé une réponse inattendue.", ephemeral=True)
             
-            if response.ok:
-                await interaction.followup.send(
-                    f"✅ **Succès !** Le compte de {target_user.mention} est maintenant lié à l'e-mail `{email}`.",
-                    ephemeral=True
-                )
-            else:
-                error_message = response.json().get("error", "Une erreur inconnue est survenue.")
-                await interaction.followup.send(f"❌ **Échec :** {error_message}", ephemeral=True)
-                
         except Exception as e:
             Logger.error(f"Erreur API /force-link : {e}")
+            traceback.print_exc()
             await interaction.followup.send("❌ Impossible de contacter le service de liaison. Réessayez plus tard.", ephemeral=True)
 
     @app_commands.command(name="lier_compte", description="Démarre la liaison de ton compte via ton e-mail.")

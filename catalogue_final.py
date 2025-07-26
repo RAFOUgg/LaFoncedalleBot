@@ -578,11 +578,21 @@ async def scheduled_selection():
 async def on_ready():
     Logger.success("Commandes slash synchronisées sur la guilde de test.")
     await asyncio.to_thread(initialize_database)
-    Logger.info("Exécution de la vérification initiale au démarrage...")
-    asyncio.create_task(check_for_updates(bot, force_publish=False))
+
+    # --- CORRECTION FINALE ET CRUCIALE ---
+    # On ne lance PAS la mise à jour immédiatement.
+    # On la programme pour dans quelques secondes, pour laisser le bot
+    # le temps de devenir pleinement réactif.
+    
+    async def initial_update_task():
+        # On attend 5 secondes que le bot soit 100% stable et prêt à recevoir des commandes.
+        await asyncio.sleep(5) 
+        Logger.info("Lancement de la vérification initiale différée...")
+        await check_for_updates(bot, force_publish=False)
+
+    asyncio.create_task(initial_update_task())
     
     try:
-        # Le bot est déjà prêt à enregistrer la vue, même si la vérification tourne encore.
         bot.add_view(MenuView())
         Logger.success("Vue de menu persistante ré-enregistrée avec succès.")
     except Exception as e:
