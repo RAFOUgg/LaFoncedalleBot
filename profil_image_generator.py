@@ -18,7 +18,8 @@ COLORS = {
     "secondary_text": "#A37FC4",   # Violet doux pour les labels
     "accent": "#9D41E8",           # Violet vif pour les accents
     "gold": "#FFC700",             # Or pour le badge
-    "inner_card": "#FAF5FF"        # Fond des blocs de stats
+    "inner_card": "#FAF5FF",        # Fond des blocs de stats
+    "progress_bar_bg": "#EADBF9"
 }
 
 async def create_profile_card(user_data: dict) -> io.BytesIO:
@@ -38,7 +39,7 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
             fonts['title'] = ImageFont.truetype(font_paths['bold'], 38)
             fonts['regular_l'] = ImageFont.truetype(font_paths['regular'], 32)
             fonts['regular_s'] = ImageFont.truetype(font_paths['regular'], 28)
-            fonts['light'] = ImageFont.truetype(font_paths['light'], 22) # Un peu plus petit pour le footer
+            fonts['light'] = ImageFont.truetype(font_paths['light'], 22)
             fonts['emoji'] = ImageFont.truetype(font_paths['emoji'], 30)
         except Exception as e:
             print(f"ERREUR CRITIQUE [ImageGen]: Polices introuvables. {e}")
@@ -72,6 +73,12 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
             draw.text((icon_x, y), icon, font=fonts['emoji'], embedded_color=True, anchor="lm")
             draw.text((label_x, y), label, font=fonts['regular_s'], fill=COLORS["secondary_text"], anchor="lm")
             draw.text((value_x, y), str(value), font=fonts['regular_l'], fill=COLORS["primary_text"], anchor="rm")
+        
+        def draw_progress_bar(x, y, width, height, progress):
+            draw.rounded_rectangle((x, y, x + width, y + height), fill=COLORS["progress_bar_bg"], radius=height//2)
+            if progress > 0:
+                fill_width = int(width * progress)
+                draw.rounded_rectangle((x, y, x + fill_width, y + height), fill=COLORS["accent"], radius=height//2)
 
         # --- Avatar ---
         avatar_pos, avatar_size = (80, 70), (180, 180)
@@ -94,9 +101,9 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
         if user_data.get('is_top_3_monthly'):
             badge_text = "Top Noteur du Mois"
             text_width = draw.textlength(badge_text, font=fonts['regular_s'])
-            draw.rounded_rectangle((300, 205, 300 + text_width + 40, 245), fill=COLORS["gold"], radius=8)
-            draw.text((300 + 25, 225), "🏅", font=fonts['emoji'], embedded_color=True, anchor="lm")
-            draw.text((300 + 60, 225), badge_text, font=fonts['regular_s'], fill="#4A2B00", anchor="lm")
+            draw.rounded_rectangle((300, 205, 300 + text_width + 50, 245), fill=COLORS["gold"], radius=8)
+            draw.text((300 + 20, 225), "🏅", font=fonts['emoji'], embedded_color=True, anchor="lm")
+            draw.text((300 + 55, 225), badge_text, font=fonts['regular_s'], fill="#4A2B00", anchor="lm")
 
         # --- Bloc 1: Activité Boutique ---
         col1_x, col1_y, col1_width = 60, 260, 520
@@ -117,8 +124,9 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
         if user_data.get('count', 0) > 0:
             avg_note = user_data.get('avg', 0)
             min_max_str = f"{user_data.get('min_note', 0):.2f} / {user_data.get('max_note', 0):.2f}"
-            draw_stat_line(col2_y + 130, "📝", "Notes Données", user_data.get('count', 0), col2_x, col2_width)
-            draw_stat_line(col2_y + 190, "📊", "Moyenne", f"{avg_note:.2f} / 10", col2_x, col2_width)
+            draw_stat_line(col2_y + 120, "📝", "Notes Données", user_data.get('count', 0), col2_x, col2_width)
+            draw_stat_line(col2_y + 170, "📊", "Moyenne", f"{avg_note:.2f} / 10", col2_x, col2_width)
+            draw_progress_bar(col2_x + 30, col2_y + 205, col2_width - 60, 15, avg_note / 10) # Ajout de la barre
             draw_stat_line(col2_y + 250, "↕️", "Note Min / Max", min_max_str, col2_x, col2_width)
         else:
             draw.text((col2_x + col2_width/2, col2_y + 180), "Aucune note enregistrée", font=fonts['regular_l'], fill=COLORS["secondary_text"], anchor="mm")
