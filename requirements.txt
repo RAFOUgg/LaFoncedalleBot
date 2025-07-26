@@ -13,7 +13,6 @@ python-dotenv
 beautifulsoup4
 numpy
 matplotlib
-pillow
+Pillow>=10.0.0
 colorama
 gevent
-pyraqm
