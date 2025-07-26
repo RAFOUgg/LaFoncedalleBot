@@ -25,13 +25,19 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
 
 # VUE POUR PAGINER LES NOTES (VERSION AMÉLIORÉE ++)
 class RatingsPaginatorView(discord.ui.View):
-    def __init__(self, target_user, user_ratings, items_per_page=1):
+    def __init__(self, target_user, user_ratings, community_ratings_map, items_per_page=1):
         super().__init__(timeout=180)
-        self.target_user, self.user_ratings, self.items_per_page, self.current_page = target_user, user_ratings, items_per_page, 0
+        self.target_user = target_user
+        self.user_ratings = user_ratings
+        self.community_ratings_map = community_ratings_map  # On stocke les notes de la communauté
+        self.items_per_page = items_per_page
+        self.current_page = 0
         self.total_pages = (len(self.user_ratings) - 1) // self.items_per_page
+        
         try:
             with open(CACHE_FILE, 'r', encoding='utf-8') as f: self.product_map = {p['name'].strip().lower(): p for p in json.load(f).get('products', [])}
         except: self.product_map = {}
+        
         self.update_buttons()
 
     def update_buttons(self):
@@ -42,21 +48,39 @@ class RatingsPaginatorView(discord.ui.View):
     
     def create_embed(self) -> discord.Embed:
         if not self.user_ratings: return discord.Embed(description="Aucune note à afficher.")
+        
         rating = self.user_ratings[self.current_page]
-        p_name, p_details = rating['product_name'], self.product_map.get(rating['product_name'].strip().lower(), {})
-        date = datetime.fromisoformat(rating['rating_timestamp']).strftime('%d/%m/%Y')
+        p_name = rating['product_name']
+        p_details = self.product_map.get(p_name.strip().lower(), {})
+        
+        # Récupérer la note moyenne de la communauté
+        community_score = self.community_ratings_map.get(p_name.strip().lower())
+        community_score_str = f"**{community_score:.2f} / 10**" if community_score else "N/A"
+        
+        # Calculer la note personnelle de l'utilisateur
+        user_avg = sum(rating.get(s, 0) for s in ['visual_score', 'smell_score', 'touch_score', 'taste_score', 'effects_score']) / 5
+        
         embed = discord.Embed(title=f"Avis sur : {p_name}", url=p_details.get('product_url'), color=discord.Color.green())
-        if p_details.get('image'): embed.set_thumbnail(url=p_details['image'])
+        if p_details.get('image'): 
+            embed.set_thumbnail(url=p_details['image'])
+        
         embed.add_field(name="Description du Produit", value=p_details.get('detailed_description', 'N/A')[:1024], inline=False)
         embed.add_field(name="Prix", value=p_details.get('price', 'N/A'), inline=True)
-        avg = sum(rating.get(s, 0) for s in ['visual_score', 'smell_score', 'touch_score', 'taste_score', 'effects_score']) / 5
-        embed.add_field(name="Note Globale Donnée", value=f"**{avg:.2f} / 10**", inline=True)
+        embed.add_field(name="Note de la Communauté", value=community_score_str, inline=True)
+        embed.add_field(name="Votre Note Globale", value=f"**{user_avg:.2f} / 10**", inline=True)
+
         notes = (f"👀 Visuel: `{rating.get('visual_score', 'N/A')}`\n👃 Odeur: `{rating.get('smell_score', 'N/A')}`\n"
                  f"🤏 Toucher: `{rating.get('touch_score', 'N/A')}`\n👅 Goût: `{rating.get('taste_score', 'N/A')}`\n"
                  f"🧠 Effets: `{rating.get('effects_score', 'N/A')}`")
-        embed.add_field(name=f"Notes Détaillées de {self.target_user.display_name}", value=notes, inline=False)
-        if rating.get('comment'): embed.add_field(name="💬 Commentaire", value=f"```{rating['comment']}```", inline=False)
-        if self.total_pages >= 0: embed.set_footer(text=f"Note {self.current_page + 1} sur {len(self.user_ratings)}")
+        
+        embed.add_field(name=f"Vos Notes Détaillées", value=notes, inline=False)
+        
+        if rating.get('comment'): 
+            embed.add_field(name="💬 Votre Commentaire", value=f"```{rating['comment']}```", inline=False)
+        
+        if self.total_pages >= 0: 
+            embed.set_footer(text=f"Avis {self.current_page + 1} sur {len(self.user_ratings)}")
+            
         return embed
 
     async def update_message(self, i: discord.Interaction):
@@ -84,8 +108,31 @@ class ProfileView(discord.ui.View):
 
     @discord.ui.button(label="Voir les notes en détail", style=discord.ButtonStyle.secondary, emoji="📝")
     async def show_notes_button(self, i: discord.Interaction, button: discord.ui.Button):
-        paginator = RatingsPaginatorView(self.target_user, self.user_ratings)
-        await i.response.send_message(embed=paginator.create_embed(), view=paginator, ephemeral=True)
+        # On lance le chargement en attendant la requête DB
+        await i.response.defer(ephemeral=True, thinking=True)
+        
+        # Fonction pour récupérer toutes les notes moyennes de la communauté en une seule requête
+        def _fetch_community_ratings_sync():
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    LOWER(TRIM(product_name)), 
+                    AVG((COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0)
+                FROM ratings 
+                GROUP BY LOWER(TRIM(product_name))
+            """)
+            # On transforme le résultat en un dictionnaire pour un accès facile
+            ratings_map = {name: score for name, score in cursor.fetchall()}
+            conn.close()
+            return ratings_map
+
+        # On exécute la fonction dans un thread séparé
+        community_ratings = await asyncio.to_thread(_fetch_community_ratings_sync)
+        
+        # On passe le dictionnaire des notes au paginateur
+        paginator = RatingsPaginatorView(self.target_user, self.user_ratings, community_ratings)
+        await i.followup.send(embed=paginator.create_embed(), view=paginator, ephemeral=True)
 
     @discord.ui.button(label="Afficher la Carte de Profil", style=discord.ButtonStyle.secondary, emoji="🖼️")
     async def show_card_button(self, i: discord.Interaction, button: discord.ui.Button):
@@ -96,7 +143,6 @@ class ProfileView(discord.ui.View):
             image_buffer = await create_profile_card(card_data)
             await i.followup.send(file=discord.File(fp=image_buffer, filename="profile_card.png"), ephemeral=True)
         except Exception as e:
-            # --- TOUT CE BLOC DOIT ÊTRE INDENTÉ SOUS LE "except:" ---
             Logger.error(f"Erreur lors de la génération de la carte de profil : {e}")
             traceback.print_exc()
             await i.followup.send("❌ Oups ! Une erreur est survenue lors de la création de votre carte de profil.", ephemeral=True)
