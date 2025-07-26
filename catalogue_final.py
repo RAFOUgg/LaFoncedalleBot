@@ -604,34 +604,40 @@ async def on_ready():
     Logger.success("Toutes les tâches programmées ont démarré.")
 
 
-# Dans catalogue_final.py
-
+# --- FIX STARTS HERE: ROBUST ERROR HANDLER ---
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    # Gestion des permissions refusées
-    if isinstance(error, app_commands.CheckFailure):
-        embed = discord.Embed(title="🚫 Accès Refusé", description="Désolé, mais tu n'as pas les permissions nécessaires pour utiliser cette commande.", color=discord.Color.red())
-        if THUMBNAIL_LOGO_URL: embed.set_thumbnail(url=THUMBNAIL_LOGO_URL)
-        if not interaction.response.is_done():
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
-        
-    # --- CORRECTION ICI ---
-    # On gère le cas où la commande n'est pas trouvée
-    if isinstance(error, app_commands.CommandNotFound):
-        Logger.error(f"Commande non trouvée tentée par {interaction.user}: {error}")
-        error_message = f"🤔 La commande que vous essayez d'utiliser n'existe pas ou n'est pas synchronisée."
-    else:
-        command_name = interaction.command.name if interaction.command else "commande inconnue"
-        Logger.error(f"Erreur non gérée dans la commande /{command_name}: {error}")
-        traceback.print_exc()
-        error_message = "❌ Oups ! Une erreur inattendue est survenue. Le staff a été notifié."
+    # Log the full error for debugging
+    command_name = interaction.command.name if interaction.command else "commande inconnue"
+    Logger.error(f"Erreur dans la commande /{command_name} par {interaction.user}: {error}")
     
-    # On envoie la réponse
-    if interaction.response.is_done():
+    # Don't log tracebacks for simple check failures
+    if not isinstance(error, app_commands.CheckFailure):
+        traceback.print_exc()
+        
+    # User-facing error message
+    if isinstance(error, app_commands.CheckFailure):
+        error_message = "🚫 Désolé, tu n'as pas les permissions pour utiliser cette commande."
+    elif isinstance(error, app_commands.CommandNotFound):
+        error_message = "🤔 Cette commande n'existe pas ou n'est plus à jour."
+    else: # Generic error for everything else
+        error_message = "❌ Oups ! Une erreur inattendue est survenue. Le staff a été notifié."
+
+    # This is the crucial part: Check if we've already responded.
+    # If the interaction is done, we must use followup.send().
+    # Otherwise, we can use response.send_message().
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(error_message, ephemeral=True)
+        else:
+            await interaction.response.send_message(error_message, ephemeral=True)
+    except discord.errors.InteractionResponded:
+        # As a final fallback, if we still get this error, just send a followup.
+        # This can happen in rare race conditions.
         await interaction.followup.send(error_message, ephemeral=True)
-    else:
-        await interaction.response.send_message(error_message, ephemeral=True)
+    except Exception as e:
+        Logger.error(f"CRITICAL: Failed to even send an error message to the user: {e}")
+# --- FIX ENDS HERE ---
 
 
 async def main():
