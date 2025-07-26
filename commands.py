@@ -674,51 +674,43 @@ class SlashCommands(commands.Cog):
 
     # Dans la classe SlashCommands de commands.py, remplacez la commande /config
 
-    @app_commands.command(name="config", description="Configure les paramètres essentiels du bot (Staff uniquement).")
+    config_group = app_commands.Group(name="config", description="Commandes de configuration du bot (Staff).", guild_only=True)
+
+    @config_group.command(name="role_staff", description="Définit le rôle des administrateurs.")
     @app_commands.check(is_staff_or_owner)
-    @app_commands.choices(option=[
-        Choice(name="Rôle Staff", value="staff_role_id"),
-        Choice(name="Rôle à Mentionner", value="mention_role_id"),
-        Choice(name="Salon du Menu", value="menu_channel_id"),
-        Choice(name="Salon de la Sélection", value="selection_channel_id"),
-    ])
-    @app_commands.describe(
-        option="Le paramètre que vous souhaitez modifier.",
-        role="Remplir si vous configurez un rôle.",
-        salon="Remplir si vous configurez un salon."
-    )
-    async def config(self, interaction: discord.Interaction, option: Choice[str], role: Optional[discord.Role] = None, salon: Optional[discord.TextChannel] = None):
+    @app_commands.describe(role="Le rôle qui aura les permissions staff.")
+    async def set_staff_role(self, interaction: discord.Interaction, role: discord.Role):
         await interaction.response.defer(ephemeral=True)
+        await config_manager.update_state('staff_role_id', role.id)
+        await log_user_action(interaction, f"a défini le Rôle Staff sur {role.name}")
+        await interaction.followup.send(f"✅ Le **Rôle Staff** est maintenant {role.mention}.", ephemeral=True)
 
-        setting_key = option.value
-        setting_name = option.name
-        
-        # --- Validation pour s'assurer qu'un seul des deux arguments est rempli ---
-        if (role and salon) or (not role and not salon):
-            await interaction.followup.send("❌ Veuillez fournir soit un rôle, soit un salon, mais pas les deux.", ephemeral=True)
-            return
+    @config_group.command(name="role_mention", description="Définit le rôle à mentionner pour les nouveautés.")
+    @app_commands.check(is_staff_or_owner)
+    @app_commands.describe(role="Le rôle qui sera notifié.")
+    async def set_mention_role(self, interaction: discord.Interaction, role: discord.Role):
+        await interaction.response.defer(ephemeral=True)
+        await config_manager.update_state('mention_role_id', role.id)
+        await log_user_action(interaction, f"a défini le Rôle à Mentionner sur {role.name}")
+        await interaction.followup.send(f"✅ Le **Rôle à Mentionner** est maintenant {role.mention}.", ephemeral=True)
 
-        # On détermine si la config attend un rôle ou un salon
-        is_role_setting = "role" in setting_key
-        
-        # On vérifie la cohérence entre le choix et l'argument fourni
-        if is_role_setting and not role:
-            await interaction.followup.send(f"❌ Le paramètre '{setting_name}' attend un rôle, mais vous avez fourni un salon.", ephemeral=True)
-            return
-        if not is_role_setting and not salon:
-            await interaction.followup.send(f"❌ Le paramètre '{setting_name}' attend un salon, mais vous avez fourni un rôle.", ephemeral=True)
-            return
-            
-        # La valeur est soit le rôle, soit le salon
-        valeur = role or salon
-
-        try:
-            await config_manager.update_state(setting_key, valeur.id)
-            await log_user_action(interaction, f"a modifié le paramètre '{setting_name}' à '{valeur.name}'")
-            await interaction.followup.send(f"✅ Le paramètre **{setting_name}** a bien été défini sur {valeur.mention}.", ephemeral=True)
-        except Exception as e:
-            Logger.error(f"Erreur lors de la mise à jour de la config '{setting_key}': {e}")
-            await interaction.followup.send("❌ Une erreur interne est survenue lors de la sauvegarde du paramètre.", ephemeral=True)
+    @config_group.command(name="salon_menu", description="Définit le salon où le menu sera posté.")
+    @app_commands.check(is_staff_or_owner)
+    @app_commands.describe(salon="Le salon qui affichera le menu des produits.")
+    async def set_menu_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
+        await interaction.response.defer(ephemeral=True)
+        await config_manager.update_state('menu_channel_id', salon.id)
+        await log_user_action(interaction, f"a défini le Salon du Menu sur {salon.name}")
+        await interaction.followup.send(f"✅ Le **Salon du Menu** est maintenant {salon.mention}.", ephemeral=True)
+    
+    @config_group.command(name="salon_selection", description="Définit le salon de la sélection de la semaine.")
+    @app_commands.check(is_staff_or_owner)
+    @app_commands.describe(salon="Le salon qui affichera la sélection.")
+    async def set_selection_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
+        await interaction.response.defer(ephemeral=True)
+        await config_manager.update_state('selection_channel_id', salon.id)
+        await log_user_action(interaction, f"a défini le Salon de la Sélection sur {salon.name}")
+        await interaction.followup.send(f"✅ Le **Salon de la Sélection** est maintenant {salon.mention}.", ephemeral=True)
 
     @app_commands.command(name="menu", description="Affiche le menu interactif des produits disponibles.")
     async def menu(self, interaction: discord.Interaction):
