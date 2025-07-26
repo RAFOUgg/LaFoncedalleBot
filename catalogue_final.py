@@ -607,37 +607,48 @@ async def on_ready():
 # --- FIX STARTS HERE: ROBUST ERROR HANDLER ---
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    # Log the full error for debugging
     command_name = interaction.command.name if interaction.command else "commande inconnue"
     Logger.error(f"Erreur dans la commande /{command_name} par {interaction.user}: {error}")
     
-    # Don't log tracebacks for simple check failures
-    if not isinstance(error, app_commands.CheckFailure):
-        traceback.print_exc()
-        
-    # User-facing error message
-    if isinstance(error, app_commands.CheckFailure):
+    # On vérifie la cause racine de l'erreur
+    original_error = getattr(error, 'original', error)
+
+    # Cas 1: L'interaction a expiré (démarrage à froid du serveur)
+    if isinstance(original_error, discord.errors.NotFound) and original_error.code == 10062:
+        error_message = "⏳ Le bot était en veille et est en train de démarrer. Votre commande n'a pas pu être traitée. Veuillez la réessayer dans quelques secondes."
+        Logger.warning("Erreur 'Unknown Interaction' détectée, probablement due à un démarrage à froid.")
+    
+    # Cas 2: Problème de permissions
+    elif isinstance(error, app_commands.CheckFailure):
         error_message = "🚫 Désolé, tu n'as pas les permissions pour utiliser cette commande."
+    
+    # Cas 3: Commande inconnue (rare avec les slash commands, mais sécurisant)
     elif isinstance(error, app_commands.CommandNotFound):
         error_message = "🤔 Cette commande n'existe pas ou n'est plus à jour."
-    else: # Generic error for everything else
+        
+    # Cas 4: Toutes les autres erreurs
+    else:
+        # On log le traceback complet pour le débogage
+        traceback.print_exc()
         error_message = "❌ Oups ! Une erreur inattendue est survenue. Le staff a été notifié."
 
-    # This is the crucial part: Check if we've already responded.
-    # If the interaction is done, we must use followup.send().
-    # Otherwise, we can use response.send_message().
+    # On envoie la réponse de manière sécurisée
     try:
         if interaction.response.is_done():
             await interaction.followup.send(error_message, ephemeral=True)
         else:
-            await interaction.response.send_message(error_message, ephemeral=True)
+            # On utilise defer() ici pour les cas où la commande plante AVANT le defer initial.
+            # Cela évite une nouvelle erreur "Interaction has already been acknowledged".
+            await interaction.response.defer(ephemeral=True, thinking=False)
+            await interaction.followup.send(error_message, ephemeral=True)
     except discord.errors.InteractionResponded:
-        # As a final fallback, if we still get this error, just send a followup.
-        # This can happen in rare race conditions.
-        await interaction.followup.send(error_message, ephemeral=True)
+        # Si une réponse a déjà été envoyée dans une condition de concurrence rare, on utilise followup.
+        try:
+            await interaction.followup.send(error_message, ephemeral=True)
+        except Exception as e:
+            Logger.error(f"CRITICAL: Impossible d'envoyer un message d'erreur même avec followup: {e}")
     except Exception as e:
-        Logger.error(f"CRITICAL: Failed to even send an error message to the user: {e}")
-# --- FIX ENDS HERE ---
+        Logger.error(f"CRITICAL: Impossible d'envoyer un message d'erreur à l'utilisateur: {e}")
 
 
 async def main():
