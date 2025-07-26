@@ -4,6 +4,8 @@ from discord import app_commands
 import json, time, sqlite3, traceback, asyncio, os
 from typing import List, Optional
 from datetime import datetime, timedelta
+from typing import List, Optional, Union # <-- Assurez-vous que Union est là
+from discord.app_commands import Choice # <-- AJOUTEZ CETTE LIGNE
 from profil_image_generator import create_profile_card
 from shared_utils import *
 import dotenv
