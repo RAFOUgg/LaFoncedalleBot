@@ -35,6 +35,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix='!', intents=intents)
+bot.product_cache = {}
 
 # Configuration des heures pour les tâches programmées
 update_time = dt_time(hour=8, minute=0, tzinfo=paris_tz)
@@ -483,6 +484,7 @@ async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = Fa
     
     if not site_data or 'products' not in site_data:
         Logger.error("Récupération des données API échouée, la vérification s'arrête.")
+        bot_instance.product_cache = {} 
         return False
         
     def write_cache():
@@ -493,6 +495,7 @@ async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = Fa
             json.dump(site_data, f, indent=4, ensure_ascii=False)
 
     await asyncio.to_thread(write_cache)
+    bot_instance.product_cache = site_data
     Logger.success(f"Cache de produits mis à jour sur le disque avec {len(site_data.get('products', []))} produits.")
 
     data_to_hash = {

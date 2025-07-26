@@ -210,7 +210,7 @@ class MenuView(discord.ui.View):
         try:
             def _read_cache_sync():
                 with open(CACHE_FILE, 'r', encoding='utf-8') as f: return json.load(f)
-            site_data = await asyncio.to_thread(_read_cache_sync)
+            site_data = interaction.client.product_cache
             if not site_data or 'products' not in site_data:
                 raise ValueError("Les données des produits sont actuellement indisponibles.")
             return categorize_products(site_data['products'])
@@ -282,6 +282,26 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
         except ValueError:
             await interaction.followup.send("❌ Veuillez n'entrer que des nombres pour les notes.", ephemeral=True); return
         
+        api_url = f"{APP_URL}/api/submit-rating"
+        payload = {
+            "user_id": self.user.id,
+            "user_name": str(self.user),
+            "product_name": self.product_name,
+            "scores": scores,
+            "comment": comment_text
+        }
+        
+        try:
+            import requests
+            response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=10)
+            response.raise_for_status()  # Lève une exception si l'API renvoie une erreur (4xx ou 5xx)
+
+            avg_score = sum(scores.values()) / len(scores)
+            await interaction.followup.send(f"✅ Merci ! Votre note de **{avg_score:.2f}/10** pour **{self.product_name}** a été enregistrée.", ephemeral=True)
+
+        except Exception as e:
+            Logger.error(f"Erreur API lors de la soumission de la note : {e}")
+            await interaction.followup.send("❌ Une erreur est survenue lors de l'enregistrement de votre note. Le staff a été notifié.", ephemeral=True)
         def _save():
             conn = sqlite3.connect(DB_FILE); c = conn.cursor()
             c.execute("""INSERT OR REPLACE INTO ratings (user_id, user_name, product_name, visual_score, smell_score, touch_score, taste_score, effects_score, rating_timestamp, comment) 
@@ -601,7 +621,7 @@ class SlashCommands(commands.Cog):
         try:
             def _read_cache_sync():
                 with open(CACHE_FILE, 'r', encoding='utf-8') as f: return json.load(f)
-            site_data = await asyncio.to_thread(_read_cache_sync)
+            site_data = self.bot.product_cache
             if not site_data or not (products := site_data.get('products')):
                 await interaction.followup.send("Désolé, le menu n'est pas disponible.", ephemeral=True)
                 return

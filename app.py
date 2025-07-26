@@ -18,7 +18,7 @@ import shopify
 from dotenv import load_dotenv
 
 # [CORRECTION] Import des variables depuis config.py et catalogue_final pour le bot
-from config import SHOP_URL, SHOPIFY_API_VERSION, FLASK_SECRET_KEY
+
 
 
 # --- Initialisation ---
@@ -235,6 +235,94 @@ def get_purchased_products(discord_id):
         "purchase_count": purchase_count,
         "total_spent": total_spent
     })
+@app.route('/api/submit-rating', methods=['POST'])
+def submit_rating():
+    data = request.json
+    required_keys = ['user_id', 'user_name', 'product_name', 'scores']
+    if not all(key in data for key in required_keys):
+        return jsonify({"error": "Données manquantes."}), 400
+
+    # On récupère toutes les données du payload
+    user_id = data['user_id']
+    user_name = data['user_name']
+    product_name = data['product_name']
+    scores = data['scores']
+    comment_text = data.get('comment')  # .get() pour gérer le cas où le commentaire est optionnel
+
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("""
+            INSERT OR REPLACE INTO ratings 
+            (user_id, user_name, product_name, visual_score, smell_score, touch_score, taste_score, effects_score, rating_timestamp, comment) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            user_id, user_name, product_name, 
+            scores.get('visual'), scores.get('smell'), scores.get('touch'), 
+            scores.get('taste'), scores.get('effects'), 
+            datetime.utcnow().isoformat(), comment_text
+        ))
+        conn.commit()
+        conn.close()
+        print(f"INFO: Note enregistrée pour {user_name} sur le produit {product_name}")
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        print(f"Erreur SQL lors de l'enregistrement de la note : {e}")
+        traceback.print_exc()
+        return jsonify({"error": "Erreur lors de la sauvegarde de la note."}), 500
+
+# --- AJOUTER CET ENDPOINT ÉGALEMENT ---
+@app.route('/api/get_user_stats/<discord_id>')
+def get_user_stats(discord_id):
+    try:
+        user_id_int = int(discord_id)
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        # Récupérer les notes de l'utilisateur
+        c.execute("SELECT * FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC", (user_id_int,))
+        user_ratings = [dict(row) for row in c.fetchall()]
+
+        # Calculer les statistiques
+        c.execute("""
+            WITH UserAverageNotes AS (
+                SELECT user_id, (COALESCE(visual_score, 0) + ... + COALESCE(effects_score, 0)) / 5.0 AS avg_note
+                FROM ratings
+            ), AllRanks AS (
+                SELECT user_id, COUNT(user_id) as rating_count, AVG(avg_note) as global_avg, MIN(avg_note) as min_note, MAX(avg_note) as max_note,
+                       RANK() OVER (ORDER BY COUNT(user_id) DESC, AVG(avg_note) DESC) as user_rank
+                FROM UserAverageNotes GROUP BY user_id
+            )
+            SELECT user_rank, rating_count, global_avg, min_note, max_note
+            FROM AllRanks WHERE user_id = ?
+        """, (user_id_int,))
+        stats_row = c.fetchone()
+        
+        user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0}
+        if stats_row:
+            user_stats.update(dict(zip(stats_row.keys(), stats_row)))
+
+        # Badge Top 3 du mois
+        one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
+        c.execute("SELECT user_id FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY COUNT(id) DESC LIMIT 3", (one_month_ago,))
+        top_3_monthly_ids = [row['user_id'] for row in c.fetchall()]
+        user_stats['is_top_3_monthly'] = user_id_int in top_3_monthly_ids
+
+        conn.close()
+        
+        return jsonify({
+            "user_stats": user_stats,
+            "user_ratings": user_ratings
+        })
+    except Exception as e:
+        print(f"Erreur lors de la récupération des stats pour {discord_id}: {e}")
+        return jsonify({"error": "Erreur interne du serveur."}), 500
+    
+SHOP_URL = os.getenv('SHOPIFY_SHOP_URL')
+SHOPIFY_API_VERSION = os.getenv('SHOPIFY_API_VERSION')
+FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY')
+app.secret_key = FLASK_SECRET_KEY
 
 if __name__ == '__main__':
     app.run(port=5000, debug=True)

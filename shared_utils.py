@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from colorama import init, Fore
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor
-from config import APP_URL as FLASK_APP_URL
 import asyncio # <--- asyncio a été importé mais pas threading, c'est mieux
 
 # --- Initialisation ---
@@ -19,7 +18,7 @@ CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
 # --- Constantes & Secrets (depuis .env) ---
 TOKEN = os.getenv('DISCORD_TOKEN')
-APP_URL = FLASK_APP_URL # On la récupère depuis l'import de config.py
+APP_URL = os.getenv('APP_URL')
 CHANNEL_ID = int(os.getenv('CHANNEL_ID')) if os.getenv('CHANNEL_ID') else None
 RANKING_CHANNEL_ID = int(os.getenv('RANKING_CHANNEL_ID')) if os.getenv('RANKING_CHANNEL_ID') else None
 ROLE_ID_TO_MENTION = os.getenv('ROLE_ID_TO_MENTION')
@@ -47,6 +46,11 @@ TELEGRAM_EMOJI = discord.PartialEmoji(name="Telegram_logo", id=13921269445432443
 INSTAGRAM_EMOJI = discord.PartialEmoji(name="Instagram_logo", id=1392125999726071918)
 SUCETTE_EMOJI = discord.PartialEmoji(name="Sucette", id=1392148327851753572)
 
+# --- ORDRE DE DÉFINITION CORRIGÉ ---
+config_manager = ConfigManager(CONFIG_FILE, STATE_FILE)
+CATALOG_URL = os.getenv('CATALOG_URL')
+BASE_URL = "https://la-foncedalle.fr"
+THUMBNAIL_LOGO_URL = config_manager.get_config("contact_info.thumbnail_logo_url", "")
 
 # --- Classes Utilitaires ---
 class Logger:
@@ -157,11 +161,7 @@ class ConfigManager:
             Logger.error(f"Impossible de sauvegarder l'état dans '{file_path}': {e}")
             return False
 
-# --- ORDRE DE DÉFINITION CORRIGÉ ---
-config_manager = ConfigManager(CONFIG_FILE, STATE_FILE)
-CATALOG_URL = config_manager.get_config("general.CATALOG_URL", "")
-BASE_URL = "https://la-foncedalle.fr"
-THUMBNAIL_LOGO_URL = config_manager.get_config("contact_info.thumbnail_logo_url", "")
+
 
 
 # --- Fonctions Utilitaires Globales ---
