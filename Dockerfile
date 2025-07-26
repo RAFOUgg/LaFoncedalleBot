@@ -4,7 +4,6 @@ FROM python:3.11-slim
 # Étape 2: Définir le répertoire de travail dans le conteneur
 WORKDIR /app
 
-# Étape 3: Mettre à jour les paquets et installer les dépendances système
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libfreetype6-dev \
     libjpeg-dev \
@@ -13,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fontconfig \
     libharfbuzz-dev \
     libfribidi-dev \
+    libraqm-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Étape 4: Copier le fichier des dépendances Python et les installer
@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Étape 5: Copier tout le reste de votre application dans le conteneur
 COPY . .
 RUN ls -l /app/assets
+
 # [CORRECTION FINALE] Étape 6: Forcer le système à trouver et enregistrer les nouvelles polices
 RUN fc-cache -f -v
 
