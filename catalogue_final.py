@@ -610,9 +610,8 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
     # On gère le cas où la commande n'est pas trouvée
     if isinstance(error, app_commands.CommandNotFound):
         Logger.error(f"Commande non trouvée tentée par {interaction.user}: {error}")
-        error_message = f"🤔 La commande que vous essayez d'utiliser n'existe pas ou n'est pas synchronisée. Veuillez patienter un instant."
+        error_message = f"🤔 La commande que vous essayez d'utiliser n'existe pas ou n'est pas synchronisée."
     else:
-        # On construit le message d'erreur standard
         command_name = interaction.command.name if interaction.command else "commande inconnue"
         Logger.error(f"Erreur non gérée dans la commande /{command_name}: {error}")
         traceback.print_exc()
