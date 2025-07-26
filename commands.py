@@ -85,9 +85,14 @@ class ProfileView(discord.ui.View):
     @discord.ui.button(label="Afficher la Carte de Profil", style=discord.ButtonStyle.secondary, emoji="🖼️")
     async def show_card_button(self, i: discord.Interaction, button: discord.ui.Button):
         await i.response.defer(ephemeral=True, thinking=True)
-        card_data = {"name": str(self.target_user), "avatar_url": self.target_user.display_avatar.url, **self.user_stats, **self.shopify_data}
-        image_buffer = await create_profile_card(card_data)
-        await i.followup.send(file=discord.File(fp=image_buffer, filename="profile_card.png"), ephemeral=True)
+        try:
+            card_data = {"name": str(self.target_user), "avatar_url": self.target_user.display_avatar.url, **self.user_stats, **self.shopify_data}
+            image_buffer = await create_profile_card(card_data)
+            await i.followup.send(file=discord.File(fp=image_buffer, filename="profile_card.png"), ephemeral=True)
+        except Exception as e:
+            Logger.error(f"Erreur lors de la génération de la carte de profil : {e}")
+            traceback.print_exc()
+            await i.followup.send("❌ Oups ! Une erreur est survenue lors de la création de votre carte de profil.", ephemeral=True)
     
     @discord.ui.button(label="Réinitialiser les notes", style=discord.ButtonStyle.danger, emoji="🗑️")
     async def reset_button(self, i: discord.Interaction, button: discord.ui.Button):
