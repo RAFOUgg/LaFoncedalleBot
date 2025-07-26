@@ -911,30 +911,43 @@ class SlashCommands(commands.Cog):
     @app_commands.command(name="debug", description="[STAFF] Force la republication du menu et synchronise les commandes.")
     @app_commands.check(is_staff_or_owner)
     async def debug(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        # On informe l'utilisateur qu'une tâche lourde est en cours
+        await interaction.response.defer(ephemeral=True, thinking=True)
         Logger.info(f"Débogage forcé demandé par {interaction.user}...")
+        
+        # On prépare une liste pour stocker les résultats de chaque étape
+        results_log = []
 
-        # --- NOUVELLE ÉTAPE : SYNCHRONISATION DES COMMANDES ---
+        # --- ÉTAPE 1 : SYNCHRONISATION DES COMMANDES ---
         try:
             synced = await self.bot.tree.sync()
             Logger.success(f"{len(synced)} commandes synchronisées avec Discord.")
-            await interaction.followup.send(f"✅ {len(synced)} commandes synchronisées.", ephemeral=True)
+            results_log.append(f"✅ **Synchronisation :** {len(synced)} commandes mises à jour.")
         except Exception as e:
             Logger.error(f"Échec de la synchronisation des commandes : {e}")
-            await interaction.followup.send("⚠️ Échec de la synchronisation des commandes.", ephemeral=True)
+            results_log.append("⚠️ **Synchronisation :** Échec.")
 
-        # --- ANCIENNE LOGIQUE : REPUBLICATION DU MENU ---
+        # --- ÉTAPE 2 : REPUBLICATION DU MENU ---
         Logger.info("Publication forcée du menu...")
         try:
             updates_found = await self.bot.check_for_updates(self.bot, force_publish=True)
             if updates_found:
-                await interaction.followup.send("✅ Menu mis à jour et republié avec mention.", ephemeral=True)
+                results_log.append("✅ **Menu :** Mis à jour et republié avec mention.")
             else:
-                await interaction.followup.send("✅ Tentative de republication effectuée (le menu était déjà à jour).", ephemeral=True)
+                results_log.append("👍 **Menu :** Aucune mise à jour détectée, mais republié.")
         except Exception as e:
             Logger.error(f"Erreur critique lors de /debug : {e}")
             traceback.print_exc()
-            await interaction.followup.send("❌ Une erreur est survenue lors de la republication du menu.", ephemeral=True)
+            results_log.append("❌ **Menu :** Une erreur est survenue lors de la republication.")
+            
+        # --- ÉTAPE 3 : ON ENVOIE UN SEUL RAPPORT FINAL ---
+        final_report = "\n".join(results_log)
+        embed = discord.Embed(
+            title="⚙️ Rapport de Débogage",
+            description=final_report,
+            color=discord.Color.green()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="check", description="Vérifie si de nouveaux produits sont disponibles (cooldown 12h).")
     async def check(self, interaction: discord.Interaction):
