@@ -1049,26 +1049,35 @@ class SlashCommands(commands.Cog):
     @app_commands.command(name="lier_compte", description="Démarre la liaison de ton compte via ton e-mail.")
     @app_commands.describe(email="L'adresse e-mail de tes commandes.")
     async def lier_compte(self, interaction: discord.Interaction, email: str):
-        # Le defer est LA PREMIÈRE CHOSE à faire. Toujours.
         await interaction.response.defer(ephemeral=True)
-        
+        await log_user_action(interaction, f"a tenté de lier son compte à l'email {email}")
+
         api_url = f"{APP_URL}/api/start-verification"
         payload = {"discord_id": str(interaction.user.id), "email": email}
         
         try:
-            import requests # L'import local est parfait
+            import requests
             response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=15)
 
-            if response.status_code == 200:
-                await interaction.followup.send(f"✅ E-mail de vérification envoyé à **{email}**. Utilise `/verifier` avec le code.", ephemeral=True)
-            elif response.status_code == 409:
-                await interaction.followup.send(f"⚠️ **Déjà lié !** {response.json().get('error', 'Erreur inconnue.')}", ephemeral=True)
-            else:
-                error_details = response.json().get("error", "une erreur est survenue.")
-                await interaction.followup.send(f"❌ **Échec.** Raison : {error_details}", ephemeral=True)
-        except Exception as e:
-            Logger.error(f"Erreur API /start-verification : {e}")
-            await interaction.followup.send("❌ Impossible de contacter le service de vérification.", ephemeral=True)
+            # --- CORRECTION FINALE : On essaie de lire le JSON, et si ça échoue, on affiche l'erreur brute ---
+            try:
+                data = response.json()
+                if response.ok: # Status 200-299
+                    await interaction.followup.send(f"✅ E-mail de vérification envoyé à **{email}**. Utilise `/verifier` avec le code.", ephemeral=True)
+                else: # Erreurs prévues comme 409
+                    error_message = data.get('error', 'Une erreur est survenue.')
+                    await interaction.followup.send(f"⚠️ **Échec :** {error_message}", ephemeral=True)
+
+            except requests.exceptions.JSONDecodeError:
+                # C'EST ICI QUE LA MAGIE OPÈRE
+                Logger.error("L'API a renvoyé une réponse non-JSON !")
+                Logger.error(f"Status Code: {response.status_code}")
+                Logger.error(f"Réponse Brute: {response.text[:500]}") # On logue les 500 premiers caractères de la réponse
+                await interaction.followup.send("❌ Le serveur de vérification a rencontré une erreur interne. Le staff a été notifié.", ephemeral=True)
+
+        except requests.exceptions.RequestException as e:
+            Logger.error(f"Erreur de connexion à l'API /start-verification : {e}")
+            await interaction.followup.send("❌ Impossible de contacter le service de vérification. Est-il bien en ligne ?", ephemeral=True)
 
     @app_commands.command(name="verifier", description="Valide ton adresse e-mail avec le code reçu.")
     @app_commands.describe(code="Le code à 6 chiffres reçu par e-mail.")
