@@ -1063,8 +1063,19 @@ class SlashCommands(commands.Cog):
                 FROM AllRanks WHERE user_id = ?
             """, (user_id,))
             stats_row = c.fetchone()
+            
+            # --- FIX STARTS HERE ---
+            # Initialize with default values. These keys are expected by the rest of the code.
             user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0}
-            if stats_row: user_stats.update(dict(zip(stats_row.keys(), stats_row)))
+            if stats_row:
+                # Explicitly map the database column names to the expected dictionary keys.
+                # This fixes the mismatch between 'rating_count' and 'count', etc.
+                user_stats['rank'] = stats_row['user_rank']
+                user_stats['count'] = stats_row['rating_count']
+                user_stats['avg'] = stats_row['global_avg']
+                user_stats['min_note'] = stats_row['min_note']
+                user_stats['max_note'] = stats_row['max_note']
+            # --- FIX ENDS HERE ---
 
             one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
             c.execute("SELECT user_id FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY COUNT(id) DESC LIMIT 3", (one_month_ago,))
@@ -1096,7 +1107,7 @@ class SlashCommands(commands.Cog):
             embed = discord.Embed(title=f"Profil de {target_user.display_name}", color=target_user.color)
             embed.set_thumbnail(url=target_user.display_avatar.url)
 
-            shop_activity_text = "Compte non lié. Utilisez `/lier_compte`."
+            shop_activity_text = "Compte non lié. Utilise `/lier_compte`."
             if shopify_data.get('purchase_count', 0) > 0:
                 shop_activity_text = (
                     f"**Commandes :** `{shopify_data['purchase_count']}`\n"
@@ -1112,7 +1123,8 @@ class SlashCommands(commands.Cog):
                     f"**Moyenne des notes :** `{user_stats['avg']:.2f}/10`\n"
                     f"**Note Min/Max :** `{user_stats['min_note']:.2f}` / `{user_stats['max_note']:.2f}`"
                 )
-                if user_stats.get('is_top_3_monthly'):
+                # --- FIX: Check for 'monthly_rank' instead of 'is_top_3_monthly' ---
+                if user_stats.get('monthly_rank'):
                     discord_activity_text += "\n**Badge :** `🏅 Top Noteur du Mois`"
             embed.add_field(name="📝 Activité sur le Discord", value=discord_activity_text, inline=False)
             
