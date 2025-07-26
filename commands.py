@@ -511,7 +511,7 @@ class RankingPaginatorView(discord.ui.View):
             rank = start_index + i + 1
             rank_prefix = f"{medals[rank-1]} " if rank <= 3 else "🔹 "
             field_name = f"{rank_prefix} #{rank} - {name}"
-            value_str = f"> 📊 **Note :** `{avg_score:.2f}/10`\n> 👥 sur la base de **{count} avis**"
+            value_str = f"> 📊 **Note moyenne :** `{avg_score:.2f}/10`\n> 👥 sur la base de **{count} avis**"
             product_info = self.product_map.get(name.strip().lower())
             if product_info and not product_info.get('is_sold_out'):
                 product_url = product_info.get('product_url')
