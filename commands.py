@@ -272,13 +272,12 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
         self.touch_score = discord.ui.TextInput(label="🤏🏼 Note Toucher /10", placeholder="Ex: 7", required=True)
         self.taste_score = discord.ui.TextInput(label="👅 Note Goût /10", placeholder="Ex: 8", required=True)
         self.effects_score = discord.ui.TextInput(label="🧠 Note Effets /10", placeholder="Ex: 9.5", required=True)
-        self.comment = discord.ui.TextInput(label="💬 Ton commentaire (optionnel)", style=discord.TextStyle.paragraph, placeholder="Un goût incroyable...", required=False, max_length=500)
-        for item in [self.visual_score, self.smell_score, self.touch_score, self.taste_score, self.effects_score, self.comment]:
+        for item in [self.visual_score, self.smell_score, self.touch_score, self.taste_score, self.effects_score]:
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        scores, comment_text = {}, self.comment.value or None
+        scores, comment_text = {}, None # self.comment.value or None
         try:
             scores['visual'] = float(self.visual_score.value.replace(',', '.'))
             scores['smell'] = float(self.smell_score.value.replace(',', '.'))
