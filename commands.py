@@ -672,38 +672,50 @@ class SlashCommands(commands.Cog):
     
     # Dans la classe SlashCommands de commands.py
 
+    # Dans la classe SlashCommands de commands.py, remplacez la commande /config
+
     @app_commands.command(name="config", description="Configure les paramètres essentiels du bot (Staff uniquement).")
     @app_commands.check(is_staff_or_owner)
-    @app_commands.choices(option=[  # <--- On attache les choix à l'argument "option"
+    @app_commands.choices(option=[
         Choice(name="Rôle Staff", value="staff_role_id"),
         Choice(name="Rôle à Mentionner", value="mention_role_id"),
         Choice(name="Salon du Menu", value="menu_channel_id"),
         Choice(name="Salon de la Sélection", value="selection_channel_id"),
     ])
-    @app_commands.describe(option="Le paramètre que vous souhaitez modifier.", nouvelle_valeur="Le rôle ou le salon à définir.")
-    async def config(self, interaction: discord.Interaction, option: Choice[str], nouvelle_valeur: Union[discord.Role, discord.TextChannel]):
+    @app_commands.describe(
+        option="Le paramètre que vous souhaitez modifier.",
+        role="Remplir si vous configurez un rôle.",
+        salon="Remplir si vous configurez un salon."
+    )
+    async def config(self, interaction: discord.Interaction, option: Choice[str], role: Optional[discord.Role] = None, salon: Optional[discord.TextChannel] = None):
         await interaction.response.defer(ephemeral=True)
 
         setting_key = option.value
         setting_name = option.name
-
-        validations = {
-            "staff_role_id": discord.Role,
-            "mention_role_id": discord.Role,
-            "menu_channel_id": discord.TextChannel,
-            "selection_channel_id": discord.TextChannel
-        }
-
-        expected_type = validations.get(setting_key)
-        if not isinstance(nouvelle_valeur, expected_type):
-            type_name = "rôle" if expected_type == discord.Role else "salon textuel"
-            await interaction.followup.send(f"❌ Erreur : Le paramètre '{setting_name}' attend un {type_name}. Veuillez fournir une valeur correcte.", ephemeral=True)
+        
+        # --- Validation pour s'assurer qu'un seul des deux arguments est rempli ---
+        if (role and salon) or (not role and not salon):
+            await interaction.followup.send("❌ Veuillez fournir soit un rôle, soit un salon, mais pas les deux.", ephemeral=True)
             return
 
+        # On détermine si la config attend un rôle ou un salon
+        is_role_setting = "role" in setting_key
+        
+        # On vérifie la cohérence entre le choix et l'argument fourni
+        if is_role_setting and not role:
+            await interaction.followup.send(f"❌ Le paramètre '{setting_name}' attend un rôle, mais vous avez fourni un salon.", ephemeral=True)
+            return
+        if not is_role_setting and not salon:
+            await interaction.followup.send(f"❌ Le paramètre '{setting_name}' attend un salon, mais vous avez fourni un rôle.", ephemeral=True)
+            return
+            
+        # La valeur est soit le rôle, soit le salon
+        valeur = role or salon
+
         try:
-            await config_manager.update_state(setting_key, nouvelle_valeur.id)
-            await log_user_action(interaction, f"a modifié le paramètre '{setting_name}' à '{nouvelle_valeur.name}'")
-            await interaction.followup.send(f"✅ Le paramètre **{setting_name}** a bien été défini sur {nouvelle_valeur.mention}.", ephemeral=True)
+            await config_manager.update_state(setting_key, valeur.id)
+            await log_user_action(interaction, f"a modifié le paramètre '{setting_name}' à '{valeur.name}'")
+            await interaction.followup.send(f"✅ Le paramètre **{setting_name}** a bien été défini sur {valeur.mention}.", ephemeral=True)
         except Exception as e:
             Logger.error(f"Erreur lors de la mise à jour de la config '{setting_key}': {e}")
             await interaction.followup.send("❌ Une erreur interne est survenue lors de la sauvegarde du paramètre.", ephemeral=True)
