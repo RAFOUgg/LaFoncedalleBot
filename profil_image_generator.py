@@ -68,11 +68,17 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
         # --- Badge de Rang Dynamique ---
         monthly_rank = user_data.get('monthly_rank')
         if monthly_rank:
-            badge_info = { 1: ("🥇 Top Noteur OR", COLORS["gold"]), 2: ("🥈 Top Noteur ARGENT", COLORS["silver"]), 3: ("🥉 Top Noteur BRONZE", COLORS["bronze"]) }
-            badge_text, colors = badge_info.get(monthly_rank)
+            badge_info = {
+                1: ("Top Noteur OR", COLORS["gold"], "🥇"),
+                2: ("Top Noteur ARGENT", COLORS["silver"], "🥈"),
+                3: ("Top Noteur BRONZE", COLORS["bronze"], "🥉")
+            }
+            badge_text, colors, emoji = badge_info.get(monthly_rank)
             text_width = draw.textlength(badge_text, font=fonts['regular_s'])
-            draw.rounded_rectangle((300, 205, 300 + text_width + 40, 245), fill=colors["bg"], radius=8)
-            draw.text((300 + 20, 225), badge_text, font=fonts['regular_s'], fill=colors["text"], anchor="lm")
+            badge_width = text_width + 60 
+            draw.rounded_rectangle((300, 205, 300 + badge_width, 245), fill=colors["bg"], radius=8)
+            draw.text((300 + 20, 225), emoji, font=fonts['emoji'], embedded_color=True, anchor="lm")
+            draw.text((300 + 55, 225), badge_text, font=fonts['regular_s'], fill=colors["text"], anchor="lm")
 
         # --- Bloc 1: Activité Boutique ---
         col1_x, col1_y = 60, 280

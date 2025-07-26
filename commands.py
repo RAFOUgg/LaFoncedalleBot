@@ -452,19 +452,20 @@ class TopRatersPaginatorView(discord.ui.View):
             last_user_name = rater_data.get('last_user_name')
             rating_count = rater_data.get('rating_count')
             global_average = rater_data.get('global_avg', 0)
-            best_product = rater_data.get('best_rated_product', 'N/A') # On récupère le produit préféré
+            best_product = rater_data.get('best_rated_product', 'N/A')
             
             rank = start_index + i + 1
             member = self.guild.get_member(user_id)
-            name = member.mention if member else f"{last_user_name} (parti)"
-            
-            # --- NOUVEL AFFICHAGE ---
-            value_text = (
+            display_name = member.display_name if member else last_user_name
+            mention_text = member.mention if member else f"`{last_user_name} (parti)`"
+            field_name = f"#{rank} - {display_name}"
+            field_value = (
+                f"{mention_text}\n"
                 f"> **Notes :** `{rating_count}` | **Moyenne :** `{global_average:.2f}/10`\n"
                 f"> **Produit Préféré :** ⭐ *{best_product}*"
             )
             
-            embed.add_field(name=f"#{rank} - {name}", value=value_text, inline=False)
+            embed.add_field(name=field_name, value=field_value, inline=False)
             
         embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages + 1}")
         return embed
