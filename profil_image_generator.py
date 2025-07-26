@@ -10,20 +10,20 @@ import traceback
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 
-# --- Palette de couleurs "LaFoncedalle" ---
+# --- Palette de couleurs finale "LaFoncedalle" ---
 COLORS = {
-    "background": "#FDF9FF",       # Rose très pâle, presque blanc
-    "card": "#F5ECFE",             # Fond principal de la carte
-    "primary_text": "#4A007B",      # Violet profond pour les infos clés
-    "secondary_text": "#A37FC4",   # Violet doux pour les labels
-    "accent": "#9D41E8",           # Violet vif pour les accents
+    "background": "#FDF9FF",       # Le fond global de l'image, quasi-blanc
+    "card": "#A541E8",             # Le violet/rose principal du logo rectangulaire
+    "primary_text": "#FFFFFF",      # Blanc pur pour les infos clés
+    "secondary_text": (255, 255, 255, 180), # Blanc semi-transparent pour les labels
+    "accent": "#FFFFFF",           # Blanc pour les lignes de séparation
     "gold": "#FFC700",             # Or pour le badge
-    "inner_card": "#FAF5FF",        # Fond des blocs de stats
-    "progress_bar_bg": "#EADBF9"
+    "inner_card": (255, 255, 255, 20), # Superposition blanche très légère pour les blocs
+    "progress_bar_bg": (0, 0, 0, 40) # Fond de barre sombre et transparent
 }
 
 async def create_profile_card(user_data: dict) -> io.BytesIO:
-    """Génère une carte de profil premium avec l'identité visuelle de LaFoncedalle."""
+    """Génère la carte de profil finale avec la nouvelle charte graphique."""
 
     def _generate():
         # --- Chargement des polices ---
@@ -46,18 +46,8 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
             traceback.print_exc()
             return None
 
-        # --- Création du fond avec watermark ---
+        # --- Création du fond et de la carte ---
         bg = Image.new("RGBA", (1200, 600), COLORS["background"])
-        try:
-            watermark_logo = Image.open(os.path.join(ASSETS_DIR, "logo_rond.png")).convert("RGBA")
-            watermark_logo = watermark_logo.resize((800, 800), Image.Resampling.LANCZOS)
-            alpha = watermark_logo.getchannel('A')
-            alpha = Image.eval(alpha, lambda p: p // 12) # Opacité ~8%
-            watermark_logo.putalpha(alpha)
-            bg.paste(watermark_logo, (200, -100), watermark_logo)
-        except FileNotFoundError:
-            print("WARNING [ImageGen]: 'logo_rond.png' non trouvé pour le watermark.")
-
         draw = ImageDraw.Draw(bg)
         draw.rounded_rectangle((40, 40, 1160, 560), fill=COLORS["card"], radius=30)
         
@@ -73,7 +63,7 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
             draw.text((icon_x, y), icon, font=fonts['emoji'], embedded_color=True, anchor="lm")
             draw.text((label_x, y), label, font=fonts['regular_s'], fill=COLORS["secondary_text"], anchor="lm")
             draw.text((value_x, y), str(value), font=fonts['regular_l'], fill=COLORS["primary_text"], anchor="rm")
-        
+
         def draw_progress_bar(x, y, width, height, progress):
             draw.rounded_rectangle((x, y, x + width, y + height), fill=COLORS["progress_bar_bg"], radius=height//2)
             if progress > 0:
@@ -94,10 +84,20 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
         except Exception:
             draw.ellipse((avatar_pos[0], avatar_pos[1], avatar_pos[0]+avatar_size[0], avatar_pos[1]+avatar_size[1]), fill=COLORS["secondary_text"])
 
-        # --- Nom, ligne de séparation et badge ---
+        # --- Nom et ligne de séparation ---
         user_name = user_data.get("name", "Utilisateur").split("#")[0].upper()
         draw.text((300, 110), user_name, font=fonts['name'], fill=COLORS["primary_text"], anchor="lt")
         draw.line([(300, 190), (1120, 190)], fill=COLORS["accent"], width=3)
+        
+        # --- Nouveau logo d'accent en haut à droite ---
+        try:
+            corner_logo = Image.open(os.path.join(ASSETS_DIR, "logo_rond.png")).convert("RGBA")
+            corner_logo.thumbnail((120, 120), Image.Resampling.LANCZOS)
+            bg.paste(corner_logo, (1010, 60), corner_logo)
+        except FileNotFoundError:
+            print("WARNING [ImageGen]: 'logo_rond.png' non trouvé pour le coin.")
+
+
         if user_data.get('is_top_3_monthly'):
             badge_text = "Top Noteur du Mois"
             text_width = draw.textlength(badge_text, font=fonts['regular_s'])
@@ -126,18 +126,13 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
             min_max_str = f"{user_data.get('min_note', 0):.2f} / {user_data.get('max_note', 0):.2f}"
             draw_stat_line(col2_y + 120, "📝", "Notes Données", user_data.get('count', 0), col2_x, col2_width)
             draw_stat_line(col2_y + 170, "📊", "Moyenne", f"{avg_note:.2f} / 10", col2_x, col2_width)
-            draw_progress_bar(col2_x + 30, col2_y + 205, col2_width - 60, 15, avg_note / 10) # Ajout de la barre
+            draw_progress_bar(col2_x + 30, col2_y + 205, col2_width - 60, 15, avg_note / 10)
             draw_stat_line(col2_y + 250, "↕️", "Note Min / Max", min_max_str, col2_x, col2_width)
         else:
             draw.text((col2_x + col2_width/2, col2_y + 180), "Aucune note enregistrée", font=fonts['regular_l'], fill=COLORS["secondary_text"], anchor="mm")
 
         # --- Footer ---
-        try:
-            footer_logo = Image.open(os.path.join(ASSETS_DIR, "logo_rect.png")).convert("RGBA")
-            footer_logo.thumbnail((200, 50), Image.Resampling.LANCZOS)
-            bg.paste(footer_logo, (920, 490), footer_logo)
-        except FileNotFoundError:
-            draw.text((1140, 540), "Généré par LaFoncedalleBot", font=fonts['light'], fill=COLORS['secondary_text'], anchor="rs")
+        draw.text((1140, 540), "Généré par LaFoncedalleBot", font=fonts['light'], fill=COLORS['secondary_text'], anchor="rs")
 
         buffer = io.BytesIO()
         bg.save(buffer, format="PNG")
