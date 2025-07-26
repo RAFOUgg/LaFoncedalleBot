@@ -85,7 +85,9 @@ class ProfileView(discord.ui.View):
     @discord.ui.button(label="Afficher la Carte de Profil", style=discord.ButtonStyle.secondary, emoji="🖼️")
     async def show_card_button(self, i: discord.Interaction, button: discord.ui.Button):
         await i.response.defer(ephemeral=True, thinking=True)
+        
         try:
+            # Le reste de la logique vient APRÈS
             card_data = {"name": str(self.target_user), "avatar_url": self.target_user.display_avatar.url, **self.user_stats, **self.shopify_data}
             image_buffer = await create_profile_card(card_data)
             await i.followup.send(file=discord.File(fp=image_buffer, filename="profile_card.png"), ephemeral=True)
@@ -335,28 +337,33 @@ class NotationProductSelectView(discord.ui.View):
             super().__init__(placeholder="Choisissez un produit à noter...", options=options)
         
         async def callback(self, interaction: discord.Interaction):
-            try: # --- AJOUT D'UN BLOC TRY/EXCEPT COMPLET ---
-                if not self.values or self.values[0] == "disabled":
-                    await interaction.response.edit_message(content="Aucun produit sélectionné.", view=None)
-                    return
-                
-                selected_value = self.values[0]
-                
-                full_product_name = next(
-                    (p for p in self.view.products if p.startswith(selected_value)),
-                    selected_value
-                )
-                
-                Logger.info(f"Produit '{full_product_name}' sélectionné. Affichage du modal de notation.")
-                await interaction.response.send_modal(RatingModal(full_product_name, self.user))
-            
-            except Exception as e:
-                # Si le modal ne s'affiche pas, cette erreur nous dira pourquoi.
-                Logger.error(f"Échec de l'affichage du modal de notation : {e}")
-                traceback.print_exc()
-                # On informe l'utilisateur que quelque chose s'est mal passé
-                if not interaction.response.is_done():
-                    await interaction.response.send_message("❌ Oups, une erreur est survenue lors de l'ouverture du formulaire de notation.", ephemeral=True)
+    try:
+        # On répond IMMÉDIATEMENT à la nouvelle interaction en envoyant le modal.
+        # C'est la seule chose à faire dans le 'try'.
+        if not self.values or self.values[0] == "disabled":
+            # Si l'option est invalide, on modifie le message original
+            await interaction.response.edit_message(content="Aucun produit sélectionné.", view=None)
+            return
+        
+        selected_value = self.values[0]
+        full_product_name = next(
+            (p for p in self.view.products if p.startswith(selected_value)),
+            selected_value
+        )
+        
+        Logger.info(f"Produit '{full_product_name}' sélectionné. Affichage du modal de notation.")
+        # Cette ligne est la réponse à l'interaction du clic.
+        await interaction.response.send_modal(RatingModal(full_product_name, self.user))
+    
+    except Exception as e:
+        # Si une erreur se produit (même "Unknown Interaction"), elle sera capturée ici.
+        Logger.error(f"Échec de l'affichage du modal de notation : {e}")
+        traceback.print_exc()
+        # On informe l'utilisateur que quelque chose s'est mal passé
+        if not interaction.response.is_done():
+            await interaction.response.send_message("❌ Oups, une erreur est survenue lors de l'ouverture du formulaire.", ephemeral=True)
+        else:
+            await interaction.followup.send("❌ Oups, une erreur est survenue lors de l'ouverture du formulaire.", ephemeral=True)
 
 class TopRatersPaginatorView(discord.ui.View):
     def __init__(self, top_raters, guild, items_per_page=5): # On met un peu moins de noteurs par page pour la lisibilité
