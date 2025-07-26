@@ -615,8 +615,24 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
 
     # Cas 1: L'interaction a expiré (démarrage à froid du serveur)
     if isinstance(original_error, discord.errors.NotFound) and original_error.code == 10062:
-        error_message = "⏳ Le bot était en veille et est en train de démarrer. Votre commande n'a pas pu être traitée. Veuillez la réessayer dans quelques secondes."
-        Logger.warning("Erreur 'Unknown Interaction' détectée, probablement due à un démarrage à froid.")
+        Logger.warning("Erreur 'Unknown Interaction' détectée (démarrage à froid). Envoi du message d'attente.")
+        
+        staff_role_id = await config_manager.get_state('staff_role_id', STAFF_ROLE_ID)
+        staff_mention = f"<@&{staff_role_id}>" if staff_role_id else "@Staff"
+
+        embed = discord.Embed(
+            title="⏳ Le bot est en train de démarrer",
+            description=(
+                "Le bot était en veille et vient de se réveiller. Votre commande n'a pas pu être traitée à temps.\n\n"
+                "**Veuillez simplement relancer votre commande.** Elle devrait fonctionner maintenant."
+            ),
+            color=discord.Color.orange()
+        )
+        embed.add_field(
+            name="Que faire si ça ne marche toujours pas ?",
+            value=f"Si le problème persiste, un membre du staff ({staff_mention}) peut utiliser la commande `/debug` pour forcer une réinitialisation."
+        )
+        embed.set_footer(text="Merci de votre patience !")
     
     # Cas 2: Problème de permissions
     elif isinstance(error, app_commands.CheckFailure):
