@@ -1019,13 +1019,14 @@ class SlashCommands(commands.Cog):
             """, (user_id,))
             stats_row = c.fetchone()
             user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0}
-            if stats_row:
-                user_stats.update(dict(zip(stats_row.keys(), stats_row)))
+            if stats_row: user_stats.update(dict(zip(stats_row.keys(), stats_row)))
 
             one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
             c.execute("SELECT user_id FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY COUNT(id) DESC LIMIT 3", (one_month_ago,))
             top_3_monthly_ids = [row['user_id'] for row in c.fetchall()]
-            user_stats['is_top_3_monthly'] = user_id in top_3_monthly_ids
+            user_stats['monthly_rank'] = None # Par défaut, personne n'est classé
+            if user_id in top_3_monthly_ids:
+                user_stats['monthly_rank'] = top_3_monthly_ids.index(user_id) + 1 # On donne le rang 1, 2, ou 3
             conn.close()
             
             shopify_data = {}
