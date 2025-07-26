@@ -19,7 +19,9 @@ COLORS = {
     "inner_card": "#7A1CB8",  # Le fond blanc des boîtes de stats
     "text_on_white": "#4A007B",  # Texte violet foncé sur fond blanc
     "label_on_white": "#A37FC4",  # Texte violet clair pour les labels
-    "gold": {"bg": "#FFC700", "text": "#4D3800"},
+    "gold": {"bg": "#FFC700", "text": "#3A2B01"},
+    "silver": {"bg": "#888686", "text": "#181818"},
+    "bronze": {"bg": "#61300D", "text": "#150A02"},
 }
 
 async def create_profile_card(user_data: dict) -> io.BytesIO:
