@@ -109,24 +109,29 @@ def start_verification():
     expires_at = int(time.time()) + 600
 
     message = MIMEMultipart("alternative")
-    
-    # [CORRECTION] Gestion de l'encodage UTF-8 pour le sujet et le corps de l'e-mail
+
     sujet = "Votre code de vérification LaFoncedalle"
+    # Format "Nom <email@adresse.com>" recommandé
+    expediteur_formate = f"LaFoncedalle <{SENDER_EMAIL}>" 
+    
     message["Subject"] = Header(sujet, 'utf-8')
-    message["From"] = SENDER_EMAIL
+    message["From"] = expediteur_formate # Utiliser la version formatée
     message["To"] = email
     html_body = f'Bonjour !<br>Voici votre code de vérification : <strong>{code}</strong><br>Ce code expire dans 10 minutes.'
-    message.attach(MIMEText(html_body, "html", "utf-8")) # Spécification explicite de l'UTF-8
+    message.attach(MIMEText(html_body, "html", "utf-8"))
     
     context = ssl.create_default_context()
     try:
         with smtplib.SMTP_SSL("mail.infomaniak.com", 465, context=context) as server:
-            server.login(SENDER_EMAIL, INFOMANIAK_APP_PASSWORD)
+            # Le login se fait toujours avec l'adresse e-mail pure
+            server.login(SENDER_EMAIL, INFOMANIAK_APP_PASSWORD) 
+            # sendmail utilise l'adresse pure pour l'enveloppe, et le message formaté pour l'affichage
             server.sendmail(SENDER_EMAIL, email, message.as_string())
         print(f"E-mail de vérification envoyé avec succès à {email}")
     except Exception as e:
-        print(f"Erreur SMTP: {e}")
-        traceback.print_exc() # Log plus détaillé de l'erreur
+        # Cette partie est cruciale. Regardez les logs de votre serveur Flask pour voir cette erreur !
+        print(f"ERREUR SMTP CRITIQUE: {e}") 
+        traceback.print_exc() 
         return jsonify({"error": "Impossible d'envoyer l'e-mail de vérification."}), 500
 
     cursor.execute("INSERT OR REPLACE INTO verification_codes VALUES (?, ?, ?, ?)", (discord_id, email, code, expires_at))

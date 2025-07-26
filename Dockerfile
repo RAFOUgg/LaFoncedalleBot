@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Étape 5: Copier tout le reste de votre application dans le conteneur
 COPY . .
-
+RUN ls -l /app/assets
 # [CORRECTION FINALE] Étape 6: Forcer le système à trouver et enregistrer les nouvelles polices
 RUN fc-cache -f -v
 
