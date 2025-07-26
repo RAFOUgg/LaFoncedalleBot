@@ -263,10 +263,65 @@ class MenuView(discord.ui.View):
     async def accessoire_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._handle_button_click(interaction, "accessoire", "Accessoires")
 
+class CommentModal(discord.ui.Modal, title="Ajouter un commentaire"):
+    def __init__(self, product_name: str, user: discord.User):
+        super().__init__(timeout=None)
+        self.product_name = product_name
+        self.user = user
+        self.comment_input = discord.ui.TextInput(
+            label="Votre commentaire",
+            style=discord.TextStyle.paragraph,
+            placeholder="Le goût était incroyable, les effets très relaxants...",
+            required=True,
+            max_length=500
+        )
+        self.add_item(self.comment_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        comment_text = self.comment_input.value
+
+        api_url = f"{APP_URL}/api/add-comment"
+        payload = {
+            "user_id": self.user.id,
+            "product_name": self.product_name,
+            "comment": comment_text
+        }
+        
+        try:
+            # On utilise aiohttp car c'est plus robuste
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.post(api_url, json=payload, timeout=10) as response:
+                    if response.ok:
+                        await interaction.followup.send("✅ Votre commentaire a bien été ajouté. Merci !", ephemeral=True)
+                    else:
+                        await interaction.followup.send("❌ Une erreur est survenue lors de l'ajout de votre commentaire.", ephemeral=True)
+        except Exception as e:
+            Logger.error(f"Erreur API lors de l'ajout du commentaire : {e}")
+            await interaction.followup.send("❌ Une erreur critique est survenue. Le staff a été notifié.", ephemeral=True)
+
+# NOUVELLE VUE : Le bouton pour ouvrir le CommentModal
+class AddCommentView(discord.ui.View):
+    def __init__(self, product_name: str, user: discord.User):
+        super().__init__(timeout=180) # Le bouton expire après 3 minutes
+        self.product_name = product_name
+        self.user = user
+
+    @discord.ui.button(label="Ajouter un Commentaire", style=discord.ButtonStyle.success, emoji="💬")
+    async def add_comment_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Ouvre le modal de commentaire
+        await interaction.response.send_modal(CommentModal(self.product_name, self.user))
+        # On désactive le bouton pour qu'il ne soit pas cliquable à nouveau
+        button.disabled = True
+        await interaction.message.edit(view=self)
+
+# CLASSE MODIFIÉE : RatingModal
 class RatingModal(discord.ui.Modal, title="Noter un produit"):
     def __init__(self, product_name: str, user: discord.User):
         super().__init__(timeout=None)
         self.product_name, self.user = product_name, user
+        # ... (les 5 champs de notes restent les mêmes) ...
         self.visual_score = discord.ui.TextInput(label="👀 Note Visuel /10", placeholder="Ex: 8.5", required=True)
         self.smell_score = discord.ui.TextInput(label="👃🏼 Note Odeur /10", placeholder="Ex: 9", required=True)
         self.touch_score = discord.ui.TextInput(label="🤏🏼 Note Toucher /10", placeholder="Ex: 7", required=True)
@@ -277,7 +332,8 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        scores, comment_text = {}, None # self.comment.value or None
+        scores, comment_text = {}, None # Le commentaire est géré séparément
+        
         try:
             scores['visual'] = float(self.visual_score.value.replace(',', '.'))
             scores['smell'] = float(self.smell_score.value.replace(',', '.'))
@@ -291,21 +347,23 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
             await interaction.followup.send("❌ Veuillez n'entrer que des nombres pour les notes.", ephemeral=True); return
         
         api_url = f"{APP_URL}/api/submit-rating"
-        payload = {
-            "user_id": self.user.id,
-            "user_name": str(self.user),
-            "product_name": self.product_name,
-            "scores": scores,
-            "comment": comment_text
-        }
+        payload = {"user_id": self.user.id, "user_name": str(self.user), "product_name": self.product_name, "scores": scores, "comment": comment_text}
         
         try:
             import requests
             response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=10)
-            response.raise_for_status()  # Lève une exception si l'API renvoie une erreur (4xx ou 5xx)
+            response.raise_for_status()
 
             avg_score = sum(scores.values()) / len(scores)
-            await interaction.followup.send(f"✅ Merci ! Votre note de **{avg_score:.2f}/10** pour **{self.product_name}** a été enregistrée.", ephemeral=True)
+            
+            # --- MODIFICATION CLÉ ---
+            # On envoie un message avec la nouvelle vue
+            view = AddCommentView(self.product_name, self.user)
+            await interaction.followup.send(
+                f"✅ Merci ! Votre note de **{avg_score:.2f}/10** pour **{self.product_name}** a été enregistrée.", 
+                view=view, 
+                ephemeral=True
+            )
 
         except Exception as e:
             Logger.error(f"Erreur API lors de la soumission de la note : {e}")

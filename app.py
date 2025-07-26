@@ -137,6 +137,39 @@ def start_verification():
     conn.commit(); conn.close()
     return jsonify({"success": True}), 200
 
+@app.route('/api/add-comment', methods=['POST'])
+def add_comment():
+    data = request.json
+    user_id = data.get('user_id')
+    product_name = data.get('product_name')
+    comment_text = data.get('comment')
+
+    if not all([user_id, product_name, comment_text]):
+        return jsonify({"error": "Données manquantes pour ajouter le commentaire."}), 400
+
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("""
+            UPDATE ratings 
+            SET comment = ? 
+            WHERE user_id = ? AND product_name = ?
+        """, (comment_text, user_id, product_name))
+        conn.commit()
+        
+        # On vérifie si une ligne a bien été modifiée
+        if conn.total_changes == 0:
+            conn.close()
+            return jsonify({"error": "Aucune note correspondante à mettre à jour."}), 404
+            
+        conn.close()
+        print(f"INFO: Commentaire ajouté pour {user_id} sur le produit {product_name}")
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        print(f"Erreur SQL lors de l'ajout du commentaire : {e}")
+        traceback.print_exc()
+        return jsonify({"error": "Erreur lors de la sauvegarde du commentaire."}), 500
+    
 @app.route('/api/confirm-verification', methods=['POST'])
 def confirm_verification():
     data = request.json
