@@ -1,5 +1,3 @@
-# shared_utils.py
-
 import os
 import sqlite3
 import discord
@@ -8,13 +6,14 @@ from dotenv import load_dotenv
 from colorama import init, Fore
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor
-import asyncio # <--- asyncio a été importé mais pas threading, c'est mieux
+import asyncio
 
 # --- Initialisation ---
 init(autoreset=True)
 load_dotenv()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
+STATE_FILE = os.path.join(BASE_DIR, "bot_state.json") # Définir STATE_FILE ici
 
 # --- Constantes & Secrets (depuis .env) ---
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -30,7 +29,6 @@ GUILD_ID = int(os.getenv('GUILD_ID')) if os.getenv('GUILD_ID') else None
 CACHE_FILE = os.path.join(BASE_DIR, 'scrape_cache.json')
 USER_LOG_FILE = os.path.join(BASE_DIR, "user_actions.log")
 DB_FILE = os.path.join(BASE_DIR, "ratings.db")
-STATE_FILE = os.path.join(BASE_DIR, "bot_state.json")
 NITRO_CODES_FILE = os.path.join(BASE_DIR, "nitro_codes.txt")
 CLAIMED_CODES_FILE = os.path.join(BASE_DIR, "claimed_nitro_codes.json")
 
@@ -46,8 +44,6 @@ TELEGRAM_EMOJI = discord.PartialEmoji(name="Telegram_logo", id=13921269445432443
 INSTAGRAM_EMOJI = discord.PartialEmoji(name="Instagram_logo", id=1392125999726071918)
 SUCETTE_EMOJI = discord.PartialEmoji(name="Sucette", id=1392148327851753572)
 
-
-
 # --- Classes Utilitaires ---
 class Logger:
     @staticmethod
@@ -60,55 +56,6 @@ class Logger:
     def action(message): print(f"{Fore.BLUE}ACTION: {message}")
     @staticmethod
     def warning(message): print(f"{Fore.YELLOW}WARNING: {message}")
-
-# shared_utils.py
-
-def categorize_products(products: list):
-    """
-    VERSION FINALE : Catégorise les produits en se basant sur la clé 'category' 
-    qui a déjà été assignée lors de la récupération des données.
-    """
-    categorized = {
-        "weed": [],
-        "hash": [],
-        "box": [],
-        "accessoire": []
-    }
-    
-    # Dictionnaire pour mapper les noms de catégorie du produit ('fleurs')
-    # vers nos clés internes ('weed').
-    category_map = {
-        "fleurs": "weed",
-        "résines": "hash",
-        "box": "box",
-        "accessoires": "accessoire"
-    }
-    
-    for p in products:
-        product_category = p.get('category')  # ex: "fleurs"
-        internal_key = category_map.get(product_category)
-        
-        if internal_key and internal_key in categorized:
-            categorized[internal_key].append(p)
-            
-    return categorized
-
-def get_product_counts(products: list):
-    """
-    VERSION FINALE : Compte les produits en utilisant la même logique de catégorisation.
-    """
-    # On réutilise la fonction ci-dessus pour être 100% cohérent.
-    categorized = categorize_products(products)
-    
-    return (
-        len(categorized["hash"]),
-        len(categorized["weed"]),
-        len(categorized["box"]),
-        len(categorized["accessoire"])
-    )
-
-
-# --- Fonctions Utilitaires Globales ---
 
 class ConfigManager:
     def __init__(self, config_path, state_path):
@@ -165,6 +112,50 @@ config_manager = ConfigManager(CONFIG_FILE, STATE_FILE)
 CATALOG_URL = os.getenv('CATALOG_URL')
 BASE_URL = "https://la-foncedalle.fr"
 THUMBNAIL_LOGO_URL = config_manager.get_config("contact_info.thumbnail_logo_url", "")
+
+def categorize_products(products: list):
+    """
+    VERSION FINALE : Catégorise les produits en se basant sur la clé 'category' 
+    qui a déjà été assignée lors de la récupération des données.
+    """
+    categorized = {
+        "weed": [],
+        "hash": [],
+        "box": [],
+        "accessoire": []
+    }
+    
+    # Dictionnaire pour mapper les noms de catégorie du produit ('fleurs')
+    # vers nos clés internes ('weed').
+    category_map = {
+        "fleurs": "weed",
+        "résines": "hash",
+        "box": "box",
+        "accessoires": "accessoire"
+    }
+    
+    for p in products:
+        product_category = p.get('category')  # ex: "fleurs"
+        internal_key = category_map.get(product_category)
+        
+        if internal_key and internal_key in categorized:
+            categorized[internal_key].append(p)
+            
+    return categorized
+
+def get_product_counts(products: list):
+    """
+    VERSION FINALE : Compte les produits en utilisant la même logique de catégorisation.
+    """
+    # On réutilise la fonction ci-dessus pour être 100% cohérent.
+    categorized = categorize_products(products)
+    
+    return (
+        len(categorized["hash"]),
+        len(categorized["weed"]),
+        len(categorized["box"]),
+        len(categorized["accessoire"])
+    )
 
 async def log_user_action(interaction: discord.Interaction, action_description: str):
     user = interaction.user; guild = interaction.guild
