@@ -26,6 +26,18 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
         return False
     return any(role.id == staff_role_id_int for role in interaction.user.roles)
 
+def anonymize_email(email: str) -> str:
+    """Anonymise une adresse e-mail en gardant la première et la dernière lettre."""
+    if not email or '@' not in email:
+        return "Non lié"
+    
+    local_part, domain = email.split('@', 1)
+    
+    if len(local_part) <= 2:
+        return f"{local_part[0]}*@{domain}"
+    else:
+        return f"{local_part[0]}{'*' * (len(local_part) - 2)}{local_part[-1]}@{domain}"
+    
 # --- VUES ET MODALES ---
 
 class PromoPaginatorView(discord.ui.View):
@@ -1294,11 +1306,11 @@ class SlashCommands(commands.Cog):
         def format_setting(item_id, get_method, is_critical=False):
             if not item_id:
                 return f"{'❌' if is_critical else '⚠️'} `Non défini`"
-            item = get_method(item_id)
+            # On s'assure de passer un int à get_role/get_channel
+            item = get_method(int(item_id))
             if item:
                 return f"✅ {item.mention}"
-            else:
-                return f"{'❌' if is_critical else '⚠️'} `Introuvable (ID: {item_id})`"
+            return f"{'❌' if is_critical else '⚠️'} `Introuvable (ID: {item_id})`"
 
         staff_role_id = await config_manager.get_state(guild.id, 'staff_role_id')
         config_text += f"**Rôle Staff :** {format_setting(staff_role_id, guild.get_role)}\n"
@@ -1513,7 +1525,20 @@ class SlashCommands(commands.Cog):
             embed = discord.Embed(title=f"Profil de {target_user.display_name}", color=target_user.color)
             embed.set_thumbnail(url=target_user.display_avatar.url)
 
-            shop_activity_text = "Compte non lié. Utilise `/lier_compte`."
+            anonymized_email = shopify_data.get('anonymized_email')
+            if anonymized_email:
+                if shopify_data.get('purchase_count', 0) > 0:
+                    shop_activity_text = (
+                        f"**Commandes :** `{shopify_data['purchase_count']}`\n"
+                        f"**Total dépensé :** `{shopify_data['total_spent']:.2f} €`\n"
+                        f"**E-mail lié :** `{anonymized_email}`"
+                    )
+                else:
+                    shop_activity_text = f"✅ Compte lié à `{anonymized_email}`\n*(Aucune commande trouvée)*"
+            else:
+                shop_activity_text = "❌ Compte non lié. Utilise `/lier_compte`."
+        
+            embed.add_field(name="🛍️ Activité sur la Boutique", value=shop_activity_text, inline=False)
             if shopify_data.get('purchase_count', 0) > 0:
                 shop_activity_text = (
                     f"**Commandes :** `{shopify_data['purchase_count']}`\n"
