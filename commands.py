@@ -996,7 +996,6 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
         mention_role_id = await config_manager.get_state(guild.id, 'mention_role_id')
         menu_channel_id = await config_manager.get_state(guild.id, 'menu_channel_id')
         selection_channel_id = await config_manager.get_state(guild.id, 'selection_channel_id')
-        bots_channel_id = await config_manager.get_state(guild.id, 'bots_channel_id')
 
         def format_setting(item_id, item_type, is_critical=False):
             if not item_id: return f"{'❌' if is_critical else '⚠️'} `Non défini`"
@@ -1008,7 +1007,6 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
         mention_role_text = format_setting(mention_role_id, 'role')
         menu_channel_text = format_setting(menu_channel_id, 'channel', is_critical=True)
         selection_channel_text = format_setting(selection_channel_id, 'channel')
-        bots_channel_text = format_setting(bots_channel_id, 'channel')
 
         embed = discord.Embed(
             title=f"Configuration de {self.bot.user.name}",
@@ -1016,7 +1014,7 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
             color=discord.Color.blue(), timestamp=datetime.now(paris_tz)
         )
         embed.add_field(name="📌 Rôles", value=f"**Staff :** {staff_role_text}\n**Mention Nouveautés :** {mention_role_text}", inline=False)
-        embed.add_field(name="📺 Salons", value=f"**Menu Principal :** {menu_channel_text}\n**Sélection de la Semaine :** {selection_channel_text}\n**Commandes Bots (XP) :** {bots_channel_text}", inline=False)
+        embed.add_field(name="📺 Salons", value=f"**Menu Principal :** {menu_channel_text}\n**Sélection de la Semaine :** {selection_channel_text}", inline=False)
         embed.set_footer(text="Utilisez /config set <role|salon> pour modifier un paramètre.")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -1040,7 +1038,6 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
     @app_commands.choices(parametre=[
         Choice(name="Menu Principal", value="menu_channel_id"),
         Choice(name="Sélection de la Semaine", value="selection_channel_id"),
-        Choice(name="Commandes Bots (XP)", value="bots_channel_id"),
     ])
     async def set_salon(self, interaction: discord.Interaction, parametre: Choice[str], valeur: discord.TextChannel):
         await config_manager.update_state(interaction.guild.id, parametre.value, valeur.id)
