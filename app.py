@@ -228,7 +228,7 @@ def add_comment():
         traceback.print_exc()
         return jsonify({"error": "Erreur lors de la sauvegarde du commentaire."}), 500
     
-@app.route('/api/confirm-verification', methods=['POST'])
+@app_route('/api/confirm-verification', methods=['POST'])
 def confirm_verification():
     data = request.json
     discord_id = data.get('discord_id')
@@ -253,9 +253,8 @@ def confirm_verification():
     conn.commit()
     conn.close()
 
-    # --- DÉBUT DE LA NOUVELLE LOGIQUE D'ENVOI DE CODE BIENVENUE ---
+    # --- Logique d'envoi de code de bienvenue ---
     try:
-        # 1. Vérifier si l'utilisateur a déjà reçu un code
         claimed_users = {}
         try:
             with open(CLAIMED_WELCOME_CODES_FILE, 'r') as f:
@@ -265,38 +264,28 @@ def confirm_verification():
 
         if str(discord_id) in claimed_users:
             print(f"INFO: L'utilisateur {discord_id} a déjà réclamé un code de bienvenue.")
-            return jsonify({"success": True}), 200
+            # --- MODIFICATION N°1 : On informe le bot que le cadeau n'a pas été envoyé ---
+            return jsonify({"success": True, "gift_sent": False, "reason": "already_claimed"}), 200
 
-        # 2. Récupérer un code unique
         with open(WELCOME_CODES_FILE, 'r+') as f:
             codes = [line.strip() for line in f if line.strip()]
             if not codes:
                 print("ERREUR CRITIQUE: Plus de codes de bienvenue disponibles !")
-                return jsonify({"success": True}), 200 # On valide quand même la liaison
+                # On informe le bot que le cadeau n'a pas été envoyé
+                return jsonify({"success": True, "gift_sent": False, "reason": "no_codes_available"}), 200
 
             gift_code = codes.pop(0)
-            f.seek(0)
-            f.truncate()
-            f.write('\n'.join(codes))
+            f.seek(0); f.truncate(); f.write('\n'.join(codes))
 
-        # 3. Préparer et envoyer l'e-mail de bienvenue
+        # ... (le code d'envoi d'email reste exactement le même) ...
         message = MIMEMultipart("alternative")
         message["Subject"] = Header("🎉 Bienvenue chez LaFoncedalle ! Voici votre cadeau.", 'utf-8')
         message["From"] = f"LaFoncedalle <{SENDER_EMAIL}>"
         message["To"] = user_email
         html_body = f"""
-        <html>
-          <body>
-            <h3>Merci d'avoir lié votre compte !</h3>
-            <p>Pour vous remercier de nous rejoindre, voici un code de réduction de <strong>5€</strong> à utiliser sur votre prochaine commande :</p>
-            <h2 style="text-align: center; background-color: #f0f0f0; padding: 10px; border-radius: 5px;">{gift_code}</h2>
-            <p>À très bientôt sur notre boutique !</p>
-            <p><em>L'équipe LaFoncedalle</em></p>
-          </body>
-        </html>
+        <html><body><h3>Merci d'avoir lié votre compte !</h3><p>Pour vous remercier, voici un code de réduction de <strong>5€</strong> :</p><h2 style="text-align: center; background-color: #f0f0f0; padding: 10px; border-radius: 5px;">{gift_code}</h2><p>À bientôt sur notre boutique !</p></body></html>
         """
         message.attach(MIMEText(html_body, "html", "utf-8"))
-        
         context = ssl.create_default_context()
         with smtplib.SMTP_SSL("mail.infomaniak.com", 465, context=context) as server:
             auth_string = f"\0{SENDER_EMAIL}\0{INFOMANIAK_APP_PASSWORD}"
@@ -305,7 +294,6 @@ def confirm_verification():
             server.docmd("AUTH", f"PLAIN {auth_bytes_b64.decode('ascii')}")
             server.sendmail(SENDER_EMAIL, user_email, message.as_string())
 
-        # 4. Enregistrer que le code a été envoyé
         claimed_users[str(discord_id)] = {"code": gift_code, "date": datetime.utcnow().isoformat()}
         with open(CLAIMED_WELCOME_CODES_FILE, 'w') as f:
             json.dump(claimed_users, f, indent=4)
@@ -315,11 +303,9 @@ def confirm_verification():
     except Exception as e:
         print(f"ERREUR CRITIQUE lors de l'envoi du code de bienvenue : {e}")
         traceback.print_exc()
-        # On ne bloque pas la liaison même si l'email échoue.
-
-    # --- FIN DE LA NOUVELLE LOGIQUE ---
     
-    return jsonify({"success": True}), 200
+    # --- MODIFICATION N°2 : On informe le bot que le cadeau a bien été envoyé ---
+    return jsonify({"success": True, "gift_sent": True}), 200
 
 @app.route('/api/unlink', methods=['POST'])
 def unlink_account():

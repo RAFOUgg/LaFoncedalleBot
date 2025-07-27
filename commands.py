@@ -574,11 +574,24 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
 
             avg_score = sum(scores.values()) / len(scores)
             
-            # --- MODIFICATION CLÉ ---
-            # On envoie un message avec la nouvelle vue
+            xp_message = ""
+            bots_channel_id = await config_manager.get_state(interaction.guild.id, 'bots_channel_id')
+            xp_amount = config_manager.get_config("draftbot.xp_per_rating") # Nouvelle config !
+
+            if bots_channel_id and xp_amount:
+                bots_channel = interaction.guild.get_channel(bots_channel_id)
+                if bots_channel:
+                    try:
+                        command_message = f"!addxp {interaction.user.mention} {xp_amount}"
+                        msg = await bots_channel.send(command_message)
+                        await msg.delete()
+                        xp_message = f" **(+{xp_amount} XP)**"
+                        Logger.success(f"Donné {xp_amount} XP à {self.user.name} pour sa nouvelle note.")
+                    except Exception as e:
+                        Logger.error(f"Erreur lors de l'ajout d'XP pour une note: {e}")
             view = AddCommentView(self.product_name, self.user)
             await interaction.followup.send(
-                f"✅ Merci ! Votre note de **{avg_score:.2f}/10** pour **{self.product_name}** a été enregistrée.", 
+                f"✅ Merci ! Votre note de **{avg_score:.2f}/10** pour **{self.product_name}** a été enregistrée.{xp_message}", 
                 view=view, 
                 ephemeral=True
             )
@@ -886,13 +899,17 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
         self.bot = bot
         super().__init__()
 
-    # --- COMMANDE D'AFFICHAGE (INCHANGÉE) ---
+    # --- On définit un SOUS-GROUPE pour les commandes "set" ---
+    set_group = app_commands.Group(name="set", description="Définit un paramètre de configuration.")
+
+    # --- COMMANDE D'AFFICHAGE (/config view) ---
     @app_commands.command(name="view", description="Affiche la configuration actuelle du bot pour ce serveur.")
     @app_commands.check(is_staff_or_owner)
     async def view_config(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
         guild = interaction.guild
 
+        # ... (le code de la fonction view_config est parfait et reste inchangé) ...
         staff_role_id = await config_manager.get_state(guild.id, 'staff_role_id')
         mention_role_id = await config_manager.get_state(guild.id, 'mention_role_id')
         menu_channel_id = await config_manager.get_state(guild.id, 'menu_channel_id')
@@ -900,13 +917,10 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
         bots_channel_id = await config_manager.get_state(guild.id, 'bots_channel_id')
 
         def format_setting(item_id, item_type, is_critical=False):
-            if not item_id:
-                return f"{'❌' if is_critical else '⚠️'} `Non défini`"
+            if not item_id: return f"{'❌' if is_critical else '⚠️'} `Non défini`"
             item = guild.get_role(item_id) if item_type == 'role' else guild.get_channel(item_id)
-            if item:
-                return f"✅ {item.mention}"
-            else:
-                return f"{'❌' if is_critical else '⚠️'} `Introuvable (ID: {item_id})`"
+            if item: return f"✅ {item.mention}"
+            return f"{'❌' if is_critical else '⚠️'} `Introuvable (ID: {item_id})`"
 
         staff_role_text = format_setting(staff_role_id, 'role')
         mention_role_text = format_setting(mention_role_id, 'role')
@@ -917,21 +931,17 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
         embed = discord.Embed(
             title=f"Configuration de {self.bot.user.name}",
             description=f"Voici les paramètres actuels pour le serveur **{guild.name}**.",
-            color=discord.Color.blue(),
-            timestamp=datetime.now(paris_tz)
+            color=discord.Color.blue(), timestamp=datetime.now(paris_tz)
         )
         embed.add_field(name="📌 Rôles", value=f"**Staff :** {staff_role_text}\n**Mention Nouveautés :** {mention_role_text}", inline=False)
         embed.add_field(name="📺 Salons", value=f"**Menu Principal :** {menu_channel_text}\n**Sélection de la Semaine :** {selection_channel_text}\n**Commandes Bots (XP) :** {bots_channel_text}", inline=False)
-        embed.set_footer(text="Utilisez /config role ou /config salon pour modifier un paramètre.")
+        embed.set_footer(text="Utilisez /config set <role|salon> pour modifier un paramètre.")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    # --- NOUVELLE SOUS-COMMANDE /config role ---
-    @app_commands.command(name="role", description="Configure un rôle spécifique.")
+    # --- COMMANDE /config set role ---
+    @set_group.command(name="role", description="Configure un rôle spécifique (staff, mentions).")
     @app_commands.check(is_staff_or_owner)
-    @app_commands.describe(
-        parametre="Le type de rôle à configurer.",
-        valeur="Le rôle à assigner."
-    )
+    @app_commands.describe(parametre="Le type de rôle à configurer.", valeur="Le rôle à assigner.")
     @app_commands.choices(parametre=[
         Choice(name="Staff", value="staff_role_id"),
         Choice(name="Mention Nouveautés", value="mention_role_id"),
@@ -941,13 +951,10 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
         await log_user_action(interaction, f"a configuré le paramètre '{parametre.name}' sur {valeur.name}")
         await interaction.response.send_message(f"✅ Le paramètre **{parametre.name}** est maintenant assigné à {valeur.mention}.", ephemeral=True)
 
-    # --- NOUVELLE SOUS-COMMANDE /config salon ---
-    @app_commands.command(name="salon", description="Configure un salon spécifique.")
+    # --- COMMANDE /config set salon ---
+    @set_group.command(name="salon", description="Configure un salon spécifique (menu, sélection).")
     @app_commands.check(is_staff_or_owner)
-    @app_commands.describe(
-        parametre="Le type de salon à configurer.",
-        valeur="Le salon à assigner."
-    )
+    @app_commands.describe(parametre="Le type de salon à configurer.", valeur="Le salon à assigner.")
     @app_commands.choices(parametre=[
         Choice(name="Menu Principal", value="menu_channel_id"),
         Choice(name="Sélection de la Semaine", value="selection_channel_id"),
@@ -1584,15 +1591,30 @@ class SlashCommands(commands.Cog):
         try:
             import requests
             response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=15)
+            
             if response.ok:
-                await interaction.followup.send(
-                "🎉 **Félicitations !** Ton compte est maintenant lié. Tu peux utiliser la commande `/noter`.\n\n"
-                "✨ **Vérifie tes e-mails, une surprise t'y attend !**",
-                ephemeral=True
-            )
+                data = response.json()
+                gift_sent = data.get("gift_sent")
+
+                if gift_sent:
+                    # Cas 1 : C'est la première fois, le cadeau a été envoyé
+                    await interaction.followup.send(
+                        "🎉 **Félicitations !** Ton compte est maintenant lié. Tu peux utiliser la commande `/noter`.\n\n"
+                        "✨ **Vérifie tes e-mails, une surprise t'y attend !**",
+                        ephemeral=True
+                    )
+                else:
+                    # Cas 2 : Le compte a bien été lié, mais le cadeau avait déjà été envoyé
+                    await interaction.followup.send(
+                        "✅ **Compte lié avec succès !** Votre compte est maintenant à nouveau associé.\n\n"
+                        "*(Vous avez déjà reçu votre cadeau de bienvenue par le passé.)*",
+                        ephemeral=True
+                    )
             else:
+                # Gestion des erreurs (code invalide, etc.)
                 error_message = response.json().get("error", "Une erreur inconnue est survenue.")
                 await interaction.followup.send(f"❌ **Échec de la vérification :** {error_message}", ephemeral=True)
+
         except Exception as e:
             Logger.error(f"Erreur API /confirm-verification : {e}")
             await interaction.followup.send("❌ Impossible de contacter le service de vérification. Merci de réessayer plus tard.", ephemeral=True)
