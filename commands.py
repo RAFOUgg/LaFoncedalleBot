@@ -1264,7 +1264,7 @@ class SlashCommands(commands.Cog):
         
         # Récupérer l'ID du salon de commande et la quantité d'XP depuis la config
         bots_channel_id = await config_manager.get_state(guild.id, 'bots_channel_id')
-        xp_amount = config_manager.get_config("draftbot.xp_per_check", 50) # On met 50 par défaut, configurable
+        xp_amount = config_manager.get_config("draftbot.xp_per_check") # On met 50 par défaut, configurable
         # --- FIN DES MODIFICATIONS ---
 
         cooldown_period = timedelta(hours=12)

@@ -7,7 +7,7 @@
     ]
   },
   "draftbot": {
-    "xp_per_check": 75
+    "xp_per_check": 500
   },
   "categorization": {
     "hash_keywords": [
