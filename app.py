@@ -5,6 +5,7 @@ import time
 import threading
 import asyncio
 import traceback # Ajouté pour un meilleur logging d'erreur
+import base64
 
 # Imports pour l'e-mail
 import smtplib, ssl
@@ -126,10 +127,15 @@ def start_verification():
     context = ssl.create_default_context()
     try:
         with smtplib.SMTP_SSL("mail.infomaniak.com", 465, context=context) as server:
-            # L'erreur se produit FORCÉMENT sur l'une de ces deux lignes
-            server.login(SENDER_EMAIL, INFOMANIAK_APP_PASSWORD)
-            server.sendmail(SENDER_EMAIL, email, message.as_string())
-        print(f"E-mail de vérification envoyé avec succès à {email}")
+            auth_string = f"\0{SENDER_EMAIL}\0{INFOMANIAK_APP_PASSWORD}"
+            auth_bytes_utf8 = auth_string.encode('utf-8')
+            auth_bytes_b64 = base64.b64encode(auth_bytes_utf8)
+            server.docmd("AUTH", f"PLAIN {auth_bytes_b64.decode('ascii')}")
+            server.sendmail(SENDER_EMAIL, recipient_email, message.as_string()) # Attention: recipient_email dans test_email
+        if "test-email" in request.url:
+            return jsonify({"success": True, "message": f"E-mail de test envoyé à {recipient_email}."}), 200
+        else:
+            print(f"E-mail de vérification envoyé avec succès à {email}")
     except Exception as e:
         # CE BLOC EST EXÉCUTÉ
         print(f"ERREUR SMTP CRITIQUE: {e}") 
@@ -172,10 +178,15 @@ def test_email():
     context = ssl.create_default_context()
     try:
         with smtplib.SMTP_SSL("mail.infomaniak.com", 465, context=context) as server:
-            # On s'assure que les identifiants sont bien formatés avant l'envoi
-            server.login(SENDER_EMAIL, INFOMANIAK_APP_PASSWORD)
-            server.sendmail(SENDER_EMAIL, recipient_email, message.as_string())
-        return jsonify({"success": True, "message": f"E-mail de test envoyé à {recipient_email}."}), 200
+            auth_string = f"\0{SENDER_EMAIL}\0{INFOMANIAK_APP_PASSWORD}"
+            auth_bytes_utf8 = auth_string.encode('utf-8')
+            auth_bytes_b64 = base64.b64encode(auth_bytes_utf8)
+            server.docmd("AUTH", f"PLAIN {auth_bytes_b64.decode('ascii')}")
+            server.sendmail(SENDER_EMAIL, recipient_email, message.as_string()) # Attention: recipient_email dans test_email
+        if "test-email" in request.url:
+            return jsonify({"success": True, "message": f"E-mail de test envoyé à {recipient_email}."}), 200
+        else:
+            print(f"E-mail de vérification envoyé avec succès à {email}")
     except Exception as e:
         error_trace = traceback.format_exc()
         print(f"ERREUR LORS DU TEST SMTP: {error_trace}")
