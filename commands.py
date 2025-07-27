@@ -32,49 +32,65 @@ class PromoPaginatorView(discord.ui.View):
         self.current_page = 0
         
         # La pagination ne s'applique qu'aux produits, pas aux promos générales
+        self.total_product_pages = 0
         if self.promo_products:
-            self.total_pages = (len(self.promo_products) - 1) // self.items_per_page
-        else:
-            self.total_pages = 0
+            self.total_product_pages = (len(self.promo_products) - 1) // self.items_per_page
             
         self.update_buttons()
 
     def update_buttons(self):
-        # On ne retire que les boutons de navigation pour ne pas toucher à d'éventuels autres boutons
-        nav_buttons = [item for item in self.children if isinstance(item, (self.PrevButton, self.NextButton))]
-        for button in nav_buttons:
-            self.remove_item(button)
+        # On nettoie les anciens boutons de navigation
+        for item in self.children[:]:
+            if isinstance(item, (self.PrevButton, self.NextButton)):
+                self.remove_item(item)
 
         # On ajoute les boutons uniquement s'il y a plus d'une page de produits
-        if self.total_pages > 0:
+        if self.total_product_pages > 0:
             prev_button = self.PrevButton(disabled=(self.current_page == 0))
-            next_button = self.NextButton(disabled=(self.current_page >= self.total_pages))
+            next_button = self.NextButton(disabled=(self.current_page >= self.total_product_pages))
             self.add_item(prev_button)
             self.add_item(next_button)
 
     def create_embed(self) -> discord.Embed:
-        # On utilise votre helper pour un style cohérent
         embed = create_styled_embed(
             title="🎁 Promotions & Avantages en Cours",
             description="Toutes les offres actuellement disponibles sur la boutique.",
             color=discord.Color.from_rgb(255, 105, 180) # Rose "promo"
         )
 
-        # 1. Section des promotions générales (toujours visible)
+        # --- CORRECTION MAJEURE ICI ---
+        # 1. Section des promotions générales (gère le dépassement de 1024 caractères)
         if self.general_promos:
-            promo_text = "\n".join([f"**•** {promo}" for promo in self.general_promos])
-            embed.add_field(name="✨ Avantages Généraux", value=promo_text, inline=False)
-            embed.add_field(name="\u200b", value="-"*25, inline=False) # Séparateur visuel
+            current_chunk = ""
+            # On divise les promotions en blocs de 1024 caractères max
+            for i, promo in enumerate(self.general_promos):
+                line = f"**•** {promo}\n"
+                if len(current_chunk) + len(line) > 1024:
+                    field_name = "✨ Avantages Généraux" if not current_chunk else "\u200b"
+                    embed.add_field(name=field_name, value=current_chunk, inline=False)
+                    current_chunk = ""
+                current_chunk += line
+            
+            # On ajoute le dernier bloc restant
+            if current_chunk:
+                field_name = "✨ Avantages Généraux" if not embed.fields else "\u200b"
+                embed.add_field(name=field_name, value=current_chunk, inline=False)
+        
+        # Séparateur visuel si les deux sections sont présentes
+        if self.general_promos and self.promo_products:
+            embed.add_field(name="\u200b", value="-"*30, inline=False)
         
         # 2. Section des produits en promotion (paginée)
         if not self.promo_products:
-            embed.add_field(name="🛍️ Produits en Promotion", value="Aucun produit spécifique en promotion pour le moment.", inline=False)
+            if not self.general_promos: # Si rien n'est affiché
+                 embed.description = "Il n'y a aucune promotion ou avantage en cours pour le moment."
         else:
             start_index = self.current_page * self.items_per_page
             end_index = start_index + self.items_per_page
             page_products = self.promo_products[start_index:end_index]
             
-            embed.add_field(name="🛍️ Produits en Promotion", value="\u200b", inline=False) # Titre de section
+            # Titre de la section des produits
+            embed.add_field(name="🛍️ Produits Spécifiques en Promotion", value="\u200b", inline=False)
 
             for product in page_products:
                 price_text = f"**{product.get('price')}** ~~{product.get('original_price')}~~"
@@ -87,8 +103,9 @@ class PromoPaginatorView(discord.ui.View):
                 embed.add_field(name=f"🏷️ {product.get('name', 'Produit Inconnu')}", value=field_value, inline=True)
         
         # 3. Footer de pagination
-        if self.promo_products:
-            embed.set_footer(text=f"LaFoncedalle • Page {self.current_page + 1}/{self.total_pages + 1}")
+        if self.promo_products and self.total_product_pages > 0:
+            original_footer_text = embed.footer.text or "LaFoncedalle"
+            embed.set_footer(text=f"{original_footer_text} • Page {self.current_page + 1}/{self.total_product_pages + 1}", icon_url=embed.footer.icon_url)
             
         return embed
         
@@ -97,7 +114,6 @@ class PromoPaginatorView(discord.ui.View):
         embed = self.create_embed()
         await interaction.response.edit_message(embed=embed, view=self)
 
-    # Inner classes pour les boutons, comme dans vos autres paginateurs
     class PrevButton(discord.ui.Button):
         def __init__(self, disabled=False):
             super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary, disabled=disabled)
@@ -110,7 +126,7 @@ class PromoPaginatorView(discord.ui.View):
         def __init__(self, disabled=False):
             super().__init__(label="Suivant ➡️", style=discord.ButtonStyle.secondary, disabled=disabled)
         async def callback(self, interaction: discord.Interaction):
-            if self.view.current_page < self.view.total_pages:
+            if self.view.current_page < self.view.total_product_pages:
                 self.view.current_page += 1
             await self.view.update_message(interaction)
             
