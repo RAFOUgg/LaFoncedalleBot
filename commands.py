@@ -274,29 +274,59 @@ class ProductView(discord.ui.View):
         self.category = category
         self.update_buttons()
         self.update_download_buttons()
+        self.review_counts = self._get_review_counts()
+        self.add_item(self.ShowReviewsButton())
+        self.update_ui_elements()
 
-    def update_buttons(self):
-        nav_buttons = [item for item in self.children if isinstance(item, discord.ui.Button) and not hasattr(item, "is_download_button")]
-        if len(nav_buttons) >= 2:
-            nav_buttons[0].disabled = self.current_index == 0
-            nav_buttons[1].disabled = self.current_index >= len(self.products) - 1
+    def _get_review_counts(self) -> dict:
+        """Récupère le nombre d'avis pour les produits de la catégorie en une seule requête."""
+        product_names = [p['name'] for p in self.products]
+        if not product_names:
+            return {}
+            
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        # On utilise une clause WHERE IN pour récupérer les comptes de tous les produits pertinents
+        placeholders = ','.join('?' for _ in product_names)
+        cursor.execute(f"""
+            SELECT product_name, COUNT(id)
+            FROM ratings
+            WHERE product_name IN ({placeholders})
+            GROUP BY product_name
+        """, product_names)
+        
+        counts = {name: count for name, count in cursor.fetchall()}
+        conn.close()
+        return counts
+    
+    def update_ui_elements(self):
+        """Met à jour l'état de tous les boutons."""
+        # --- 1. Boutons de navigation ---
+        # On s'assure qu'ils existent avant de les modifier
+        prev_button = discord.utils.get(self.children, label="⬅️ Précédent")
+        next_button = discord.utils.get(self.children, label="Suivant ➡️")
+        if prev_button: prev_button.disabled = (self.current_index == 0)
+        if next_button: next_button.disabled = (self.current_index >= len(self.products) - 1)
 
-    def update_download_buttons(self):
+        # --- 2. Boutons de téléchargement ---
         items_to_remove = [item for item in self.children if hasattr(item, "is_download_button")]
         for item in items_to_remove:
             self.remove_item(item)
             
         product = self.products[self.current_index]
         stats = product.get('stats', {})
-
         for key, value in stats.items():
-            if not value or not isinstance(value, str): continue
-            key_lower = key.lower()
-            
-            if ("lab" in key_lower or "terpen" in key_lower) and value.startswith("http"):
-                label = "Télécharger Lab Test" if "lab" in key_lower else "Télécharger Terpènes"
-                emoji = "🧪" if "lab" in key_lower else "🌿"
+            if isinstance(value, str) and ("lab" in key.lower() or "terpen" in key.lower()) and value.startswith("http"):
+                label = "Télécharger Lab Test" if "lab" in key.lower() else "Télécharger Terpènes"
+                emoji = "🧪" if "lab" in key.lower() else "🌿"
                 self.add_item(self.DownloadButton(label, value, emoji))
+
+        # --- 3. Bouton "Avis Clients" ---
+        reviews_button = discord.utils.get(self.children, custom_id="show_reviews_button")
+        if reviews_button:
+            review_count = self.review_counts.get(product.get('name'), 0)
+            reviews_button.label = f"💬 Avis Clients ({review_count})"
+            reviews_button.disabled = (review_count == 0)
 
     def get_category_emoji(self):
         if self.category == "weed": return "🍃"
@@ -353,21 +383,52 @@ class ProductView(discord.ui.View):
         embed.add_field(name="\u200b", value=f"**[Voir la fiche produit sur le site]({product.get('product_url', CATALOG_URL)})**", inline=False)
         embed.set_footer(text=f"Produit {self.current_index + 1} sur {len(self.products)}")
         return embed
-
+        
     async def update_message(self, interaction: discord.Interaction):
-        self.update_buttons()
-        self.update_download_buttons()
+        self.update_ui_elements()
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
-    @discord.ui.button(label="⬅️ Précédent", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="⬅️ Précédent", style=discord.ButtonStyle.secondary, row=0)
     async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_index > 0: self.current_index -= 1
+        if self.current_index > 0:
+            self.current_index -= 1
         await self.update_message(interaction)
 
-    @discord.ui.button(label="Suivant ➡️", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Suivant ➡️", style=discord.ButtonStyle.secondary, row=0)
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_index < len(self.products) - 1: self.current_index += 1
+        if self.current_index < len(self.products) - 1:
+            self.current_index += 1
         await self.update_message(interaction)
+
+    # --- NOUVEAU BOUTON ET SA LOGIQUE ---
+    class ShowReviewsButton(discord.ui.Button):
+        def __init__(self):
+            super().__init__(label="💬 Avis Clients", style=discord.ButtonStyle.primary, row=1, custom_id="show_reviews_button")
+
+        async def callback(self, interaction: discord.Interaction):
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            
+            product = self.view.products[self.view.current_index]
+            product_name = product.get('name')
+            product_image = product.get('image')
+
+            def _fetch_reviews_sync(p_name):
+                conn = sqlite3.connect(DB_FILE)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM ratings WHERE product_name = ? AND comment IS NOT NULL AND TRIM(comment) != '' ORDER BY rating_timestamp DESC", (p_name,))
+                results = [dict(row) for row in cursor.fetchall()]
+                conn.close()
+                return results
+
+            reviews = await asyncio.to_thread(_fetch_reviews_sync, product_name)
+
+            if not reviews:
+                await interaction.followup.send("Il n'y a pas encore d'avis avec des commentaires pour ce produit.", ephemeral=True)
+                return
+
+            paginator = ProductReviewsPaginatorView(reviews, product_name, product_image)
+            await interaction.followup.send(embed=paginator.create_embed(), view=paginator, ephemeral=True)
 
     class DownloadButton(discord.ui.Button):
         def __init__(self, label, url, emoji=None):
@@ -481,6 +542,84 @@ class MenuView(discord.ui.View):
     async def accessoire_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._handle_button_click(interaction, "accessoire", "Accessoires")
 
+class ProductReviewsPaginatorView(discord.ui.View):
+    def __init__(self, reviews: list, product_name: str, product_image_url: Optional[str]):
+        super().__init__(timeout=180)
+        self.reviews = reviews
+        self.product_name = product_name
+        self.product_image_url = product_image_url
+        self.current_page = 0
+        self.total_pages = len(self.reviews)
+        self.update_buttons()
+
+    def update_buttons(self):
+        # On vide les boutons pour les recréer
+        self.clear_items()
+        if self.total_pages > 1:
+            prev_button = self.PrevButton(disabled=(self.current_page == 0))
+            next_button = self.NextButton(disabled=(self.current_page >= self.total_pages - 1))
+            self.add_item(prev_button)
+            self.add_item(next_button)
+
+    def create_embed(self) -> discord.Embed:
+        if not self.reviews:
+            return create_styled_embed("Avis Clients", "Il n'y a encore aucun avis pour ce produit.")
+
+        review = self.reviews[self.current_page]
+        user_name = review.get('user_name', 'Utilisateur Anonyme').split('#')[0]
+        rating_date = datetime.fromisoformat(review['rating_timestamp']).strftime('%d/%m/%Y')
+        
+        # Calcul de la moyenne pour cet avis
+        scores = [review.get(s, 0) for s in ['visual_score', 'smell_score', 'touch_score', 'taste_score', 'effects_score']]
+        avg_score = sum(scores) / len(scores) if scores else 0
+
+        embed = create_styled_embed(
+            title=f"Avis sur : {self.product_name}",
+            description=f"✍️ **Par :** {user_name}\n"
+                        f"📅 **Le :** {rating_date}\n"
+                        f"⭐ **Note globale :** {avg_score:.1f}/10",
+            color=discord.Color.blue()
+        )
+        if self.product_image_url:
+            embed.set_thumbnail(url=self.product_image_url)
+
+        # Affichage des notes détaillées
+        notes_detaillees = (
+            f"👀 Visuel: `{review.get('visual_score', 'N/A')}`\n"
+            f"👃 Odeur: `{review.get('smell_score', 'N/A')}`\n"
+            f"🤏 Toucher: `{review.get('touch_score', 'N/A')}`\n"
+            f"👅 Goût: `{review.get('taste_score', 'N/A')}`\n"
+            f"🧠 Effets: `{review.get('effects_score', 'N/A')}`"
+        )
+        embed.add_field(name="Notes Détaillées", value=notes_detaillees, inline=False)
+
+        # Affichage du commentaire s'il existe
+        if review.get('comment'):
+            embed.add_field(name="💬 Commentaire", value=f"```{review['comment']}```", inline=False)
+
+        embed.set_footer(text=f"Avis {self.current_page + 1} sur {self.total_pages}")
+        return embed
+
+    async def update_message(self, interaction: discord.Interaction):
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    class PrevButton(discord.ui.Button):
+        def __init__(self, disabled=False):
+            super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary, disabled=disabled)
+        async def callback(self, interaction: discord.Interaction):
+            if self.view.current_page > 0:
+                self.view.current_page -= 1
+            await self.view.update_message(interaction)
+
+    class NextButton(discord.ui.Button):
+        def __init__(self, disabled=False):
+            super().__init__(label="Suivant ➡️", style=discord.ButtonStyle.secondary, disabled=disabled)
+        async def callback(self, interaction: discord.Interaction):
+            if self.view.current_page < self.view.total_pages - 1:
+                self.view.current_page += 1
+            await self.view.update_message(interaction)
+
 class CommentModal(discord.ui.Modal, title="Ajouter un commentaire"):
     def __init__(self, product_name: str, user: discord.User):
         super().__init__(timeout=None)
@@ -519,7 +658,6 @@ class CommentModal(discord.ui.Modal, title="Ajouter un commentaire"):
             Logger.error(f"Erreur API lors de l'ajout du commentaire : {e}")
             await interaction.followup.send("❌ Une erreur critique est survenue. Le staff a été notifié.", ephemeral=True)
 
-# NOUVELLE VUE : Le bouton pour ouvrir le CommentModal
 class AddCommentView(discord.ui.View):
     def __init__(self, product_name: str, user: discord.User):
         super().__init__(timeout=180) # Le bouton expire après 3 minutes
@@ -534,7 +672,6 @@ class AddCommentView(discord.ui.View):
         button.disabled = True
         await interaction.message.edit(view=self)
 
-# CLASSE MODIFIÉE : RatingModal
 class RatingModal(discord.ui.Modal, title="Noter un produit"):
     def __init__(self, product_name: str, user: discord.User):
         super().__init__(timeout=None)
@@ -550,7 +687,7 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        scores, comment_text = {}, None # Le commentaire est géré séparément
+        scores = {}
         
         try:
             scores['visual'] = float(self.visual_score.value.replace(',', '.'))
@@ -563,6 +700,27 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
                     await interaction.followup.send(f"❌ La note '{key.capitalize()}' doit être entre 0 et 10.", ephemeral=True); return
         except ValueError:
             await interaction.followup.send("❌ Veuillez n'entrer que des nombres pour les notes.", ephemeral=True); return
+    
+    api_url = f"{APP_URL}/api/submit-rating"
+    payload = {"user_id": self.user.id, "user_name": str(self.user), "product_name": self.product_name, "scores": scores, "comment": None}
+    
+    try:
+        import requests
+        response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=10)
+        response.raise_for_status()
+
+        avg_score = sum(scores.values()) / len(scores)
+        
+        view = AddCommentView(self.product_name, self.user)
+        await interaction.followup.send(
+            f"✅ Merci ! Votre note de **{avg_score:.2f}/10** pour **{self.product_name}** a été enregistrée.",
+            view=view, 
+            ephemeral=True
+        )
+
+    except Exception as e:
+        Logger.error(f"Erreur API lors de la soumission de la note : {e}")
+        await interaction.followup.send("❌ Une erreur est survenue lors de l'enregistrement de votre note. Le staff a été notifié.", ephemeral=True)
         
         api_url = f"{APP_URL}/api/submit-rating"
         payload = {"user_id": self.user.id, "user_name": str(self.user), "product_name": self.product_name, "scores": scores, "comment": comment_text}
@@ -1279,6 +1437,8 @@ class SlashCommands(commands.Cog):
 
     # Dans commands.py, classe SlashCommands
 
+    # Fichier : commands.py -> dans la classe SlashCommands
+
     @app_commands.command(name="check", description="Vérifie si de nouveaux produits sont disponibles (cooldown 12h).")
     async def check(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -1286,17 +1446,8 @@ class SlashCommands(commands.Cog):
             await interaction.followup.send("Cette commande doit être utilisée sur un serveur.", ephemeral=True)
             return
 
-        # --- DÉBUT DES MODIFICATIONS ---
-        guild = interaction.guild
-        user = interaction.user
-        
-        # Récupérer l'ID du salon de commande et la quantité d'XP depuis la config
-        bots_channel_id = await config_manager.get_state(guild.id, 'bots_channel_id')
-        xp_amount = config_manager.get_config("draftbot.xp_per_check") # On met 50 par défaut, configurable
-        # --- FIN DES MODIFICATIONS ---
-
         cooldown_period = timedelta(hours=12)
-        last_check_iso = await config_manager.get_state(guild.id, 'last_check_command_timestamp')
+        last_check_iso = await config_manager.get_state(interaction.guild.id, 'last_check_command_timestamp')
         
         if last_check_iso:
             time_since = datetime.utcnow() - datetime.fromisoformat(last_check_iso)
@@ -1308,46 +1459,13 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, "a utilisé /check.")
         try:
             updates_found = await self.bot.check_for_updates(self.bot, force_publish=False)
-            await config_manager.update_state(guild.id, 'last_check_command_timestamp', datetime.utcnow().isoformat())
+            await config_manager.update_state(interaction.guild.id, 'last_check_command_timestamp', datetime.utcnow().isoformat())
             
-            # --- DÉBUT DE LA LOGIQUE D'AJOUT D'XP ---
-            if bots_channel_id:
-                bots_channel = guild.get_channel(bots_channel_id)
-                if bots_channel:
-                    try:
-                        # Le message de commande pour DraftBot
-                        command_message = f"!addxp {user.mention} {xp_amount}"
-                        
-                        # On envoie le message et on le supprime immédiatement
-                        msg = await bots_channel.send(command_message)
-                        await msg.delete()
-                        
-                        Logger.success(f"Donné {xp_amount} XP à {user.name} sur le serveur {guild.name}.")
-                        # On peut même le notifier
-                        followup_message = f"👍 Le menu est déjà à jour. Merci d'avoir vérifié ! **(+{xp_amount} XP)**"
-                        if updates_found:
-                            followup_message = f"✅ Merci ! Le menu a été mis à jour grâce à vous. **(+{xp_amount} XP)**"
-                        
-                        await interaction.followup.send(followup_message, ephemeral=True)
-
-                    except discord.Forbidden:
-                        Logger.error(f"Permissions manquantes pour envoyer/supprimer le message XP dans le salon {bots_channel.name}.")
-                        # On envoie le message normal si l'action XP échoue
-                        await interaction.followup.send("👍 Le menu est déjà à jour. Merci d'avoir vérifié ! (Erreur XP: contacter un admin)", ephemeral=True)
-                    except Exception as e:
-                        Logger.error(f"Erreur inattendue lors de l'ajout d'XP: {e}")
-                        await interaction.followup.send("👍 Le menu est déjà à jour. Merci d'avoir vérifié ! (Erreur XP: contacter un admin)", ephemeral=True)
-                else:
-                    Logger.warning(f"Salon de commande bot configuré ({bots_channel_id}) mais introuvable sur le serveur {guild.name}.")
-                    # Fallback sur le message normal
-                    await interaction.followup.send("👍 Le menu est déjà à jour. Merci d'avoir vérifié !", ephemeral=True)
-            else:
-                # Fallback si le salon n'est pas configuré
-                if updates_found:
-                    await interaction.followup.send("✅ Merci ! Le menu a été mis à jour grâce à vous.", ephemeral=True)
-                else:
-                    await interaction.followup.send("👍 Le menu est déjà à jour. Merci d'avoir vérifié !", ephemeral=True)
-            # --- FIN DE LA LOGIQUE D'AJOUT D'XP ---
+            followup_message = "👍 Le menu est déjà à jour. Merci d'avoir vérifié !"
+            if updates_found:
+                followup_message = "✅ Merci ! Le menu a été mis à jour grâce à vous."
+            
+            await interaction.followup.send(followup_message, ephemeral=True)
 
         except Exception as e:
             Logger.error(f"Erreur dans /check: {e}"); traceback.print_exc()
