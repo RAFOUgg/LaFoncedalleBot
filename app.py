@@ -139,6 +139,46 @@ def start_verification():
     conn.commit(); conn.close()
     return jsonify({"success": True}), 200
 
+@app.route('/api/test-email', methods=['POST'])
+def test_email():
+    # Protection par clé secrète
+    auth_header = request.headers.get('Authorization')
+    expected_header = f"Bearer {FLASK_SECRET_KEY}"
+    if not auth_header or auth_header != expected_header:
+        return jsonify({"error": "Accès non autorisé."}), 403
+
+    data = request.json
+    recipient_email = data.get('recipient_email')
+    if not recipient_email:
+        return jsonify({"error": "E-mail destinataire manquant."}), 400
+
+    message = MIMEMultipart("alternative")
+    sujet = "Email de Test - LaFoncedalleBot"
+    message["Subject"] = Header(sujet, 'utf-8')
+    message["From"] = f"LaFoncedalle <{SENDER_EMAIL}>"
+    message["To"] = recipient_email
+    html_body = f"""
+    <html>
+      <body>
+        <h3>Ceci est un e-mail de test.</h3>
+        <p>Si vous recevez cet e-mail, la configuration SMTP de votre application Flask est <strong>correcte</strong>.</p>
+        <p><b>Heure du test:</b> {datetime.now(paris_tz).strftime('%Y-%m-%d %H:%M:%S')}</p>
+      </body>
+    </html>
+    """
+    message.attach(MIMEText(html_body, "html", "utf-8"))
+    
+    context = ssl.create_default_context()
+    try:
+        with smtplib.SMTP_SSL("mail.infomaniak.com", 465, context=context) as server:
+            server.login(SENDER_EMAIL, INFOMANIAK_APP_PASSWORD)
+            server.sendmail(SENDER_EMAIL, recipient_email, message.as_string())
+        return jsonify({"success": True, "message": f"E-mail de test envoyé à {recipient_email}."}), 200
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        print(f"ERREUR LORS DU TEST SMTP: {error_trace}")
+        return jsonify({"error": "Échec de l'envoi de l'e-mail de test.", "details": str(e)}), 500
+    
 @app.route('/api/add-comment', methods=['POST'])
 def add_comment():
     data = request.json

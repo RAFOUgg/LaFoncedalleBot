@@ -374,6 +374,62 @@ class ProductView(discord.ui.View):
             super().__init__(label=label, style=discord.ButtonStyle.link, url=url, emoji=emoji)
             self.is_download_button = True
 
+class DebugView(discord.ui.View):
+    def __init__(self, bot, author):
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.author = author
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # S'assure que seul l'auteur de la commande peut utiliser les boutons
+        if interaction.user.id != self.author.id:
+            await interaction.response.send_message("Vous n'êtes pas autorisé à utiliser ces boutons.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="🔄 Synchroniser les Commandes", style=discord.ButtonStyle.primary, row=0)
+    async def sync_commands(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        try:
+            synced = await self.bot.tree.sync()
+            await interaction.followup.send(f"✅ **Succès !** {len(synced)} commandes synchronisées avec Discord.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ **Échec de la synchronisation :**\n```py\n{e}\n```", ephemeral=True)
+
+    @discord.ui.button(label="📢 Forcer la Publication du Menu", style=discord.ButtonStyle.success, row=0)
+    async def force_publish(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        try:
+            await self.bot.check_for_updates(self.bot, force_publish=True)
+            await interaction.followup.send("✅ **Succès !** La tâche de publication forcée du menu a été lancée.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ **Échec de la publication :**\n```py\n{e}\n```", ephemeral=True)
+            
+    @discord.ui.button(label="🗑️ Vider le Cache Produits", style=discord.ButtonStyle.secondary, row=1)
+    async def clear_cache(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.bot.product_cache = {}
+        await interaction.response.send_message("✅ Cache de produits en mémoire vidé. Il sera rechargé au prochain `/check` ou à la prochaine tâche.", ephemeral=True)
+
+    @discord.ui.button(label="📨 Tester l'Envoi d'E-mail", style=discord.ButtonStyle.danger, row=1)
+    async def test_email(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        api_url = f"{APP_URL}/api/test-email"
+        payload = {"recipient_email": interaction.user.email} # Assumes the user has a public email or needs to be fetched
+        headers = {"Authorization": f"Bearer {FLASK_SECRET_KEY}"}
+        
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.post(api_url, json=payload, headers=headers, timeout=20) as response:
+                    data = await response.json()
+                    if response.ok:
+                        await interaction.followup.send(f"✅ **Succès !** Un e-mail de test a été envoyé à `{interaction.user.email}`. Vérifiez votre boîte de réception (et vos spams).", ephemeral=True)
+                    else:
+                        error_details = data.get("details", "Aucun détail.")
+                        await interaction.followup.send(f"❌ **Échec de l'envoi de l'e-mail :**\n`{data.get('error')}`\n\n**Détails:**\n```{error_details}```", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ **Erreur Critique :** Impossible de contacter l'API Flask pour le test d'e-mail. `{e}`", ephemeral=True)
+
 class MenuView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -826,11 +882,11 @@ class ContactButtonsView(discord.ui.View):
 
 # --- COMMANDES ---
 
+config_group = app_commands.Group(name="config", description="Gère la configuration du bot.", guild_only=True)
+
 class SlashCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-
-    config_group = app_commands.Group(name="config", description="Gère la configuration du bot.", guild_only=True)
 
     # --- Commandes dans le sous-dossier "roles" ---
 
@@ -1067,59 +1123,122 @@ class SlashCommands(commands.Cog):
 
     # Dans commands.py, à l'intérieur de la classe SlashCommands
 
-    @app_commands.command(name="debug", description="[STAFF] Force la republication du menu et synchronise les commandes.")
-    @app_commands.check(is_staff_or_owner)
-    async def debug(self, interaction: discord.Interaction):
-        # On informe l'utilisateur qu'une tâche lourde est en cours
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        Logger.info(f"Débogage forcé demandé par {interaction.user}...")
-        
-        # On prépare une liste pour stocker les résultats de chaque étape
-        results_log = []
+    @app_commands.command(name="debug", description="[STAFF] Affiche un diagnostic complet du bot et propose des actions.")
+@app_commands.check(is_staff_or_owner)
+async def debug(self, interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    
+    guild = interaction.guild
+    embed = discord.Embed(
+        title=f"⚙️ Panneau de Diagnostic - {self.bot.user.name}",
+        description=f"Rapport généré pour le serveur **{guild.name}**.",
+        color=discord.Color.orange(),
+        timestamp=datetime.now(paris_tz)
+    )
 
-        # --- ÉTAPE 1 : SYNCHRONISATION DES COMMANDES ---
-        try:
-            synced = await self.bot.tree.sync()
-            Logger.success(f"{len(synced)} commandes synchronisées avec Discord.")
-            results_log.append(f"✅ **Synchronisation :** {len(synced)} commandes mises à jour.")
-        except Exception as e:
-            Logger.error(f"Échec de la synchronisation des commandes : {e}")
-            results_log.append("⚠️ **Synchronisation :** Échec.")
+    # --- 1. Connectivité ---
+    status_text = ""
+    status_text += f"**API Discord :** `{round(self.bot.latency * 1000)} ms`\n"
+    # Test Shopify
+    try:
+        start_time = time.time()
+        shopify.Shop.current()
+        end_time = time.time()
+        status_text += f"✅ **API Shopify :** `Connectée en {round((end_time - start_time) * 1000)} ms`\n"
+    except Exception as e:
+        status_text += f"❌ **API Shopify :** `Échec de connexion`\n"
+    # Test Flask
+    try:
+        start_time = time.time()
+        import requests
+        res = await asyncio.to_thread(requests.get, f"{APP_URL}/", timeout=5)
+        res.raise_for_status()
+        end_time = time.time()
+        status_text += f"✅ **API Flask :** `En ligne ({res.status_code}), {round((end_time - start_time) * 1000)} ms`\n"
+    except Exception as e:
+        status_text += f"❌ **API Flask :** `Injoignable ou erreur`\n"
+    embed.add_field(name="🌐 Connectivité", value=status_text, inline=False)
+    
+    # --- 2. Configuration du Serveur ---
+    config_text = ""
+    # Rôle Staff
+    staff_role_id = await config_manager.get_state(guild.id, 'staff_role_id')
+    if staff_role_id and guild.get_role(staff_role_id):
+        config_text += f"✅ **Rôle Staff :** <@&{staff_role_id}>\n"
+    else:
+        config_text += f"⚠️ **Rôle Staff :** `Non configuré ou introuvable`\n"
+    # Rôle Mention
+    mention_role_id = await config_manager.get_state(guild.id, 'mention_role_id')
+    if mention_role_id and guild.get_role(mention_role_id):
+        config_text += f"✅ **Rôle Mention :** <@&{mention_role_id}>\n"
+    else:
+        config_text += f"⚠️ **Rôle Mention :** `Non configuré ou introuvable`\n"
+    # Salon Menu
+    menu_channel_id = await config_manager.get_state(guild.id, 'menu_channel_id')
+    if menu_channel_id and guild.get_channel(menu_channel_id):
+        config_text += f"✅ **Salon Menu :** <#{menu_channel_id}>\n"
+    else:
+        config_text += f"❌ **Salon Menu :** `Non configuré ou introuvable`\n"
+    # Salon Sélection
+    selection_channel_id = await config_manager.get_state(guild.id, 'selection_channel_id')
+    if selection_channel_id and guild.get_channel(selection_channel_id):
+        config_text += f"✅ **Salon Sélection :** <#{selection_channel_id}>\n"
+    else:
+        config_text += f"⚠️ **Salon Sélection :** `Non configuré ou introuvable`\n"
+    embed.add_field(name="🔧 Configuration Locale", value=config_text, inline=False)
+    
+    # --- 3. État du Cache ---
+    cache_text = ""
+    if self.bot.product_cache:
+        products_count = len(self.bot.product_cache.get('products', []))
+        cache_age_ts = self.bot.product_cache.get('timestamp', 0)
+        cache_text += f"✅ **Statut :** `Chargé`\n"
+        cache_text += f"**Produits en cache :** `{products_count}`\n"
+        cache_text += f"**Dernière MàJ :** <t:{int(cache_age_ts)}:R>\n"
+    else:
+        cache_text = "❌ **Statut :** `Vide`. Lancez `/check` ou une tâche de fond.\n"
+    embed.add_field(name="🗃️ Cache de Produits", value=cache_text, inline=True)
+    
+    # --- 4. Base de Données ---
+    db_text = ""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        ratings_count = c.execute("SELECT COUNT(*) FROM ratings").fetchone()[0]
+        links_count = c.execute("SELECT COUNT(*) FROM user_links").fetchone()[0]
+        conn.close()
+        db_text += f"✅ **Statut :** `Accessible`\n"
+        db_text += f"**Notes totales :** `{ratings_count}`\n"
+        db_text += f"**Comptes liés :** `{links_count}`\n"
+    except Exception as e:
+        db_text = f"❌ **Statut :** `Erreur d'accès`\n`{e}`\n"
+    embed.add_field(name="💾 Base de Données", value=db_text, inline=True)
 
-        # --- ÉTAPE 2 : REPUBLICATION DU MENU ---
-        Logger.info("Publication forcée du menu...")
-        try:
-            updates_found = await self.bot.check_for_updates(self.bot, force_publish=True)
-            if updates_found:
-                results_log.append("✅ **Menu :** Mis à jour et republié avec mention.")
-            else:
-                results_log.append("👍 **Menu :** Aucune mise à jour détectée, mais republié.")
-        except Exception as e:
-            Logger.error(f"Erreur critique lors de /debug : {e}")
-            traceback.print_exc()
-            results_log.append("❌ **Menu :** Une erreur est survenue lors de la republication.")
-            
-        # --- ÉTAPE 3 : ON ENVOIE UN SEUL RAPPORT FINAL ---
-        final_report = "\n".join(results_log)
-        embed = discord.Embed(
-            title="⚙️ Rapport de Débogage",
-            description=final_report,
-            color=discord.Color.green()
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+    embed.set_footer(text=f"ID du Bot: {self.bot.user.id}")
+    
+    view = DebugView(self.bot, interaction.user)
+    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     # Dans commands.py, classe SlashCommands
 
     @app_commands.command(name="check", description="Vérifie si de nouveaux produits sont disponibles (cooldown 12h).")
     async def check(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        if not interaction.guild: # Commande non dispo en DM
+        if not interaction.guild:
             await interaction.followup.send("Cette commande doit être utilisée sur un serveur.", ephemeral=True)
             return
 
+        # --- DÉBUT DES MODIFICATIONS ---
+        guild = interaction.guild
+        user = interaction.user
+        
+        # Récupérer l'ID du salon de commande et la quantité d'XP depuis la config
+        bots_channel_id = await config_manager.get_state(guild.id, 'bots_channel_id')
+        xp_amount = config_manager.get_config("draftbot.xp_per_check", 50) # On met 50 par défaut, configurable
+        # --- FIN DES MODIFICATIONS ---
+
         cooldown_period = timedelta(hours=12)
-        # On utilise interaction.guild.id pour le cooldown
-        last_check_iso = await config_manager.get_state(interaction.guild.id, 'last_check_command_timestamp')
+        last_check_iso = await config_manager.get_state(guild.id, 'last_check_command_timestamp')
         
         if last_check_iso:
             time_since = datetime.utcnow() - datetime.fromisoformat(last_check_iso)
@@ -1130,15 +1249,48 @@ class SlashCommands(commands.Cog):
         
         await log_user_action(interaction, "a utilisé /check.")
         try:
-            # La vérification des updates est globale, mais la notification sera par serveur
             updates_found = await self.bot.check_for_updates(self.bot, force_publish=False)
-            # On sauvegarde le timestamp pour CE serveur
-            await config_manager.update_state(interaction.guild.id, 'last_check_command_timestamp', datetime.utcnow().isoformat())
+            await config_manager.update_state(guild.id, 'last_check_command_timestamp', datetime.utcnow().isoformat())
             
-            if updates_found:
-                await interaction.followup.send("✅ Merci ! Le menu a été mis à jour grâce à vous sur tous les serveurs configurés.", ephemeral=True)
+            # --- DÉBUT DE LA LOGIQUE D'AJOUT D'XP ---
+            if bots_channel_id:
+                bots_channel = guild.get_channel(bots_channel_id)
+                if bots_channel:
+                    try:
+                        # Le message de commande pour DraftBot
+                        command_message = f"!addxp {user.mention} {xp_amount}"
+                        
+                        # On envoie le message et on le supprime immédiatement
+                        msg = await bots_channel.send(command_message)
+                        await msg.delete()
+                        
+                        Logger.success(f"Donné {xp_amount} XP à {user.name} sur le serveur {guild.name}.")
+                        # On peut même le notifier
+                        followup_message = f"👍 Le menu est déjà à jour. Merci d'avoir vérifié ! **(+{xp_amount} XP)**"
+                        if updates_found:
+                            followup_message = f"✅ Merci ! Le menu a été mis à jour grâce à vous. **(+{xp_amount} XP)**"
+                        
+                        await interaction.followup.send(followup_message, ephemeral=True)
+
+                    except discord.Forbidden:
+                        Logger.error(f"Permissions manquantes pour envoyer/supprimer le message XP dans le salon {bots_channel.name}.")
+                        # On envoie le message normal si l'action XP échoue
+                        await interaction.followup.send("👍 Le menu est déjà à jour. Merci d'avoir vérifié ! (Erreur XP: contacter un admin)", ephemeral=True)
+                    except Exception as e:
+                        Logger.error(f"Erreur inattendue lors de l'ajout d'XP: {e}")
+                        await interaction.followup.send("👍 Le menu est déjà à jour. Merci d'avoir vérifié ! (Erreur XP: contacter un admin)", ephemeral=True)
+                else:
+                    Logger.warning(f"Salon de commande bot configuré ({bots_channel_id}) mais introuvable sur le serveur {guild.name}.")
+                    # Fallback sur le message normal
+                    await interaction.followup.send("👍 Le menu est déjà à jour. Merci d'avoir vérifié !", ephemeral=True)
             else:
-                await interaction.followup.send("👍 Le menu est déjà à jour. Merci d'avoir vérifié !", ephemeral=True)
+                # Fallback si le salon n'est pas configuré
+                if updates_found:
+                    await interaction.followup.send("✅ Merci ! Le menu a été mis à jour grâce à vous.", ephemeral=True)
+                else:
+                    await interaction.followup.send("👍 Le menu est déjà à jour. Merci d'avoir vérifié !", ephemeral=True)
+            # --- FIN DE LA LOGIQUE D'AJOUT D'XP ---
+
         except Exception as e:
             Logger.error(f"Erreur dans /check: {e}"); traceback.print_exc()
             await interaction.followup.send("❌ Oups, une erreur est survenue.", ephemeral=True)
@@ -1455,4 +1607,6 @@ class SlashCommands(commands.Cog):
             await interaction.followup.send("❌ Erreur lors de la récupération des promotions.", ephemeral=True)
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(SlashCommands(bot))
+    cog = SlashCommands(bot)
+    bot.tree.add_command(config_group)
+    await bot.add_cog(cog)
