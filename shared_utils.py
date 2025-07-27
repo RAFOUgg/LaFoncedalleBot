@@ -7,6 +7,7 @@ from colorama import init, Fore
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
+from typing import List, Optional
 
 # --- Initialisation ---
 init(autoreset=True)
