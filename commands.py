@@ -886,13 +886,7 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
         self.bot = bot
         super().__init__()
 
-    # --- Sous-groupe pour les Rôles ---
-    role_group = app_commands.Group(name="role", description="Configure les rôles du serveur.")
-    
-    # --- Sous-groupe pour les Salons ---
-    salon_group = app_commands.Group(name="salon", description="Configure les salons du serveur.")
-
-    # --- COMMANDE D'AFFICHAGE ---
+    # --- COMMANDE D'AFFICHAGE (INCHANGÉE) ---
     @app_commands.command(name="view", description="Affiche la configuration actuelle du bot pour ce serveur.")
     @app_commands.check(is_staff_or_owner)
     async def view_config(self, interaction: discord.Interaction):
@@ -928,50 +922,41 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
         )
         embed.add_field(name="📌 Rôles", value=f"**Staff :** {staff_role_text}\n**Mention Nouveautés :** {mention_role_text}", inline=False)
         embed.add_field(name="📺 Salons", value=f"**Menu Principal :** {menu_channel_text}\n**Sélection de la Semaine :** {selection_channel_text}\n**Commandes Bots (XP) :** {bots_channel_text}", inline=False)
-        embed.set_footer(text="Utilisez /config <role|salon> pour modifier un paramètre.")
+        embed.set_footer(text="Utilisez /config role ou /config salon pour modifier un paramètre.")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    # --- Commandes du sous-groupe "role" ---
-    @role_group.command(name="staff", description="Définit le rôle des administrateurs.")
-    @app_commands.describe(valeur="Le rôle à assigner aux membres du staff.")
+    # --- NOUVELLE SOUS-COMMANDE /config role ---
+    @app_commands.command(name="role", description="Configure un rôle spécifique.")
     @app_commands.check(is_staff_or_owner)
-    async def set_role_staff(self, interaction: discord.Interaction, valeur: discord.Role):
-        await config_manager.update_state(interaction.guild.id, 'staff_role_id', valeur.id)
-        await log_user_action(interaction, f"a configuré le Rôle Staff sur {valeur.name}")
-        await interaction.response.send_message(f"✅ Le **Rôle Staff** est maintenant {valeur.mention}.", ephemeral=True)
+    @app_commands.describe(
+        parametre="Le type de rôle à configurer.",
+        valeur="Le rôle à assigner."
+    )
+    @app_commands.choices(parametre=[
+        Choice(name="Staff", value="staff_role_id"),
+        Choice(name="Mention Nouveautés", value="mention_role_id"),
+    ])
+    async def set_role(self, interaction: discord.Interaction, parametre: Choice[str], valeur: discord.Role):
+        await config_manager.update_state(interaction.guild.id, parametre.value, valeur.id)
+        await log_user_action(interaction, f"a configuré le paramètre '{parametre.name}' sur {valeur.name}")
+        await interaction.response.send_message(f"✅ Le paramètre **{parametre.name}** est maintenant assigné à {valeur.mention}.", ephemeral=True)
 
-    @role_group.command(name="mention", description="Définit le rôle à mentionner pour les nouveautés.")
-    @app_commands.describe(valeur="Le rôle à mentionner lors de la publication du menu.")
+    # --- NOUVELLE SOUS-COMMANDE /config salon ---
+    @app_commands.command(name="salon", description="Configure un salon spécifique.")
     @app_commands.check(is_staff_or_owner)
-    async def set_role_mention(self, interaction: discord.Interaction, valeur: discord.Role):
-        await config_manager.update_state(interaction.guild.id, 'mention_role_id', valeur.id)
-        await log_user_action(interaction, f"a configuré le Rôle Mention sur {valeur.name}")
-        await interaction.response.send_message(f"✅ Le **Rôle Mention** est maintenant {valeur.mention}.", ephemeral=True)
-        
-    # --- Commandes du sous-groupe "salon" ---
-    @salon_group.command(name="menu", description="Définit le salon où le menu sera posté.")
-    @app_commands.describe(valeur="Le salon où le menu principal sera affiché.")
-    @app_commands.check(is_staff_or_owner)
-    async def set_salon_menu(self, interaction: discord.Interaction, valeur: discord.TextChannel):
-        await config_manager.update_state(interaction.guild.id, 'menu_channel_id', valeur.id)
-        await log_user_action(interaction, f"a configuré le Salon du Menu sur {valeur.name}")
-        await interaction.response.send_message(f"✅ Le **Salon du Menu** est maintenant {valeur.mention}.", ephemeral=True)
-
-    @salon_group.command(name="selection", description="Définit le salon de la sélection de la semaine.")
-    @app_commands.describe(valeur="Le salon où la sélection de la semaine sera publiée.")
-    @app_commands.check(is_staff_or_owner)
-    async def set_salon_selection(self, interaction: discord.Interaction, valeur: discord.TextChannel):
-        await config_manager.update_state(interaction.guild.id, 'selection_channel_id', valeur.id)
-        await log_user_action(interaction, f"a configuré le Salon de la Sélection sur {valeur.name}")
-        await interaction.response.send_message(f"✅ Le **Salon de la Sélection** est maintenant {valeur.mention}.", ephemeral=True)
-
-    @salon_group.command(name="bots", description="Définit le salon pour les commandes inter-bots (ex: XP).")
-    @app_commands.describe(valeur="Le salon où le bot enverra des commandes à d'autres bots.")
-    @app_commands.check(is_staff_or_owner)
-    async def set_salon_bots(self, interaction: discord.Interaction, valeur: discord.TextChannel):
-        await config_manager.update_state(interaction.guild.id, 'bots_channel_id', valeur.id)
-        await log_user_action(interaction, f"a configuré le Salon des Bots sur {valeur.name}")
-        await interaction.response.send_message(f"✅ Le **Salon des Bots** est maintenant {valeur.mention}.", ephemeral=True)
+    @app_commands.describe(
+        parametre="Le type de salon à configurer.",
+        valeur="Le salon à assigner."
+    )
+    @app_commands.choices(parametre=[
+        Choice(name="Menu Principal", value="menu_channel_id"),
+        Choice(name="Sélection de la Semaine", value="selection_channel_id"),
+        Choice(name="Commandes Bots (XP)", value="bots_channel_id"),
+    ])
+    async def set_salon(self, interaction: discord.Interaction, parametre: Choice[str], valeur: discord.TextChannel):
+        await config_manager.update_state(interaction.guild.id, parametre.value, valeur.id)
+        await log_user_action(interaction, f"a configuré le paramètre '{parametre.name}' sur {valeur.name}")
+        await interaction.response.send_message(f"✅ Le paramètre **{parametre.name}** est maintenant assigné à {valeur.mention}.", ephemeral=True)
 
 # -- COMMANDES --
 class SlashCommands(commands.Cog):
