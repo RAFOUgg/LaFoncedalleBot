@@ -264,176 +264,6 @@ class ProfileView(discord.ui.View):
     @discord.ui.button(label="Réinitialiser les notes", style=discord.ButtonStyle.danger, emoji="🗑️")
     async def reset_button(self, i: discord.Interaction, button: discord.ui.Button):
         await i.response.send_message(f"Voulez-vous vraiment supprimer toutes les notes de {self.target_user.mention} ?", view=ConfirmResetNotesView(self.target_user, self.bot), ephemeral=True)
-        
-            
-class ProductView(discord.ui.View):
-    def __init__(self, products: List[dict], category: str = None):
-        super().__init__(timeout=300)
-        self.products = products
-        self.current_index = 0
-        self.category = category
-        self.update_buttons()
-        self.update_download_buttons()
-        self.review_counts = self._get_review_counts()
-        self.add_item(self.ShowReviewsButton())
-        self.update_ui_elements()
-
-    def _get_review_counts(self) -> dict:
-        """Récupère le nombre d'avis pour les produits de la catégorie en une seule requête."""
-        product_names = [p['name'] for p in self.products]
-        if not product_names:
-            return {}
-            
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        # On utilise une clause WHERE IN pour récupérer les comptes de tous les produits pertinents
-        placeholders = ','.join('?' for _ in product_names)
-        cursor.execute(f"""
-            SELECT product_name, COUNT(id)
-            FROM ratings
-            WHERE product_name IN ({placeholders})
-            GROUP BY product_name
-        """, product_names)
-        
-        counts = {name: count for name, count in cursor.fetchall()}
-        conn.close()
-        return counts
-    
-    def update_ui_elements(self):
-        """Met à jour l'état de tous les boutons."""
-        # --- 1. Boutons de navigation ---
-        # On s'assure qu'ils existent avant de les modifier
-        prev_button = discord.utils.get(self.children, label="⬅️ Précédent")
-        next_button = discord.utils.get(self.children, label="Suivant ➡️")
-        if prev_button: prev_button.disabled = (self.current_index == 0)
-        if next_button: next_button.disabled = (self.current_index >= len(self.products) - 1)
-
-        # --- 2. Boutons de téléchargement ---
-        items_to_remove = [item for item in self.children if hasattr(item, "is_download_button")]
-        for item in items_to_remove:
-            self.remove_item(item)
-            
-        product = self.products[self.current_index]
-        stats = product.get('stats', {})
-        for key, value in stats.items():
-            if isinstance(value, str) and ("lab" in key.lower() or "terpen" in key.lower()) and value.startswith("http"):
-                label = "Télécharger Lab Test" if "lab" in key.lower() else "Télécharger Terpènes"
-                emoji = "🧪" if "lab" in key.lower() else "🌿"
-                self.add_item(self.DownloadButton(label, value, emoji))
-
-        # --- 3. Bouton "Avis Clients" ---
-        reviews_button = discord.utils.get(self.children, custom_id="show_reviews_button")
-        if reviews_button:
-            review_count = self.review_counts.get(product.get('name'), 0)
-            reviews_button.label = f"💬 Avis Clients ({review_count})"
-            reviews_button.disabled = (review_count == 0)
-
-    def get_category_emoji(self):
-        if self.category == "weed": return "🍃"
-        if self.category == "hash": return "🍫"
-        if self.category == "box": return "📦"
-        if self.category == "accessoire": return "🛠️"
-        return ""
-
-    def create_embed(self) -> discord.Embed:
-        product = self.products[self.current_index]
-        emoji = self.get_category_emoji()
-        embed_color = discord.Color.dark_red() if product.get('is_sold_out') else discord.Color.from_rgb(255, 204, 0)
-        title = f"{emoji} **{product.get('name', 'Produit inconnu')}**"
-        embed = discord.Embed(title=title, url=product.get('product_url', CATALOG_URL), color=embed_color)
-        if product.get('image'):
-            embed.set_thumbnail(url=product['image'])
-
-        description = product.get('detailed_description', "Aucune description.")
-        if description:
-            embed.add_field(name="Description", value=description[:1024], inline=False)
-
-        price_text = ""
-        if product.get('is_sold_out'): price_text = "❌ **ÉPUISÉ**"
-        elif product.get('is_promo'): price_text = f"🏷️ **{product.get('price')}** ~~{product.get('original_price')}~~"
-        else: price_text = f"💰 **{product.get('price', 'N/A')}**"
-        embed.add_field(name="Prix", value=price_text, inline=True)
-
-        if not product.get('is_sold_out') and product.get('stats', {}).get('Stock'):
-            embed.add_field(name="Stock", value=f"{product['stats']['Stock']}", inline=True)
-
-        stats = product.get('stats', {})
-        char_lines = []
-        ignore_keys = ["pdf", "lab", "terpen", "stock", "description"] 
-        ignore_values = ["livraison", "offert", "derniers", "grammes", "lots"]
-
-        for k, v in stats.items():
-            k_lower, v_str = k.lower(), str(v)
-            v_lower = v_str.lower()
-            
-            if (any(key in k_lower for key in ignore_keys) or 
-                v_str.startswith(("http", "gid://")) or 
-                any(val in v_lower for val in ignore_values)):
-                continue
-            
-            if "effet" in k_lower: char_lines.append(f"**Effet :** {v_str}")
-            elif "gout" in k_lower: char_lines.append(f"**Goût :** {v_str}")
-            elif "cbd" in k_lower: char_lines.append(f"**CBD :** {v_str}")
-            elif "thc" in k_lower: char_lines.append(f"**THC :** {v_str}")
-            else: char_lines.append(f"**{k.strip().capitalize()} :** {v_str}")
-
-        if char_lines:
-            embed.add_field(name="Caractéristiques", value="\n".join(char_lines), inline=False)
-
-        embed.add_field(name="\u200b", value=f"**[Voir la fiche produit sur le site]({product.get('product_url', CATALOG_URL)})**", inline=False)
-        embed.set_footer(text=f"Produit {self.current_index + 1} sur {len(self.products)}")
-        return embed
-        
-    async def update_message(self, interaction: discord.Interaction):
-        self.update_ui_elements()
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
-
-    @discord.ui.button(label="⬅️ Précédent", style=discord.ButtonStyle.secondary, row=0)
-    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_index > 0:
-            self.current_index -= 1
-        await self.update_message(interaction)
-
-    @discord.ui.button(label="Suivant ➡️", style=discord.ButtonStyle.secondary, row=0)
-    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_index < len(self.products) - 1:
-            self.current_index += 1
-        await self.update_message(interaction)
-
-    # --- NOUVEAU BOUTON ET SA LOGIQUE ---
-    class ShowReviewsButton(discord.ui.Button):
-        def __init__(self):
-            super().__init__(label="💬 Avis Clients", style=discord.ButtonStyle.primary, row=1, custom_id="show_reviews_button")
-
-        async def callback(self, interaction: discord.Interaction):
-            await interaction.response.defer(ephemeral=True, thinking=True)
-            
-            product = self.view.products[self.view.current_index]
-            product_name = product.get('name')
-            product_image = product.get('image')
-
-            def _fetch_reviews_sync(p_name):
-                conn = sqlite3.connect(DB_FILE)
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM ratings WHERE product_name = ? AND comment IS NOT NULL AND TRIM(comment) != '' ORDER BY rating_timestamp DESC", (p_name,))
-                results = [dict(row) for row in cursor.fetchall()]
-                conn.close()
-                return results
-
-            reviews = await asyncio.to_thread(_fetch_reviews_sync, product_name)
-
-            if not reviews:
-                await interaction.followup.send("Il n'y a pas encore d'avis avec des commentaires pour ce produit.", ephemeral=True)
-                return
-
-            paginator = ProductReviewsPaginatorView(reviews, product_name, product_image)
-            await interaction.followup.send(embed=paginator.create_embed(), view=paginator, ephemeral=True)
-
-    class DownloadButton(discord.ui.Button):
-        def __init__(self, label, url, emoji=None):
-            super().__init__(label=label, style=discord.ButtonStyle.link, url=url, emoji=emoji)
-            self.is_download_button = True
 
 class DebugView(discord.ui.View):
     def __init__(self, bot, author):
@@ -553,13 +383,10 @@ class ProductReviewsPaginatorView(discord.ui.View):
         self.update_buttons()
 
     def update_buttons(self):
-        # On vide les boutons pour les recréer
         self.clear_items()
         if self.total_pages > 1:
-            prev_button = self.PrevButton(disabled=(self.current_page == 0))
-            next_button = self.NextButton(disabled=(self.current_page >= self.total_pages - 1))
-            self.add_item(prev_button)
-            self.add_item(next_button)
+            self.add_item(self.PrevButton(disabled=(self.current_page == 0)))
+            self.add_item(self.NextButton(disabled=(self.current_page >= self.total_pages - 1)))
 
     def create_embed(self) -> discord.Embed:
         if not self.reviews:
@@ -569,31 +396,24 @@ class ProductReviewsPaginatorView(discord.ui.View):
         user_name = review.get('user_name', 'Utilisateur Anonyme').split('#')[0]
         rating_date = datetime.fromisoformat(review['rating_timestamp']).strftime('%d/%m/%Y')
         
-        # Calcul de la moyenne pour cet avis
         scores = [review.get(s, 0) for s in ['visual_score', 'smell_score', 'touch_score', 'taste_score', 'effects_score']]
         avg_score = sum(scores) / len(scores) if scores else 0
 
         embed = create_styled_embed(
             title=f"Avis sur : {self.product_name}",
-            description=f"✍️ **Par :** {user_name}\n"
-                        f"📅 **Le :** {rating_date}\n"
-                        f"⭐ **Note globale :** {avg_score:.1f}/10",
+            description=f"✍️ **Par :** {user_name}\n📅 **Le :** {rating_date}\n⭐ **Note globale :** {avg_score:.1f}/10",
             color=discord.Color.blue()
         )
         if self.product_image_url:
             embed.set_thumbnail(url=self.product_image_url)
 
-        # Affichage des notes détaillées
         notes_detaillees = (
-            f"👀 Visuel: `{review.get('visual_score', 'N/A')}`\n"
-            f"👃 Odeur: `{review.get('smell_score', 'N/A')}`\n"
-            f"🤏 Toucher: `{review.get('touch_score', 'N/A')}`\n"
-            f"👅 Goût: `{review.get('taste_score', 'N/A')}`\n"
+            f"👀 Visuel: `{review.get('visual_score', 'N/A')}`\n👃 Odeur: `{review.get('smell_score', 'N/A')}`\n"
+            f"🤏 Toucher: `{review.get('touch_score', 'N/A')}`\n👅 Goût: `{review.get('taste_score', 'N/A')}`\n"
             f"🧠 Effets: `{review.get('effects_score', 'N/A')}`"
         )
         embed.add_field(name="Notes Détaillées", value=notes_detaillees, inline=False)
 
-        # Affichage du commentaire s'il existe
         if review.get('comment'):
             embed.add_field(name="💬 Commentaire", value=f"```{review['comment']}```", inline=False)
 
@@ -605,20 +425,160 @@ class ProductReviewsPaginatorView(discord.ui.View):
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
     class PrevButton(discord.ui.Button):
-        def __init__(self, disabled=False):
-            super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary, disabled=disabled)
+        def __init__(self, disabled=False): super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary, disabled=disabled)
         async def callback(self, interaction: discord.Interaction):
-            if self.view.current_page > 0:
-                self.view.current_page -= 1
+            if self.view.current_page > 0: self.view.current_page -= 1
             await self.view.update_message(interaction)
 
     class NextButton(discord.ui.Button):
-        def __init__(self, disabled=False):
-            super().__init__(label="Suivant ➡️", style=discord.ButtonStyle.secondary, disabled=disabled)
+        def __init__(self, disabled=False): super().__init__(label="Suivant ➡️", style=discord.ButtonStyle.secondary, disabled=disabled)
         async def callback(self, interaction: discord.Interaction):
-            if self.view.current_page < self.view.total_pages - 1:
-                self.view.current_page += 1
+            if self.view.current_page < self.view.total_pages - 1: self.view.current_page += 1
             await self.view.update_message(interaction)
+
+
+class ProductView(discord.ui.View):
+    def __init__(self, products: List[dict], category: str = None):
+        super().__init__(timeout=300)
+        self.products = products
+        self.current_index = 0
+        self.category = category
+        
+        # On pré-charge le nombre d'avis
+        self.review_counts = self._get_review_counts()
+        
+        # On ajoute les boutons fixes
+        self.add_item(self.PrevButton())
+        self.add_item(self.NextButton())
+        self.add_item(self.ShowReviewsButton())
+        
+        # On met à jour l'état de tous les boutons
+        self.update_ui_elements()
+
+    def _get_review_counts(self) -> dict:
+        product_names = [p['name'] for p in self.products]
+        if not product_names: return {}
+        
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        placeholders = ','.join('?' for _ in product_names)
+        cursor.execute(f"SELECT product_name, COUNT(id) FROM ratings WHERE product_name IN ({placeholders}) AND comment IS NOT NULL AND TRIM(comment) != '' GROUP BY product_name", product_names)
+        counts = {name: count for name, count in cursor.fetchall()}
+        conn.close()
+        return counts
+    
+    def update_ui_elements(self):
+        product = self.products[self.current_index]
+
+        # Navigation
+        prev_button = discord.utils.get(self.children, custom_id="prev_product")
+        next_button = discord.utils.get(self.children, custom_id="next_product")
+        if prev_button: prev_button.disabled = self.current_index == 0
+        if next_button: next_button.disabled = self.current_index >= len(self.products) - 1
+
+        # Téléchargements
+        for item in [c for c in self.children if hasattr(c, "is_download_button")]: self.remove_item(item)
+        stats = product.get('stats', {})
+        for key, value in stats.items():
+            if isinstance(value, str) and ("lab" in key.lower() or "terpen" in key.lower()) and value.startswith("http"):
+                label = "Télécharger Lab Test" if "lab" in key.lower() else "Télécharger Terpènes"
+                emoji = "🧪" if "lab" in key.lower() else "🌿"
+                self.add_item(self.DownloadButton(label, value, emoji))
+
+        # Avis
+        reviews_button = discord.utils.get(self.children, custom_id="show_reviews_button")
+        if reviews_button:
+            review_count = self.review_counts.get(product.get('name'), 0)
+            reviews_button.label = f"💬 Avis Clients ({review_count})"
+            reviews_button.disabled = (review_count == 0)
+
+    def get_category_emoji(self):
+        if self.category == "weed": return "🍃"
+        if self.category == "hash": return "🍫"
+        if self.category == "box": return "📦"
+        if self.category == "accessoire": return "🛠️"
+        return ""
+
+    def create_embed(self) -> discord.Embed:
+        # ... (cette fonction est correcte et reste inchangée) ...
+        product = self.products[self.current_index]
+        emoji = self.get_category_emoji()
+        embed_color = discord.Color.dark_red() if product.get('is_sold_out') else discord.Color.from_rgb(255, 204, 0)
+        title = f"{emoji} **{product.get('name', 'Produit inconnu')}**"
+        embed = discord.Embed(title=title, url=product.get('product_url', CATALOG_URL), color=embed_color)
+        if product.get('image'):
+            embed.set_thumbnail(url=product['image'])
+        description = product.get('detailed_description', "Aucune description.")
+        if description:
+            embed.add_field(name="Description", value=description[:1024], inline=False)
+        price_text = ""
+        if product.get('is_sold_out'): price_text = "❌ **ÉPUISÉ**"
+        elif product.get('is_promo'): price_text = f"🏷️ **{product.get('price')}** ~~{product.get('original_price')}~~"
+        else: price_text = f"💰 **{product.get('price', 'N/A')}**"
+        embed.add_field(name="Prix", value=price_text, inline=True)
+        if not product.get('is_sold_out') and product.get('stats', {}).get('Stock'):
+            embed.add_field(name="Stock", value=f"{product['stats']['Stock']}", inline=True)
+        stats = product.get('stats', {})
+        char_lines = []
+        ignore_keys = ["pdf", "lab", "terpen", "stock", "description"]
+        ignore_values = ["livraison", "offert", "derniers", "grammes", "lots"]
+        for k, v in stats.items():
+            k_lower, v_str = k.lower(), str(v)
+            v_lower = v_str.lower()
+            if (any(key in k_lower for key in ignore_keys) or v_str.startswith(("http", "gid://")) or any(val in v_lower for val in ignore_values)):
+                continue
+            if "effet" in k_lower: char_lines.append(f"**Effet :** {v_str}")
+            elif "gout" in k_lower: char_lines.append(f"**Goût :** {v_str}")
+            elif "cbd" in k_lower: char_lines.append(f"**CBD :** {v_str}")
+            elif "thc" in k_lower: char_lines.append(f"**THC :** {v_str}")
+            else: char_lines.append(f"**{k.strip().capitalize()} :** {v_str}")
+        if char_lines:
+            embed.add_field(name="Caractéristiques", value="\n".join(char_lines), inline=False)
+        embed.add_field(name="\u200b", value=f"**[Voir la fiche produit sur le site]({product.get('product_url', CATALOG_URL)})**", inline=False)
+        embed.set_footer(text=f"Produit {self.current_index + 1} sur {len(self.products)}")
+        return embed
+        
+    async def update_message(self, interaction: discord.Interaction):
+        self.update_ui_elements()
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    class PrevButton(discord.ui.Button):
+        def __init__(self): super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary, row=0, custom_id="prev_product")
+        async def callback(self, interaction: discord.Interaction):
+            if self.view.current_index > 0: self.view.current_index -= 1
+            await self.view.update_message(interaction)
+
+    class NextButton(discord.ui.Button):
+        def __init__(self): super().__init__(label="Suivant ➡️", style=discord.ButtonStyle.secondary, row=0, custom_id="next_product")
+        async def callback(self, interaction: discord.Interaction):
+            if self.view.current_index < len(self.view.products) - 1: self.view.current_index += 1
+            await self.view.update_message(interaction)
+
+    class ShowReviewsButton(discord.ui.Button):
+        def __init__(self): super().__init__(label="💬 Avis Clients", style=discord.ButtonStyle.primary, row=1, custom_id="show_reviews_button")
+        async def callback(self, interaction: discord.Interaction):
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            product = self.view.products[self.view.current_index]
+            product_name, product_image = product.get('name'), product.get('image')
+            def _fetch_reviews_sync(p_name):
+                conn = sqlite3.connect(DB_FILE)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM ratings WHERE product_name = ? AND comment IS NOT NULL AND TRIM(comment) != '' ORDER BY rating_timestamp DESC", (p_name,))
+                results = [dict(row) for row in cursor.fetchall()]
+                conn.close()
+                return results
+            reviews = await asyncio.to_thread(_fetch_reviews_sync, product_name)
+            if not reviews:
+                await interaction.followup.send("Il n'y a pas encore d'avis avec des commentaires pour ce produit.", ephemeral=True)
+                return
+            paginator = ProductReviewsPaginatorView(reviews, product_name, product_image)
+            await interaction.followup.send(embed=paginator.create_embed(), view=paginator, ephemeral=True)
+
+    class DownloadButton(discord.ui.Button):
+        def __init__(self, label, url, emoji=None):
+            super().__init__(label=label, style=discord.ButtonStyle.link, url=url, emoji=emoji)
+            self.is_download_button = True
 
 class CommentModal(discord.ui.Modal, title="Ajouter un commentaire"):
     def __init__(self, product_name: str, user: discord.User):
