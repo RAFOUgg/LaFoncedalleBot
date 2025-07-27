@@ -886,9 +886,9 @@ class SlashCommands(commands.Cog):
         self.bot = bot
 
     # --- Commandes dans le sous-dossier "roles" ---
-    config = app_commands.Group(name="lfdconfig", description="Gère la configuration du bot LaFoncedalle.", guild_only=True)
+    lfdconfig = app_commands.Group(name="lfdconfig", description="Gère la configuration du bot LaFoncedalle.", guild_only=True)
 
-    @config.command(name="role_staff", description="Définit le rôle des administrateurs.")
+    @lfdconfig.command(name="role_staff", description="Définit le rôle des administrateurs.")
     @app_commands.check(is_staff_or_owner)
     async def set_staff_role(self, interaction: discord.Interaction, role: discord.Role):
         await interaction.response.defer(ephemeral=True)
@@ -896,7 +896,7 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, f"a défini le Rôle Staff sur {role.name}")
         await interaction.followup.send(f"✅ Le **Rôle Staff** est maintenant {role.mention}.", ephemeral=True)
 
-    @config.command(name="role_mention", description="Définit le rôle à mentionner pour les nouveautés.")
+    @lfdconfig.command(name="role_mention", description="Définit le rôle à mentionner pour les nouveautés.")
     @app_commands.check(is_staff_or_owner)
     async def set_mention_role(self, interaction: discord.Interaction, role: discord.Role):
         await interaction.response.defer(ephemeral=True)
@@ -904,7 +904,7 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, f"a défini le Rôle à Mentionner sur {role.name}")
         await interaction.followup.send(f"✅ Le **Rôle à Mentionner** est maintenant {role.mention}.", ephemeral=True)
 
-    @config.command(name="salon_menu", description="Définit le salon où le menu sera posté.")
+    @lfdconfig.command(name="salon_menu", description="Définit le salon où le menu sera posté.")
     @app_commands.check(is_staff_or_owner)
     async def set_menu_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
         await interaction.response.defer(ephemeral=True)
@@ -912,7 +912,7 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, f"a défini le Salon du Menu sur {salon.name}")
         await interaction.followup.send(f"✅ Le **Salon du Menu** est maintenant {salon.mention}.", ephemeral=True)
 
-    @config.command(name="salon_selection", description="Définit le salon de la sélection de la semaine.")
+    @lfdconfig.command(name="salon_selection", description="Définit le salon de la sélection de la semaine.")
     @app_commands.check(is_staff_or_owner)
     async def set_selection_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
         await interaction.response.defer(ephemeral=True)
@@ -920,13 +920,73 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, f"a défini le Salon de la Sélection sur {salon.name}")
         await interaction.followup.send(f"✅ Le **Salon de la Sélection** est maintenant {salon.mention}.", ephemeral=True)
 
-    @config.command(name="salon_bots", description="Définit le salon pour les commandes inter-bots (ex: XP DraftBot).")
+    @lfdconfig.command(name="salon_bots", description="Définit le salon pour les commandes inter-bots (ex: XP DraftBot).")
     @app_commands.check(is_staff_or_owner)
     async def set_bots_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
         await interaction.response.defer(ephemeral=True)
         await config_manager.update_state(interaction.guild.id, 'bots_channel_id', salon.id)
         await log_user_action(interaction, f"a défini le Salon des Bots sur {salon.name}")
         await interaction.followup.send(f"✅ Le **Salon des Bots** pour ce serveur est maintenant {salon.mention}.", ephemeral=True)
+
+    @lfdconfig.command(name="view", description="Affiche la configuration actuelle du bot pour ce serveur.")
+    @app_commands.check(is_staff_or_owner)
+    async def lfd_view_config(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+           
+        guild = interaction.guild
+            
+            # --- Récupération de toutes les configurations ---
+        staff_role_id = await config_manager.get_state(guild.id, 'staff_role_id')
+        mention_role_id = await config_manager.get_state(guild.id, 'mention_role_id')
+        menu_channel_id = await config_manager.get_state(guild.id, 'menu_channel_id')
+        selection_channel_id = await config_manager.get_state(guild.id, 'selection_channel_id')
+        bots_channel_id = await config_manager.get_state(guild.id, 'bots_channel_id')
+            
+            # Rôle Staff
+        staff_role = guild.get_role(staff_role_id) if staff_role_id else None
+        staff_role_text = staff_role.mention if staff_role else "⚠️ `Non défini`"
+            
+            # Rôle Mention
+        mention_role = guild.get_role(mention_role_id) if mention_role_id else None
+        mention_role_text = mention_role.mention if mention_role else "⚠️ `Non défini`"
+
+            # Salon Menu
+        menu_channel = guild.get_channel(menu_channel_id) if menu_channel_id else None
+        menu_channel_text = menu_channel.mention if menu_channel else "❌ `Non défini (Critique)`"
+
+            # Salon Sélection
+        selection_channel = guild.get_channel(selection_channel_id) if selection_channel_id else None
+        selection_channel_text = selection_channel.mention if selection_channel else "⚠️ `Non défini`"
+            
+            # Salon Bots
+        bots_channel = guild.get_channel(bots_channel_id) if bots_channel_id else None
+        bots_channel_text = bots_channel.mention if bots_channel else "⚠️ `Non défini`"
+
+            # --- Création de l'Embed ---
+        embed = discord.Embed(
+            title=f"Configuration de {self.bot.user.name}",
+            description=f"Voici les paramètres actuels pour le serveur **{guild.name}**.",
+            color=discord.Color.blue(),
+            timestamp=datetime.now(paris_tz)
+        )
+           
+        embed.add_field(
+            name="📌 Rôles",
+            value=f"**Staff :** {staff_role_text}\n"
+                  f"**Mention Nouveautés :** {mention_role_text}",
+            inline=False
+        )
+          
+        embed.add_field(
+            name="📺 Salons",
+            value=f"**Menu Principal :** {menu_channel_text}\n"
+                   f"**Sélection de la Semaine :** {selection_channel_text}\n"
+                   f"**Commandes Bots (XP) :** {bots_channel_text}",
+             inline=False
+        )
+        embed.set_footer(text="Utilisez /lfdconfig pour modifier ces paramètres.")
+            
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="menu", description="Affiche le menu interactif des produits disponibles.")
     async def menu(self, interaction: discord.Interaction):
