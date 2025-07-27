@@ -137,8 +137,7 @@ def get_site_data_from_api():
             Logger.error("Identifiants Shopify manquants.")
             return None
 
-        session = shopify.Session(shop_url, api_version, access_token)
-        shopify.ShopifyResource.activate_session(session)
+        shopify.Shop.current()
 
         # --- ÉTAPE 1 : Récupérer la liste de tous les produits PUBLIÉS ---
         published_products_api = shopify.Product.find(published_status='published', limit=250)
@@ -595,10 +594,11 @@ async def on_ready():
         # Cela force Discord à oublier l'ancienne structure.
         if GUILD_ID:
             guild_obj = discord.Object(id=GUILD_ID)
+            # Cette ligne est la plus importante, elle dit à Discord "Oublie tout pour ce serveur"
             bot.tree.clear_commands(guild=guild_obj)
             await bot.tree.sync(guild=guild_obj)
             Logger.warning(f"Commandes vidées pour le serveur de test (ID: {GUILD_ID}).")
-        # ÉTAPE 2 : On synchronise les nouvelles commandes pour tous les serveurs.
+        # Ensuite on synchronise globalement
         synced = await bot.tree.sync()
         Logger.success(f"Synchronisation globale terminée : {len(synced)} commandes enregistrées.")
     except Exception as e:
