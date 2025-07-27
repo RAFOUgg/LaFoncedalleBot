@@ -881,7 +881,7 @@ class ContactButtonsView(discord.ui.View):
         if contact_info.get("tiktok"): self.add_item(discord.ui.Button(label="TikTok", style=discord.ButtonStyle.link, url=contact_info["tiktok"], emoji=TIKTOK_EMOJI))
 
 @app_commands.guild_only()
-class ConfigCog(commands.GroupCog, name="lfd-config", description="Gère la configuration du bot LaFoncedalle."):
+class ConfigCog(commands.GroupCog, name="Config", description="Gère la configuration du bot LaFoncedalle."):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         super().__init__()
@@ -922,7 +922,7 @@ class ConfigCog(commands.GroupCog, name="lfd-config", description="Gère la conf
         )
         embed.add_field(name="📌 Rôles", value=f"**Staff :** {staff_role_text}\n**Mention Nouveautés :** {mention_role_text}", inline=False)
         embed.add_field(name="📺 Salons", value=f"**Menu Principal :** {menu_channel_text}\n**Sélection de la Semaine :** {selection_channel_text}\n**Commandes Bots (XP) :** {bots_channel_text}", inline=False)
-        embed.set_footer(text="Utilisez /lfd-config set pour modifier ces paramètres.")
+        embed.set_footer(text="Utilisez /Config set pour modifier ces paramètres.")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # --- COMMANDE UNIFIÉE CORRIGÉE ---
