@@ -700,30 +700,10 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
                     await interaction.followup.send(f"❌ La note '{key.capitalize()}' doit être entre 0 et 10.", ephemeral=True); return
         except ValueError:
             await interaction.followup.send("❌ Veuillez n'entrer que des nombres pour les notes.", ephemeral=True); return
-    
-    api_url = f"{APP_URL}/api/submit-rating"
-    payload = {"user_id": self.user.id, "user_name": str(self.user), "product_name": self.product_name, "scores": scores, "comment": None}
-    
-    try:
-        import requests
-        response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=10)
-        response.raise_for_status()
-
-        avg_score = sum(scores.values()) / len(scores)
-        
-        view = AddCommentView(self.product_name, self.user)
-        await interaction.followup.send(
-            f"✅ Merci ! Votre note de **{avg_score:.2f}/10** pour **{self.product_name}** a été enregistrée.",
-            view=view, 
-            ephemeral=True
-        )
-
-    except Exception as e:
-        Logger.error(f"Erreur API lors de la soumission de la note : {e}")
-        await interaction.followup.send("❌ Une erreur est survenue lors de l'enregistrement de votre note. Le staff a été notifié.", ephemeral=True)
         
         api_url = f"{APP_URL}/api/submit-rating"
-        payload = {"user_id": self.user.id, "user_name": str(self.user), "product_name": self.product_name, "scores": scores, "comment": comment_text}
+        # Le commentaire est maintenant géré par un autre modal, donc on le met à None
+        payload = {"user_id": self.user.id, "user_name": str(self.user), "product_name": self.product_name, "scores": scores, "comment": None}
         
         try:
             import requests
@@ -732,24 +712,9 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
 
             avg_score = sum(scores.values()) / len(scores)
             
-            xp_message = ""
-            bots_channel_id = await config_manager.get_state(interaction.guild.id, 'bots_channel_id')
-            xp_amount = config_manager.get_config("draftbot.xp_per_rating") # Nouvelle config !
-
-            if bots_channel_id and xp_amount:
-                bots_channel = interaction.guild.get_channel(bots_channel_id)
-                if bots_channel:
-                    try:
-                        command_message = f"!addxp {interaction.user.mention} {xp_amount}"
-                        msg = await bots_channel.send(command_message)
-                        await msg.delete()
-                        xp_message = f" **(+{xp_amount} XP)**"
-                        Logger.success(f"Donné {xp_amount} XP à {self.user.name} pour sa nouvelle note.")
-                    except Exception as e:
-                        Logger.error(f"Erreur lors de l'ajout d'XP pour une note: {e}")
             view = AddCommentView(self.product_name, self.user)
             await interaction.followup.send(
-                f"✅ Merci ! Votre note de **{avg_score:.2f}/10** pour **{self.product_name}** a été enregistrée.{xp_message}", 
+                f"✅ Merci ! Votre note de **{avg_score:.2f}/10** pour **{self.product_name}** a été enregistrée.",
                 view=view, 
                 ephemeral=True
             )
@@ -757,8 +722,7 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
         except Exception as e:
             Logger.error(f"Erreur API lors de la soumission de la note : {e}")
             await interaction.followup.send("❌ Une erreur est survenue lors de l'enregistrement de votre note. Le staff a été notifié.", ephemeral=True)
-
-
+            
 # D'abord, la vue
 class NotationProductSelectView(discord.ui.View):
     def __init__(self, products: list, user: discord.User):
