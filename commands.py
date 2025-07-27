@@ -1585,7 +1585,11 @@ class SlashCommands(commands.Cog):
             import requests
             response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=15)
             if response.ok:
-                await interaction.followup.send("🎉 **Félicitations !** Ton compte est maintenant lié. Tu peux utiliser la commande `/noter`.", ephemeral=True)
+                await interaction.followup.send(
+                "🎉 **Félicitations !** Ton compte est maintenant lié. Tu peux utiliser la commande `/noter`.\n\n"
+                "✨ **Vérifie tes e-mails, une surprise t'y attend !**",
+                ephemeral=True
+            )
             else:
                 error_message = response.json().get("error", "Une erreur inconnue est survenue.")
                 await interaction.followup.send(f"❌ **Échec de la vérification :** {error_message}", ephemeral=True)

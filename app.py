@@ -41,6 +41,8 @@ SHOPIFY_ADMIN_ACCESS_TOKEN = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 paris_tz = timezone(timedelta(hours=2))
 
+CLAIMED_WELCOME_CODES_FILE = os.path.join(BASE_DIR, "claimed_welcome_codes.json")
+WELCOME_CODES_FILE = os.path.join(BASE_DIR, "welcome_codes.txt")
 
 # --- Initialisation de la Base de Données ---
 def initialize_db():
@@ -232,7 +234,7 @@ def confirm_verification():
     discord_id = data.get('discord_id')
     code = data.get('code')
 
-    conn = sqlite3.connect(DB_FILE) # [CORRECTION] Utilise la DB partagée
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT user_email, expires_at FROM verification_codes WHERE discord_id = ? AND code = ?", (discord_id, code))
     result = cursor.fetchone()
@@ -250,6 +252,73 @@ def confirm_verification():
     cursor.execute("DELETE FROM verification_codes WHERE discord_id = ?", (discord_id,))
     conn.commit()
     conn.close()
+
+    # --- DÉBUT DE LA NOUVELLE LOGIQUE D'ENVOI DE CODE BIENVENUE ---
+    try:
+        # 1. Vérifier si l'utilisateur a déjà reçu un code
+        claimed_users = {}
+        try:
+            with open(CLAIMED_WELCOME_CODES_FILE, 'r') as f:
+                claimed_users = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+
+        if str(discord_id) in claimed_users:
+            print(f"INFO: L'utilisateur {discord_id} a déjà réclamé un code de bienvenue.")
+            return jsonify({"success": True}), 200
+
+        # 2. Récupérer un code unique
+        with open(WELCOME_CODES_FILE, 'r+') as f:
+            codes = [line.strip() for line in f if line.strip()]
+            if not codes:
+                print("ERREUR CRITIQUE: Plus de codes de bienvenue disponibles !")
+                return jsonify({"success": True}), 200 # On valide quand même la liaison
+
+            gift_code = codes.pop(0)
+            f.seek(0)
+            f.truncate()
+            f.write('\n'.join(codes))
+
+        # 3. Préparer et envoyer l'e-mail de bienvenue
+        message = MIMEMultipart("alternative")
+        message["Subject"] = Header("🎉 Bienvenue chez LaFoncedalle ! Voici votre cadeau.", 'utf-8')
+        message["From"] = f"LaFoncedalle <{SENDER_EMAIL}>"
+        message["To"] = user_email
+        html_body = f"""
+        <html>
+          <body>
+            <h3>Merci d'avoir lié votre compte !</h3>
+            <p>Pour vous remercier de nous rejoindre, voici un code de réduction de <strong>5€</strong> à utiliser sur votre prochaine commande :</p>
+            <h2 style="text-align: center; background-color: #f0f0f0; padding: 10px; border-radius: 5px;">{gift_code}</h2>
+            <p>À très bientôt sur notre boutique !</p>
+            <p><em>L'équipe LaFoncedalle</em></p>
+          </body>
+        </html>
+        """
+        message.attach(MIMEText(html_body, "html", "utf-8"))
+        
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL("mail.infomaniak.com", 465, context=context) as server:
+            auth_string = f"\0{SENDER_EMAIL}\0{INFOMANIAK_APP_PASSWORD}"
+            auth_bytes_utf8 = auth_string.encode('utf-8')
+            auth_bytes_b64 = base64.b64encode(auth_bytes_utf8)
+            server.docmd("AUTH", f"PLAIN {auth_bytes_b64.decode('ascii')}")
+            server.sendmail(SENDER_EMAIL, user_email, message.as_string())
+
+        # 4. Enregistrer que le code a été envoyé
+        claimed_users[str(discord_id)] = {"code": gift_code, "date": datetime.utcnow().isoformat()}
+        with open(CLAIMED_WELCOME_CODES_FILE, 'w') as f:
+            json.dump(claimed_users, f, indent=4)
+        
+        print(f"INFO: Code de bienvenue '{gift_code}' envoyé à {user_email} pour l'utilisateur {discord_id}.")
+
+    except Exception as e:
+        print(f"ERREUR CRITIQUE lors de l'envoi du code de bienvenue : {e}")
+        traceback.print_exc()
+        # On ne bloque pas la liaison même si l'email échoue.
+
+    # --- FIN DE LA NOUVELLE LOGIQUE ---
+    
     return jsonify({"success": True}), 200
 
 @app.route('/api/unlink', methods=['POST'])

@@ -363,6 +363,7 @@ def get_smart_promotions_from_api():
     """
     Interroge l'API Shopify pour trouver toutes les promotions VRAIMENT disponibles
     (actives, non épuisées, publiques et non-destinées aux tests).
+    [MODIFIÉ] : Ne montre que les codes se terminant par "10".
     """
     Logger.info("Recherche des promotions intelligentes et disponibles via l'API...")
     promo_texts = []
@@ -383,21 +384,30 @@ def get_smart_promotions_from_api():
             discount_codes = shopify.DiscountCode.find(price_rule_id=rule.id)
             is_shipping_offer = "livraison" in title_lower
 
-            # --- VÉRIFICATION N°3 (CORRIGÉE) : Ne garder que les offres publiques ---
-            # Une offre est publique si elle a un code de réduction OU si c'est une offre de livraison.
-            # On ignore les offres automatiques qui ne concernent pas la livraison.
+            # --- VÉRIFICATION N°3 : Ne garder que les offres publiques ---
             if not discount_codes and not is_shipping_offer:
                 continue
 
-            # --- VÉRIFICATION N°4 (CORRIGÉE) : Limite d'utilisation ---
-            # On ne fait cette vérification que s'il y a un code et une limite.
+            # --- VÉRIFICATION N°4 : Limite d'utilisation ---
             if discount_codes and rule.usage_limit is not None:
                 code = discount_codes[0]
                 if code.usage_count >= rule.usage_limit:
-                    # La promotion est épuisée, on l'ignore.
                     continue
             
-            # Si toutes les vérifications sont passées, on peut formater le texte.
+            # --- NOUVELLE VÉRIFICATION : Filtrer les codes de réduction ---
+            # Une promotion est valide si c'est une offre de livraison (pas de code)
+            # OU si elle a un code qui se termine par "10".
+            is_valid_promo = False
+            if is_shipping_offer:
+                is_valid_promo = True
+            elif discount_codes and discount_codes[0].code.endswith('10'):
+                is_valid_promo = True
+
+            # Si la promotion n'est pas valide selon nos nouveaux critères, on passe à la suivante.
+            if not is_valid_promo:
+                continue
+
+            # Si la promotion est valide, on peut formater le texte.
             code_text = f" (avec le code `{discount_codes[0].code}`)" if discount_codes else ""
             
             value = float(rule.value)
@@ -411,10 +421,10 @@ def get_smart_promotions_from_api():
                 promo_texts.append(f"💰 {abs(value):.2f}€ de réduction sur {rule.title}{code_text}")
                 
         if not promo_texts:
-            Logger.info("Aucune promotion publique et active trouvée.")
+            Logger.info("Aucune promotion publique et active (terminant par 10) trouvée.")
             return ["Aucune promotion spéciale en ce moment."]
             
-        Logger.success(f"{len(promo_texts)} promotions disponibles trouvées.")
+        Logger.success(f"{len(promo_texts)} promotions disponibles (terminant par 10) trouvées.")
         return promo_texts
 
     except Exception as e:
