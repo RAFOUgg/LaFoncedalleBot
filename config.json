@@ -12,10 +12,11 @@
     ]
   },
   "contact_info": {
-    "boutique_url": "https://la-foncedalle.fr/",
-    "instagram_url": "https://www.instagram.com/lafoncedalle.frr/",
-    "telegram_url": "https://t.me/+X1P65R4EVZAXZmEO",
-    "tiktok_url": "https://www.tiktok.com/@terpsbymaaaax",
+    "description": "Retrouve-nous sur tous nos réseaux pour ne rien manquer des nouveautés et des offres exclusives !",
+    "site": "https://la-foncedalle.fr/",
+    "instagram": "https://www.instagram.com/lafoncedalle.frr/",
+    "telegram": "https://t.me/+X1P65R4EVZAXZmEO",
+    "tiktok": "https://www.tiktok.com/@terpsbymaaaax",
     "main_logo_url": "https://la-foncedalle.fr/cdn/shop/files/logofooter_940a0d85-435e-410d-b047-c402d452d8c3.png?v=1742650852&width=160",
     "thumbnail_logo_url": "https://images-ext-1.discordapp.net/external/Z6lAhCFw2p_h6Q6TDGWYV0Av5oLNsTwBoX2YWNUtN8k/https/i.imgur.com/8wfHIYO.png?format=webp&quality=lossless&width=968&height=968"
   }
