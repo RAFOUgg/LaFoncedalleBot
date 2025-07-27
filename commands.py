@@ -1181,7 +1181,7 @@ class SlashCommands(commands.Cog):
             traceback.print_exc()
             await interaction.followup.send("❌ Erreur lors de la récupération du classement.", ephemeral=True)
 
-    @app_commands.command(name="classement_general", description="Affiche la moyenne de tous les produits notés.")
+    @app_commands.command(name="classement_produits", description="Affiche la moyenne de tous les produits notés.")
     async def classement_general(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         await log_user_action(interaction, "a demandé le classement général des produits.")
@@ -1259,103 +1259,84 @@ class SlashCommands(commands.Cog):
         )
 
         # --- 1. Connectivité ---
-        status_text = ""
-        status_text += f"**API Discord :** `{round(self.bot.latency * 1000)} ms`\n"
-        # Test Shopify
+        status_text = f"**API Discord :** `{round(self.bot.latency * 1000)} ms`\n"
+        
+        # Test Shopify (avec activation de session)
         try:
             start_time = time.time()
             shop_url = os.getenv('SHOPIFY_SHOP_URL')
             api_version = os.getenv('SHOPIFY_API_VERSION')
             access_token = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
+            
             session = shopify.Session(shop_url, api_version, access_token)
             shopify.ShopifyResource.activate_session(session)
             shopify.Shop.current()
             shopify.ShopifyResource.clear_session()
+            
             end_time = time.time()
             status_text += f"✅ **API Shopify :** `Connectée en {round((end_time - start_time) * 1000)} ms`\n"
-        except Exception as e:
+        except Exception:
             status_text += f"❌ **API Shopify :** `Échec de connexion`\n"
         # Test Flask
         try:
-            start_time = time.time()
             import requests
             res = await asyncio.to_thread(requests.get, f"{APP_URL}/", timeout=5)
             res.raise_for_status()
-            end_time = time.time()
-            status_text += f"✅ **API Flask :** `En ligne ({res.status_code}), {round((end_time - start_time) * 1000)} ms`\n"
-        except Exception as e:
+            status_text += f"✅ **API Flask :** `En ligne ({res.status_code})`\n"
+        except Exception:
             status_text += f"❌ **API Flask :** `Injoignable ou erreur`\n"
+        
         embed.add_field(name="🌐 Connectivité", value=status_text, inline=False)
         
         # --- 2. Configuration du Serveur ---
         config_text = ""
-        # Rôle Staff
+        def format_setting(item_id, get_method, is_critical=False):
+            if not item_id:
+                return f"{'❌' if is_critical else '⚠️'} `Non défini`"
+            item = get_method(item_id)
+            if item:
+                return f"✅ {item.mention}"
+            return f"{'❌' if is_critical else '⚠️'} `Introuvable (ID: {item_id})`"
+
         staff_role_id = await config_manager.get_state(guild.id, 'staff_role_id')
-        if staff_role_id and guild.get_role(staff_role_id):
-            config_text += f"✅ **Rôle Staff :** <@&{staff_role_id}>\n"
-        else:
-            config_text += f"⚠️ **Rôle Staff :** `Non configuré ou introuvable`\n"
-        # Rôle Mention
+        config_text += f"**Rôle Staff :** {format_setting(staff_role_id, guild.get_role)}\n"
+        
         mention_role_id = await config_manager.get_state(guild.id, 'mention_role_id')
-        if mention_role_id and guild.get_role(mention_role_id):
-            config_text += f"✅ **Rôle Mention :** <@&{mention_role_id}>\n"
-        else:
-            config_text += f"⚠️ **Rôle Mention :** `Non configuré ou introuvable`\n"
-        # Salon Menu
+        config_text += f"**Rôle Mention :** {format_setting(mention_role_id, guild.get_role)}\n"
+
         menu_channel_id = await config_manager.get_state(guild.id, 'menu_channel_id')
-        if menu_channel_id and guild.get_channel(menu_channel_id):
-            config_text += f"✅ **Salon Menu :** <#{menu_channel_id}>\n"
-        else:
-            config_text += f"❌ **Salon Menu :** `Non configuré ou introuvable`\n"
-        # Salon Sélection
+        config_text += f"**Salon Menu :** {format_setting(menu_channel_id, guild.get_channel, is_critical=True)}\n"
+
         selection_channel_id = await config_manager.get_state(guild.id, 'selection_channel_id')
-        if selection_channel_id and guild.get_channel(selection_channel_id):
-            config_text += f"✅ **Salon Sélection :** <#{selection_channel_id}>\n"
-        else:
-            config_text += f"⚠️ **Salon Sélection :** `Non configuré ou introuvable`\n"
+        config_text += f"**Salon Sélection :** {format_setting(selection_channel_id, guild.get_channel)}\n"
+        
         embed.add_field(name="🔧 Configuration Locale", value=config_text, inline=False)
         
-        # --- 3. État du Cache ---
-        cache_text = ""
+        # --- 3. & 4. Cache et Base de Données ---
         if self.bot.product_cache:
             products_count = len(self.bot.product_cache.get('products', []))
             cache_age_ts = self.bot.product_cache.get('timestamp', 0)
-            cache_text += f"✅ **Statut :** `Chargé`\n"
-            cache_text += f"**Produits en cache :** `{products_count}`\n"
-            cache_text += f"**Dernière MàJ :** <t:{int(cache_age_ts)}:R>\n"
+            embed.add_field(name="🗃️ Cache de Produits", value=f"✅ `Chargé`\n**Produits :** `{products_count}`\n**MàJ :** <t:{int(cache_age_ts)}:R>", inline=True)
         else:
-            cache_text = "❌ **Statut :** `Vide`. Lancez `/check` ou une tâche de fond.\n"
-        embed.add_field(name="🗃️ Cache de Produits", value=cache_text, inline=True)
-        
-        # --- 4. Base de Données ---
-        db_text = ""
+            embed.add_field(name="🗃️ Cache de Produits", value="❌ `Vide`", inline=True)
+            
         try:
             conn = sqlite3.connect(DB_FILE)
             c = conn.cursor()
             ratings_count = c.execute("SELECT COUNT(*) FROM ratings").fetchone()[0]
             links_count = c.execute("SELECT COUNT(*) FROM user_links").fetchone()[0]
             conn.close()
-            db_text += f"✅ **Statut :** `Accessible`\n"
-            db_text += f"**Notes totales :** `{ratings_count}`\n"
-            db_text += f"**Comptes liés :** `{links_count}`\n"
+            embed.add_field(name="💾 Base de Données", value=f"✅ `Accessible`\n**Notes :** `{ratings_count}`\n**Comptes liés :** `{links_count}`", inline=True)
         except Exception as e:
-            db_text = f"❌ **Statut :** `Erreur d'accès`\n`{e}`\n"
-        embed.add_field(name="💾 Base de Données", value=db_text, inline=True)
-
-        embed.set_footer(text=f"ID du Bot: {self.bot.user.id}")
-        
-        view = DebugView(self.bot, interaction.user)
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            embed.add_field(name="💾 Base de Données", value=f"❌ `Erreur d'accès`\n`{e}`", inline=True)
 
         # --- 5. Variables d'Environnement ---
         env_text = ""
         env_vars_to_check = ['SHOPIFY_SHOP_URL', 'SHOPIFY_API_VERSION', 'SHOPIFY_ADMIN_ACCESS_TOKEN', 'APP_URL', 'FLASK_SECRET_KEY']
         for var in env_vars_to_check:
-            # On vérifie si la variable est présente et non vide
             value = os.getenv(var)
-            status_emoji = "✅" if value else "❌"
-            env_text += f"{status_emoji} **{var}:** `{'Présente' if value else 'Manquante'}`\n"
-        embed.add_field(name="🔑 Variables d'Environnement Chargées", value=env_text, inline=False)
+            env_text += f"{'✅' if value else '❌'} **{var}:** `{'Présente' if value else 'Manquante'}`\n"
+        embed.add_field(name="🔑 Variables d'Environnement", value=env_text, inline=False)
         
         embed.set_footer(text=f"ID du Bot: {self.bot.user.id}")
         
