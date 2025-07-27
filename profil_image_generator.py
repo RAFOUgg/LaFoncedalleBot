@@ -52,8 +52,8 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
         draw.rounded_rectangle((610, 280, 1160, 560), fill=COLORS["inner_card"], radius=20)
 
         def draw_stat_line(y, label, value, col_base_x):
-            draw.text((col_base_x + 40, y), label.upper(), font=fonts['label'], fill=COLORS["label_on_white"], anchor="lm")
-            draw.text((col_base_x + 510, y), str(value), font=fonts['value'], fill=COLORS["text_on_white"], anchor="rm")
+            draw.text((col_base_x + 40, y), label.upper(), font=fonts['label'], fill=COLORS["label_text"], anchor="lm")
+            draw.text((col_base_x + 510, y), str(value), font=fonts['value'], fill=COLORS["value_text"], anchor="rm")
 
         avatar_pos, avatar_size = (60, 60), (180, 180)
         try:

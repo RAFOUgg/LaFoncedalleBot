@@ -1,0 +1,17 @@
+# docker-compose.yml
+
+version: '3.8'
+
+services:
+  lafoncedallebot:
+    build: .
+    container_name: lafoncedallebot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./ratings.db:/app/ratings.db
+      - ./bot_state.json:/app/bot_state.json
+      - ./claimed_nitro_codes.json:/app/claimed_nitro_codes.json
+      - ./user_actions.log:/app/user_actions.log
+      - ./charts:/app/charts
