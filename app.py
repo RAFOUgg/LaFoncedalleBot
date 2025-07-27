@@ -58,7 +58,16 @@ def initialize_db():
 
 initialize_db()
 
-
+def anonymize_email(email: str) -> str:
+    """Anonymise une adresse e-mail en gardant la première et la dernière lettre."""
+    if not email or '@' not in email:
+        return "Inconnu"
+    local_part, domain = email.split('@', 1)
+    if len(local_part) <= 2:
+        return f"{local_part[0]}*@{domain}"
+    else:
+        return f"{local_part[0]}{'*' * (len(local_part) - 2)}{local_part[-1]}@{domain}"
+    
 # --- Routes de l'API ---
 
 @app.route('/')
@@ -101,48 +110,47 @@ def debug_filesystem():
 
 @app.route('/api/start-verification', methods=['POST'])
 def start_verification():
+    force = request.args.get('force', 'false').lower() == 'true'
     data = request.json
     discord_id, email = data.get('discord_id'), data.get('email')
+
     if not all([discord_id, email]): return jsonify({"error": "Données manquantes."}), 400
 
-    conn = sqlite3.connect(DB_FILE); cursor = conn.cursor() # [CORRECTION] Utilise la DB partagée
-    cursor.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (discord_id,))
-    if cursor.fetchone(): conn.close(); return jsonify({"error": "Ce compte Discord est déjà lié."}), 409
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+
+    if not force:
+        cursor.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (discord_id,))
+        result = cursor.fetchone()
+        if result:
+            anonymized_email = anonymize_email(result[0])
+            conn.close()
+            return jsonify({"status": "conflict", "existing_email": anonymized_email}), 409
+
+    # ... (Le reste de la fonction pour envoyer l'email est inchangé)
     cursor.execute("SELECT discord_id FROM user_links WHERE user_email = ?", (email,))
-    if cursor.fetchone(): conn.close(); return jsonify({"error": "Cet e-mail est déjà utilisé."}), 409
+    if cursor.fetchone(): conn.close(); return jsonify({"error": "Cet e-mail est déjà utilisé par un autre compte."}), 409
     
     code = str(random.randint(100000, 999999))
     expires_at = int(time.time()) + 600
-
     message = MIMEMultipart("alternative")
-
     sujet = "Votre code de vérification LaFoncedalle"
-    # Format "Nom <email@adresse.com>" recommandé
     expediteur_formate = f"LaFoncedalle <{SENDER_EMAIL}>" 
-    
     message["Subject"] = Header(sujet, 'utf-8')
-    message["From"] = expediteur_formate # Utiliser la version formatée
+    message["From"] = expediteur_formate
     message["To"] = email
     html_body = f'Bonjour !<br>Voici votre code de vérification : <strong>{code}</strong><br>Ce code expire dans 10 minutes.'
     message.attach(MIMEText(html_body, "html", "utf-8"))
-    
     context = ssl.create_default_context()
     try:
         with smtplib.SMTP_SSL("mail.infomaniak.com", 465, context=context) as server:
-            # --- Authentification manuelle (cette partie est CORRECTE) ---
             auth_string = f"\0{SENDER_EMAIL}\0{INFOMANIAK_APP_PASSWORD}"
             auth_bytes_utf8 = auth_string.encode('utf-8')
             auth_bytes_b64 = base64.b64encode(auth_bytes_utf8)
             server.docmd("AUTH", f"PLAIN {auth_bytes_b64.decode('ascii')}")
-            
-            # --- LIGNE CORRIGÉE CI-DESSOUS ---
-            # On utilise la variable "email" qui est définie dans cette fonction
             server.sendmail(SENDER_EMAIL, email, message.as_string())
-
-        print(f"E-mail de vérification envoyé avec succès à {email}")
     except Exception as e:
-        print(f"ERREUR SMTP CRITIQUE: {e}") 
-        traceback.print_exc() 
+        print(f"ERREUR SMTP CRITIQUE: {e}"); traceback.print_exc()
         return jsonify({"error": "Impossible d'envoyer l'e-mail de vérification."}), 500
 
     cursor.execute("INSERT OR REPLACE INTO verification_codes VALUES (?, ?, ?, ?)", (discord_id, email, code, expires_at))
@@ -329,29 +337,31 @@ def unlink_account():
 
 @app.route('/api/force-link', methods=['POST'])
 def force_link():
-    # [CORRECTION] Ajout d'une protection par clé secrète sur cet endpoint sensible
+    force = request.args.get('force', 'false').lower() == 'true'
     auth_header = request.headers.get('Authorization')
     expected_header = f"Bearer {FLASK_SECRET_KEY}"
-
     if not auth_header or auth_header != expected_header:
         return jsonify({"error": "Accès non autorisé."}), 403
 
     data = request.json
-    discord_id = data.get('discord_id')
-    email = data.get('email')
+    discord_id, email = data.get('discord_id'), data.get('email')
+    if not all([discord_id, email]): return jsonify({"error": "ID Discord ou e-mail manquant."}), 400
 
-    if not all([discord_id, email]):
-        return jsonify({"error": "ID Discord ou e-mail manquant."}), 400
-
-    conn = sqlite3.connect(DB_FILE) # [CORRECTION] Utilise la DB partagée
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    
+
+    if not force:
+        cursor.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (discord_id,))
+        result = cursor.fetchone()
+        if result:
+            anonymized_email = anonymize_email(result[0])
+            conn.close()
+            return jsonify({"status": "conflict", "existing_email": anonymized_email}), 409
+
     cursor.execute("INSERT OR REPLACE INTO user_links (discord_id, user_email) VALUES (?, ?)", (discord_id, email))
     cursor.execute("DELETE FROM verification_codes WHERE discord_id = ?", (discord_id,))
-    
     conn.commit()
     conn.close()
-    
     return jsonify({"success": True, "message": f"Compte {discord_id} forcé à être lié à {email}."}), 200
 
 @app.route('/api/get_purchased_products/<discord_id>')

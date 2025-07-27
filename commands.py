@@ -26,19 +26,43 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
         return False
     return any(role.id == staff_role_id_int for role in interaction.user.roles)
 
-def anonymize_email(email: str) -> str:
-    """Anonymise une adresse e-mail en gardant la première et la dernière lettre."""
-    if not email or '@' not in email:
-        return "Non lié"
-    
-    local_part, domain = email.split('@', 1)
-    
-    if len(local_part) <= 2:
-        return f"{local_part[0]}*@{domain}"
-    else:
-        return f"{local_part[0]}{'*' * (len(local_part) - 2)}{local_part[-1]}@{domain}"
-    
+   
 # --- VUES ET MODALES ---
+
+class ConfirmOverwriteView(discord.ui.View):
+    def __init__(self, api_url: str, payload: dict, headers: Optional[dict]):
+        super().__init__(timeout=60)
+        self.api_url = api_url
+        self.payload = payload
+        self.headers = headers
+
+    @discord.ui.button(label="Confirmer le remplacement", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(thinking=True)
+        try:
+            import aiohttp
+            # On ajoute le paramètre "force=true" pour la deuxième requête
+            async with aiohttp.ClientSession() as session:
+                async with session.post(f"{self.api_url}?force=true", json=self.payload, headers=self.headers) as response:
+                    if response.ok:
+                        email = self.payload.get("email")
+                        if "force-link" in self.api_url:
+                            await interaction.followup.send(f"✅ **Succès !** Le compte a été mis à jour et est maintenant lié à `{email}`.", ephemeral=True)
+                        else:
+                            await interaction.followup.send(f"✅ **C'est fait !** Un nouvel e-mail de vérification a été envoyé à `{email}` pour confirmer le changement.", ephemeral=True)
+                    else:
+                        data = await response.json()
+                        await interaction.followup.send(f"❌ Une erreur est survenue : {data.get('error', 'Erreur inconnue')}", ephemeral=True)
+            self.stop()
+        except Exception as e:
+            Logger.error(f"Erreur dans ConfirmOverwriteView: {e}")
+            await interaction.followup.send("❌ Oups, une erreur critique est survenue.", ephemeral=True)
+            self.stop()
+
+    @discord.ui.button(label="Annuler", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Opération annulée.", view=None)
+        self.stop()
 
 class PromoPaginatorView(discord.ui.View):
     def __init__(self, promo_products: List[dict], general_promos: List[str], items_per_page=3):
@@ -1574,64 +1598,69 @@ class SlashCommands(commands.Cog):
     async def lier_force(self, interaction: discord.Interaction, email: str, membre: Optional[discord.Member] = None):
         await interaction.response.defer(ephemeral=True)
         target_user = membre or interaction.user
-        await log_user_action(interaction, f"a forcé la liaison du compte de {target_user.display_name} à {email}")
+        
         api_url = f"{APP_URL}/api/force-link"
         payload = {"discord_id": str(target_user.id), "email": email}
-        headers = {
-            "Authorization": f"Bearer {FLASK_SECRET_KEY}"
-        }
+        headers = {"Authorization": f"Bearer {FLASK_SECRET_KEY}"}
+        
         try:
-        # On utilise aiohttp comme pour l'autre commande, c'est plus propre
             import aiohttp
             async with aiohttp.ClientSession() as session:
-                async with session.post(api_url, json=payload, headers=headers, timeout=15) as response:
-                    if response.content_type == 'application/json':
+                async with session.post(api_url, json=payload, headers=headers) as response:
+                    if response.ok:
+                        await interaction.followup.send(f"✅ **Succès !** Le compte de {target_user.mention} est maintenant lié à l'e-mail `{email}`.", ephemeral=True)
+                    elif response.status == 409:
                         data = await response.json()
-                        if response.ok:
-                            await interaction.followup.send(f"✅ **Succès !** Le compte de {target_user.mention} est maintenant lié à l'e-mail `{email}`.", ephemeral=True)
+                        if data.get("status") == "conflict":
+                            existing_email = data.get("existing_email")
+                            anonymized_new_email = anonymize_email(email)
+                            view = ConfirmOverwriteView(api_url, payload, headers)
+                            await interaction.followup.send(
+                                f"⚠️ **Attention !** Le compte de {target_user.mention} est déjà lié à `{existing_email}`.\n\n"
+                                f"Voulez-vous le remplacer par `{anonymized_new_email}` ?",
+                                view=view, ephemeral=True
+                            )
                         else:
-                            error_message = data.get("error", "Une erreur inconnue est survenue.")
-                            await interaction.followup.send(f"❌ **Échec :** {error_message}", ephemeral=True)
+                            await interaction.followup.send(f"❌ Erreur inattendue : {await response.text()}", ephemeral=True)
                     else:
-                        raw_text = await response.text()
-                        Logger.error(f"L'API /force-link a renvoyé une réponse non-JSON (Status: {response.status})")
-                        Logger.error(f"Réponse brute : {raw_text[:500]}")
-                        await interaction.followup.send("❌ Le serveur a renvoyé une réponse inattendue.", ephemeral=True)
-            
+                        data = await response.json()
+                        await interaction.followup.send(f"❌ **Échec :** {data.get('error', 'Erreur inconnue')}", ephemeral=True)
         except Exception as e:
-            Logger.error(f"Erreur API /force-link : {e}")
-            traceback.print_exc()
-            await interaction.followup.send("❌ Impossible de contacter le service de liaison. Réessayez plus tard.", ephemeral=True)
+            Logger.error(f"Erreur API /force-link : {e}"); traceback.print_exc()
+            await interaction.followup.send("❌ Impossible de contacter le service de liaison.", ephemeral=True)
 
     @app_commands.command(name="lier_compte", description="Démarre la liaison de ton compte via ton e-mail.")
     @app_commands.describe(email="L'adresse e-mail de tes commandes.")
     async def lier_compte(self, interaction: discord.Interaction, email: str):
         await interaction.response.defer(ephemeral=True)
-        await log_user_action(interaction, f"a tenté de lier son compte à l'email {email}")
-
         api_url = f"{APP_URL}/api/start-verification"
         payload = {"discord_id": str(interaction.user.id), "email": email}
         
         try:
             import requests
             response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=15)
-            try:
+            
+            if response.ok:
+                await interaction.followup.send(f"✅ E-mail de vérification envoyé à **{email}**. Utilise `/verifier` avec le code.", ephemeral=True)
+            elif response.status_code == 409:
                 data = response.json()
-                if response.ok: # Status 200-299
-                    await interaction.followup.send(f"✅ E-mail de vérification envoyé à **{email}**. Utilise `/verifier` avec le code.", ephemeral=True)
-                else: # Erreurs prévues comme 409
-                    error_message = data.get('error', 'Une erreur est survenue.')
-                    await interaction.followup.send(f"⚠️ **Échec :** {error_message}", ephemeral=True)
-
-            except requests.exceptions.JSONDecodeError:
-                Logger.error("L'API a renvoyé une réponse non-JSON !")
-                Logger.error(f"Status Code: {response.status_code}")
-                Logger.error(f"Réponse Brute: {response.text[:500]}") # On logue les 500 premiers caractères de la réponse
-                await interaction.followup.send("❌ Le serveur de vérification a rencontré une erreur interne. Le staff a été notifié.", ephemeral=True)
-
+                if data.get("status") == "conflict":
+                    existing_email = data.get("existing_email")
+                    anonymized_new_email = anonymize_email(email)
+                    view = ConfirmOverwriteView(api_url, payload, headers=None)
+                    await interaction.followup.send(
+                        f"⚠️ **Attention !** Votre compte Discord est déjà lié à l'e-mail `{existing_email}`.\n\n"
+                        f"Voulez-vous le remplacer par `{anonymized_new_email}` ?",
+                        view=view, ephemeral=True
+                    )
+                else:
+                    await interaction.followup.send(f"⚠️ **Échec :** {data.get('error', 'Erreur inconnue')}", ephemeral=True)
+            else:
+                await interaction.followup.send(f"⚠️ **Échec :** {response.json().get('error', 'Une erreur est survenue.')}", ephemeral=True)
+                
         except requests.exceptions.RequestException as e:
             Logger.error(f"Erreur de connexion à l'API /start-verification : {e}")
-            await interaction.followup.send("❌ Impossible de contacter le service de vérification. Est-il bien en ligne ?", ephemeral=True)
+            await interaction.followup.send("❌ Impossible de contacter le service de vérification.", ephemeral=True)
 
     @app_commands.command(name="verifier", description="Valide ton adresse e-mail avec le code reçu.")
     @app_commands.describe(code="Le code à 6 chiffres reçu par e-mail.")
