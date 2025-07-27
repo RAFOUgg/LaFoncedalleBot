@@ -1,17 +1,37 @@
-# docker-compose.yml
-
 version: '3.8'
 
 services:
-  lafoncedallebot:
+  # Service de l'API Flask
+  lafoncedalleapi:
     build: .
-    container_name: lafoncedallebot
-    restart: unless-stopped
+    container_name: lafoncedalleapi
+    restart: always
+    # Lance uniquement l'API
+    command: ["python", "app.py"]
     env_file:
       - .env
     volumes:
       - ./ratings.db:/app/ratings.db
-      - ./bot_state.json:/app/bot_state.json
-      - ./claimed_nitro_codes.json:/app/claimed_nitro_codes.json
-      - ./user_actions.log:/app/user_actions.log
-      - ./charts:/app/charts
+    networks:
+      - lafoncedallenet
+
+  # Service du Bot Discord
+  lafoncedallebot:
+    build: .
+    container_name: lafoncedallebot
+    restart: always
+    # Le bot attend que l'API soit prête
+    depends_on:
+      - lafoncedalleapi
+    env_file:
+      - .env
+    volumes:
+      - ./ratings.db:/app/ratings.db
+    networks:
+      - lafoncedallenet
+    # Utilise la commande par défaut du Dockerfile (start.sh)
+
+# Définition du réseau partagé
+networks:
+  lafoncedallenet:
+    driver: bridge
