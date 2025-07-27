@@ -18,7 +18,7 @@ from flask import Flask, request, jsonify
 import shopify
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
-
+import json
 # [CORRECTION] Import des variables depuis config.py et catalogue_final pour le bot
 
 
