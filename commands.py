@@ -886,27 +886,23 @@ class ConfigCog(commands.GroupCog, name="lfd-config", description="Gère la conf
         self.bot = bot
         super().__init__()
 
-    # --- COMMANDE D'AFFICHAGE AMÉLIORÉE ---
+    # --- COMMANDE D'AFFICHAGE (INCHANGÉE) ---
     @app_commands.command(name="view", description="Affiche la configuration actuelle du bot pour ce serveur.")
     @app_commands.check(is_staff_or_owner)
     async def view_config(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
         guild = interaction.guild
 
-        # Récupération de toutes les configurations
         staff_role_id = await config_manager.get_state(guild.id, 'staff_role_id')
         mention_role_id = await config_manager.get_state(guild.id, 'mention_role_id')
         menu_channel_id = await config_manager.get_state(guild.id, 'menu_channel_id')
         selection_channel_id = await config_manager.get_state(guild.id, 'selection_channel_id')
         bots_channel_id = await config_manager.get_state(guild.id, 'bots_channel_id')
 
-        # Formatage avec statut visuel
         def format_setting(item_id, item_type, is_critical=False):
             if not item_id:
                 return f"{'❌' if is_critical else '⚠️'} `Non défini`"
-            
             item = guild.get_role(item_id) if item_type == 'role' else guild.get_channel(item_id)
-            
             if item:
                 return f"✅ {item.mention}"
             else:
@@ -929,13 +925,13 @@ class ConfigCog(commands.GroupCog, name="lfd-config", description="Gère la conf
         embed.set_footer(text="Utilisez /lfd-config set pour modifier ces paramètres.")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-
-    # --- NOUVELLE COMMANDE UNIFIÉE ---
+    # --- COMMANDE UNIFIÉE CORRIGÉE ---
     @app_commands.command(name="set", description="Définit un paramètre de configuration pour le bot.")
     @app_commands.check(is_staff_or_owner)
     @app_commands.describe(
-        parametre="Le paramètre que vous souhaitez modifier.",
-        valeur="Le rôle ou le salon à assigner."
+        parametre="Le paramètre à modifier.",
+        role="La valeur si vous configurez un rôle.",
+        salon="La valeur si vous configurez un salon."
     )
     @app_commands.choices(parametre=[
         Choice(name="Rôle Staff", value="staff_role_id"),
@@ -944,25 +940,32 @@ class ConfigCog(commands.GroupCog, name="lfd-config", description="Gère la conf
         Choice(name="Salon de la Sélection", value="selection_channel_id"),
         Choice(name="Salon des commandes Bots (XP)", value="bots_channel_id"),
     ])
-    async def set_config(self, interaction: discord.Interaction, parametre: Choice[str], valeur: Union[discord.Role, discord.TextChannel]):
+    async def set_config(self, interaction: discord.Interaction, parametre: Choice[str], role: Optional[discord.Role] = None, salon: Optional[discord.TextChannel] = None):
         await interaction.response.defer(ephemeral=True)
-        
-        # Validation du type de valeur
+
         param_key = parametre.value
         param_name = parametre.name
-        
-        if 'role' in param_key and not isinstance(valeur, discord.Role):
-            await interaction.followup.send(f"❌ Le paramètre '{param_name}' attend un **rôle**.", ephemeral=True)
+        valeur = role or salon
+
+        # --- Validations robustes ---
+        if not valeur:
+            await interaction.followup.send("❌ Vous devez spécifier une valeur (soit un `rôle`, soit un `salon`).", ephemeral=True)
             return
-        if 'channel' in param_key and not isinstance(valeur, discord.TextChannel):
-            await interaction.followup.send(f"❌ Le paramètre '{param_name}' attend un **salon textuel**.", ephemeral=True)
+        if role and salon:
+            await interaction.followup.send("❌ Vous ne pouvez pas spécifier un `rôle` et un `salon` en même temps.", ephemeral=True)
+            return
+        if 'role' in param_key and not role:
+            await interaction.followup.send(f"❌ Le paramètre '{param_name}' attend un `rôle`.", ephemeral=True)
+            return
+        if 'channel' in param_key and not salon:
+            await interaction.followup.send(f"❌ Le paramètre '{param_name}' attend un `salon`.", ephemeral=True)
             return
 
         # Mise à jour de la configuration
         await config_manager.update_state(interaction.guild.id, param_key, valeur.id)
         await log_user_action(interaction, f"a configuré '{param_name}' sur {valeur.name}")
         
-        await interaction.followup.send(f"✅ Le paramètre **{param_name}** a été mis à jour avec {valeur.mention}.", ephemeral=True)
+        await interaction.followup.send(f"✅ Le paramètre **{param_name}** a bien été mis à jour avec {valeur.mention}.", ephemeral=True)
 
 # -- COMMANDES --
 class SlashCommands(commands.Cog):
