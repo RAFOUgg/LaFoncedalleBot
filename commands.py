@@ -1294,10 +1294,11 @@ class SlashCommands(commands.Cog):
         def format_setting(item_id, get_method, is_critical=False):
             if not item_id:
                 return f"{'❌' if is_critical else '⚠️'} `Non défini`"
-            item = get_method(int(item_id)) if item_id.isdigit() else None
+            item = get_method(item_id)
             if item:
                 return f"✅ {item.mention}"
-            return f"{'❌' if is_critical else '⚠️'} `Introuvable (ID: {item_id})`"
+            else:
+                return f"{'❌' if is_critical else '⚠️'} `Introuvable (ID: {item_id})`"
 
         staff_role_id = await config_manager.get_state(guild.id, 'staff_role_id')
         config_text += f"**Rôle Staff :** {format_setting(staff_role_id, guild.get_role)}\n"
