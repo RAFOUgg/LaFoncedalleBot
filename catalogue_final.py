@@ -137,6 +137,8 @@ def get_site_data_from_api():
             Logger.error("Identifiants Shopify manquants.")
             return None
 
+        session = shopify.Session(shop_url, api_version, access_token)
+        shopify.ShopifyResource.activate_session(session)
         shopify.Shop.current()
 
         # --- ÉTAPE 1 : Récupérer la liste de tous les produits PUBLIÉS ---

@@ -1248,6 +1248,21 @@ class SlashCommands(commands.Cog):
         
         view = DebugView(self.bot, interaction.user)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        
+        # --- 5. Variables d'Environnement ---
+        env_text = ""
+        env_vars_to_check = ['SHOPIFY_SHOP_URL', 'SHOPIFY_API_VERSION', 'SHOPIFY_ADMIN_ACCESS_TOKEN', 'APP_URL', 'FLASK_SECRET_KEY']
+        for var in env_vars_to_check:
+            # On vérifie si la variable est présente et non vide
+            value = os.getenv(var)
+            status_emoji = "✅" if value else "❌"
+            env_text += f"{status_emoji} **{var}:** `{'Présente' if value else 'Manquante'}`\n"
+        embed.add_field(name="🔑 Variables d'Environnement Chargées", value=env_text, inline=False)
+        
+        embed.set_footer(text=f"ID du Bot: {self.bot.user.id}")
+        
+        view = DebugView(self.bot, interaction.user)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     # Dans commands.py, classe SlashCommands
 
