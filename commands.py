@@ -887,20 +887,17 @@ class SlashCommands(commands.Cog):
 
     # --- Commandes dans le sous-dossier "roles" ---
     config = app_commands.Group(name="config", description="Gère la configuration du bot.", guild_only=True)
-    
+
     @config.command(name="role_staff", description="Définit le rôle des administrateurs.")
     @app_commands.check(is_staff_or_owner)
-    @app_commands.describe(role="Le rôle qui aura les permissions staff.")
     async def set_staff_role(self, interaction: discord.Interaction, role: discord.Role):
         await interaction.response.defer(ephemeral=True)
         await config_manager.update_state(interaction.guild.id, 'staff_role_id', role.id)
         await log_user_action(interaction, f"a défini le Rôle Staff sur {role.name}")
         await interaction.followup.send(f"✅ Le **Rôle Staff** est maintenant {role.mention}.", ephemeral=True)
 
-    # ON FAIT DE MÊME POUR TOUTES LES AUTRES COMMANDES DU GROUPE
     @config.command(name="role_mention", description="Définit le rôle à mentionner pour les nouveautés.")
     @app_commands.check(is_staff_or_owner)
-    @app_commands.describe(role="Le rôle qui sera notifié.")
     async def set_mention_role(self, interaction: discord.Interaction, role: discord.Role):
         await interaction.response.defer(ephemeral=True)
         await config_manager.update_state(interaction.guild.id, 'mention_role_id', role.id)
@@ -909,7 +906,6 @@ class SlashCommands(commands.Cog):
 
     @config.command(name="salon_menu", description="Définit le salon où le menu sera posté.")
     @app_commands.check(is_staff_or_owner)
-    @app_commands.describe(salon="Le salon qui affichera le menu.")
     async def set_menu_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
         await interaction.response.defer(ephemeral=True)
         await config_manager.update_state(interaction.guild.id, 'menu_channel_id', salon.id)
@@ -918,16 +914,14 @@ class SlashCommands(commands.Cog):
 
     @config.command(name="salon_selection", description="Définit le salon de la sélection de la semaine.")
     @app_commands.check(is_staff_or_owner)
-    @app_commands.describe(salon="Le salon qui affichera la sélection.")
     async def set_selection_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
         await interaction.response.defer(ephemeral=True)
         await config_manager.update_state(interaction.guild.id, 'selection_channel_id', salon.id)
         await log_user_action(interaction, f"a défini le Salon de la Sélection sur {salon.name}")
         await interaction.followup.send(f"✅ Le **Salon de la Sélection** est maintenant {salon.mention}.", ephemeral=True)
-        
+
     @config.command(name="salon_bots", description="Définit le salon pour les commandes inter-bots (ex: XP DraftBot).")
     @app_commands.check(is_staff_or_owner)
-    @app_commands.describe(salon="Le salon où les bots peuvent s'envoyer des commandes.")
     async def set_bots_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
         await interaction.response.defer(ephemeral=True)
         await config_manager.update_state(interaction.guild.id, 'bots_channel_id', salon.id)
