@@ -23,7 +23,97 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
 
 # --- VUES ET MODALES ---
 
-# VUE POUR PAGINER LES NOTES (VERSION AMÉLIORÉE ++)
+class PromoPaginatorView(discord.ui.View):
+    def __init__(self, promo_products: List[dict], general_promos: List[str], items_per_page=3):
+        super().__init__(timeout=180)
+        self.promo_products = promo_products
+        self.general_promos = general_promos
+        self.items_per_page = items_per_page
+        self.current_page = 0
+        
+        # La pagination ne s'applique qu'aux produits, pas aux promos générales
+        if self.promo_products:
+            self.total_pages = (len(self.promo_products) - 1) // self.items_per_page
+        else:
+            self.total_pages = 0
+            
+        self.update_buttons()
+
+    def update_buttons(self):
+        # On ne retire que les boutons de navigation pour ne pas toucher à d'éventuels autres boutons
+        nav_buttons = [item for item in self.children if isinstance(item, (self.PrevButton, self.NextButton))]
+        for button in nav_buttons:
+            self.remove_item(button)
+
+        # On ajoute les boutons uniquement s'il y a plus d'une page de produits
+        if self.total_pages > 0:
+            prev_button = self.PrevButton(disabled=(self.current_page == 0))
+            next_button = self.NextButton(disabled=(self.current_page >= self.total_pages))
+            self.add_item(prev_button)
+            self.add_item(next_button)
+
+    def create_embed(self) -> discord.Embed:
+        # On utilise votre helper pour un style cohérent
+        embed = create_styled_embed(
+            title="🎁 Promotions & Avantages en Cours",
+            description="Toutes les offres actuellement disponibles sur la boutique.",
+            color=discord.Color.from_rgb(255, 105, 180) # Rose "promo"
+        )
+
+        # 1. Section des promotions générales (toujours visible)
+        if self.general_promos:
+            promo_text = "\n".join([f"**•** {promo}" for promo in self.general_promos])
+            embed.add_field(name="✨ Avantages Généraux", value=promo_text, inline=False)
+            embed.add_field(name="\u200b", value="-"*25, inline=False) # Séparateur visuel
+        
+        # 2. Section des produits en promotion (paginée)
+        if not self.promo_products:
+            embed.add_field(name="🛍️ Produits en Promotion", value="Aucun produit spécifique en promotion pour le moment.", inline=False)
+        else:
+            start_index = self.current_page * self.items_per_page
+            end_index = start_index + self.items_per_page
+            page_products = self.promo_products[start_index:end_index]
+            
+            embed.add_field(name="🛍️ Produits en Promotion", value="\u200b", inline=False) # Titre de section
+
+            for product in page_products:
+                price_text = f"**{product.get('price')}** ~~{product.get('original_price')}~~"
+                product_url = product.get('product_url', CATALOG_URL)
+                
+                field_value = (
+                    f"**Prix :** {price_text}\n"
+                    f"**[🛒 Voir le produit]({product_url})**"
+                )
+                embed.add_field(name=f"🏷️ {product.get('name', 'Produit Inconnu')}", value=field_value, inline=True)
+        
+        # 3. Footer de pagination
+        if self.promo_products:
+            embed.set_footer(text=f"LaFoncedalle • Page {self.current_page + 1}/{self.total_pages + 1}")
+            
+        return embed
+        
+    async def update_message(self, interaction: discord.Interaction):
+        self.update_buttons()
+        embed = self.create_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    # Inner classes pour les boutons, comme dans vos autres paginateurs
+    class PrevButton(discord.ui.Button):
+        def __init__(self, disabled=False):
+            super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary, disabled=disabled)
+        async def callback(self, interaction: discord.Interaction):
+            if self.view.current_page > 0:
+                self.view.current_page -= 1
+            await self.view.update_message(interaction)
+
+    class NextButton(discord.ui.Button):
+        def __init__(self, disabled=False):
+            super().__init__(label="Suivant ➡️", style=discord.ButtonStyle.secondary, disabled=disabled)
+        async def callback(self, interaction: discord.Interaction):
+            if self.view.current_page < self.view.total_pages:
+                self.view.current_page += 1
+            await self.view.update_message(interaction)
+            
 class RatingsPaginatorView(discord.ui.View):
     def __init__(self, target_user, user_ratings, community_ratings_map, items_per_page=1):
         super().__init__(timeout=180)
@@ -1228,9 +1318,7 @@ class SlashCommands(commands.Cog):
         
         try:
             import requests
-            response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=15)
-
-            # --- CORRECTION FINALE : On essaie de lire le JSON, et si ça échoue, on affiche l'erreur brute ---
+            response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=15)--
             try:
                 data = response.json()
                 if response.ok: # Status 200-299
@@ -1240,7 +1328,6 @@ class SlashCommands(commands.Cog):
                     await interaction.followup.send(f"⚠️ **Échec :** {error_message}", ephemeral=True)
 
             except requests.exceptions.JSONDecodeError:
-                # C'EST ICI QUE LA MAGIE OPÈRE
                 Logger.error("L'API a renvoyé une réponse non-JSON !")
                 Logger.error(f"Status Code: {response.status_code}")
                 Logger.error(f"Réponse Brute: {response.text[:500]}") # On logue les 500 premiers caractères de la réponse
