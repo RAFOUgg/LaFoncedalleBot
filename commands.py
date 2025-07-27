@@ -1318,7 +1318,7 @@ class SlashCommands(commands.Cog):
         
         try:
             import requests
-            response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=15)--
+            response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=15)
             try:
                 data = response.json()
                 if response.ok: # Status 200-299
