@@ -1264,7 +1264,13 @@ class SlashCommands(commands.Cog):
         # Test Shopify
         try:
             start_time = time.time()
+            shop_url = os.getenv('SHOPIFY_SHOP_URL')
+            api_version = os.getenv('SHOPIFY_API_VERSION')
+            access_token = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
+            session = shopify.Session(shop_url, api_version, access_token)
+            shopify.ShopifyResource.activate_session(session)
             shopify.Shop.current()
+            shopify.ShopifyResource.clear_session()
             end_time = time.time()
             status_text += f"✅ **API Shopify :** `Connectée en {round((end_time - start_time) * 1000)} ms`\n"
         except Exception as e:
