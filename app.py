@@ -19,6 +19,7 @@ import shopify
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
 import json
+from shared_utils import Logger, DB_FILE, anonymize_email
 # [CORRECTION] Import des variables depuis config.py et catalogue_final pour le bot
 
 
@@ -32,7 +33,6 @@ SHOP_URL = os.getenv('SHOPIFY_SHOP_URL')
 SHOPIFY_API_VERSION = os.getenv('SHOPIFY_API_VERSION')
 
 # Récupération des secrets depuis les variables d'environnement SMTP
-DB_FILE = "/app/ratings.db"
 SENDER_EMAIL = os.getenv('SENDER_EMAIL')
 INFOMANIAK_APP_PASSWORD = os.getenv('INFOMANIAK_APP_PASSWORD')
 SHOPIFY_ADMIN_ACCESS_TOKEN = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
@@ -58,16 +58,7 @@ def initialize_db():
 
 initialize_db()
 
-def anonymize_email(email: str) -> str:
-    """Anonymise une adresse e-mail en gardant la première et la dernière lettre."""
-    if not email or '@' not in email:
-        return "Inconnu"
-    local_part, domain = email.split('@', 1)
-    if len(local_part) <= 2:
-        return f"{local_part[0]}*@{domain}"
-    else:
-        return f"{local_part[0]}{'*' * (len(local_part) - 2)}{local_part[-1]}@{domain}"
-    
+
 # --- Routes de l'API ---
 
 @app.route('/')

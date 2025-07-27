@@ -136,6 +136,17 @@ CATALOG_URL = os.getenv('CATALOG_URL')
 BASE_URL = "https://la-foncedalle.fr"
 THUMBNAIL_LOGO_URL = config_manager.get_config("contact_info.thumbnail_logo_url", "")
 
+def anonymize_email(email: str) -> str:
+    """Anonymise une adresse e-mail en gardant la première et la dernière lettre."""
+    if not email or '@' not in email:
+        return "Inconnu"
+    local_part, domain = email.split('@', 1)
+    if len(local_part) <= 2:
+        return f"{local_part[0]}*@{domain}"
+    else:
+        return f"{local_part[0]}{'*' * (len(local_part) - 2)}{local_part[-1]}@{domain}"
+    
+    
 def categorize_products(products: list):
     """
     VERSION FINALE : Catégorise les produits en se basant sur la clé 'category' 
