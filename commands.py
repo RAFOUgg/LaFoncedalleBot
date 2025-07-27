@@ -1475,6 +1475,7 @@ class SlashCommands(commands.Cog):
             Logger.error(f"Erreur dans /nitro_gift : {e}"); traceback.print_exc()
             await interaction.followup.send("❌ Erreur interne.", ephemeral=True)
     
+
     @app_commands.command(name="profil", description="Affiche le profil et les notations d'un membre.")
     @app_commands.describe(membre="Le membre dont vous voulez voir le profil (optionnel).")
     async def profil(self, interaction: discord.Interaction, membre: Optional[discord.Member] = None):
@@ -1483,16 +1484,12 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, f"a consulté le profil de {target_user.display_name}")
 
         def _fetch_user_data_sync(user_id):
-            # On regroupe toutes les opérations synchrones
+            # ... (cette fonction interne est correcte et ne change pas) ...
             conn = sqlite3.connect(DB_FILE)
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
-
-            # 1. Notes
             c.execute("SELECT * FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC", (user_id,))
             user_ratings = [dict(row) for row in c.fetchall()]
-
-            # 2. Stats
             c.execute("""
                 WITH UserAverageNotes AS (
                     SELECT user_id, (COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0 AS avg_note
@@ -1507,20 +1504,14 @@ class SlashCommands(commands.Cog):
             stats_row = c.fetchone()
             user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0}
             if stats_row: user_stats.update(dict(stats_row))
-
-            # 3. Badge
             one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
             c.execute("SELECT user_id FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY COUNT(id) DESC LIMIT 3", (one_month_ago,))
             top_3_monthly_ids = [row['user_id'] for row in c.fetchall()]
             user_stats['monthly_rank'] = top_3_monthly_ids.index(user_id) + 1 if user_id in top_3_monthly_ids else None
-            
-            # 4. Email
             c.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (str(user_id),))
             email_row = c.fetchone()
             user_email = email_row['user_email'] if email_row else None
             conn.close()
-            
-            # 5. Données Shopify (appel API)
             shopify_data = {}
             if user_email:
                 shopify_data['anonymized_email'] = anonymize_email(user_email)
@@ -1534,14 +1525,12 @@ class SlashCommands(commands.Cog):
                         Logger.warning(f"L'API Flask a retourné un statut {res.status_code} pour {user_id}.")
                 except requests.exceptions.RequestException as e:
                     Logger.error(f"API Flask inaccessible pour {user_id}: {e}")
-            
             return user_stats, user_ratings, shopify_data
 
         try:
             user_stats, user_ratings, shopify_data = await asyncio.to_thread(_fetch_user_data_sync, target_user.id)
 
-            # On vérifie s'il y a une quelconque activité
-            if user_stats.get('count', 0) == 0 and not shopify_data.get('purchase_count'):
+            if not user_ratings and not shopify_data.get('purchase_count'):
                 await interaction.followup.send("Cet utilisateur n'a aucune activité enregistrée.", ephemeral=True)
                 return
 
@@ -1561,8 +1550,9 @@ class SlashCommands(commands.Cog):
                 shop_activity_text = "❌ Compte non lié. Utilise `/lier_compte`."
             embed.add_field(name="🛍️ Activité sur la Boutique", value=shop_activity_text, inline=False)
 
-            # Section Discord
-            if user_stats.get('count', 0) > 0:
+            # --- BLOC D'AFFICHAGE CORRIGÉ POUR LE DISCORD ---
+            # On utilise `user_ratings` directement pour vérifier s'il y a des notes.
+            if user_ratings:
                 discord_activity_text = (
                     f"**Classement :** `#{user_stats.get('rank', 'N/C')}`\n"
                     f"**Nombre de notes :** `{user_stats.get('count', 0)}`\n"
@@ -1574,6 +1564,7 @@ class SlashCommands(commands.Cog):
             else:
                 discord_activity_text = "Aucune note enregistrée."
             embed.add_field(name="📝 Activité sur le Discord", value=discord_activity_text, inline=False)
+            # --- FIN DU BLOC CORRIGÉ ---
             
             can_reset = membre and membre.id != interaction.user.id and await is_staff_or_owner(interaction)
             view = ProfileView(target_user, user_stats, user_ratings, shopify_data, can_reset, self.bot)
