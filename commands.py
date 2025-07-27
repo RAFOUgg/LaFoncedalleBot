@@ -881,7 +881,7 @@ class ContactButtonsView(discord.ui.View):
         if contact_info.get("tiktok"): self.add_item(discord.ui.Button(label="TikTok", style=discord.ButtonStyle.link, url=contact_info["tiktok"], emoji=TIKTOK_EMOJI))
 
 @app_commands.guild_only()
-class ConfigCog(commands.GroupCog, name="LFD-Config", description="Gère la configuration du bot LaFoncedalle."):
+class ConfigCog(commands.GroupCog, name="lfd-config", description="Gère la configuration du bot LaFoncedalle."):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         super().__init__()
