@@ -880,7 +880,7 @@ class ContactButtonsView(discord.ui.View):
         if contact_info.get("telegram"): self.add_item(discord.ui.Button(label="Telegram", style=discord.ButtonStyle.link, url=contact_info["telegram"], emoji=TELEGRAM_EMOJI))
         if contact_info.get("tiktok"): self.add_item(discord.ui.Button(label="TikTok", style=discord.ButtonStyle.link, url=contact_info["tiktok"], emoji=TIKTOK_EMOJI))
 
-# --- COMMANDES ---
+# -- COMMANDES --
 class SlashCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
