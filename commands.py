@@ -1483,16 +1483,16 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, f"a consulté le profil de {target_user.display_name}")
 
         def _fetch_user_data_sync(user_id):
-            # On récupère toutes les données de la base de données en une fois
+            # On regroupe toutes les opérations synchrones
             conn = sqlite3.connect(DB_FILE)
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
 
-            # 1. Notes de l'utilisateur
+            # 1. Notes
             c.execute("SELECT * FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC", (user_id,))
             user_ratings = [dict(row) for row in c.fetchall()]
 
-            # 2. Statistiques et classement
+            # 2. Stats
             c.execute("""
                 WITH UserAverageNotes AS (
                     SELECT user_id, (COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0 AS avg_note
@@ -1505,25 +1505,22 @@ class SlashCommands(commands.Cog):
                 SELECT user_rank, rating_count, global_avg, min_note, max_note FROM AllRanks WHERE user_id = ?
             """, (user_id,))
             stats_row = c.fetchone()
-            
             user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0}
-            if stats_row:
-                user_stats.update(dict(stats_row))
+            if stats_row: user_stats.update(dict(stats_row))
 
-            # 3. Badge mensuel
+            # 3. Badge
             one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
             c.execute("SELECT user_id FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY COUNT(id) DESC LIMIT 3", (one_month_ago,))
             top_3_monthly_ids = [row['user_id'] for row in c.fetchall()]
             user_stats['monthly_rank'] = top_3_monthly_ids.index(user_id) + 1 if user_id in top_3_monthly_ids else None
             
-            # 4. Email lié (avec la correction)
+            # 4. Email
             c.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (str(user_id),))
             email_row = c.fetchone()
             user_email = email_row['user_email'] if email_row else None
-
             conn.close()
             
-            # On récupère les données Shopify
+            # 5. Données Shopify (appel API)
             shopify_data = {}
             if user_email:
                 shopify_data['anonymized_email'] = anonymize_email(user_email)
@@ -1543,31 +1540,28 @@ class SlashCommands(commands.Cog):
         try:
             user_stats, user_ratings, shopify_data = await asyncio.to_thread(_fetch_user_data_sync, target_user.id)
 
-            if user_stats['count'] == 0 and not shopify_data.get('purchase_count'):
-                await interaction.followup.send("Cet utilisateur n'a aucune activité enregistrée.", ephemeral=True); return
+            # On vérifie s'il y a une quelconque activité
+            if user_stats.get('count', 0) == 0 and not shopify_data.get('purchase_count'):
+                await interaction.followup.send("Cet utilisateur n'a aucune activité enregistrée.", ephemeral=True)
+                return
 
             embed = discord.Embed(title=f"Profil de {target_user.display_name}", color=target_user.color)
             embed.set_thumbnail(url=target_user.display_avatar.url)
 
-            # --- BLOC D'AFFICHAGE UNIQUE ET CORRIGÉ POUR LA BOUTIQUE ---
+            # Section Boutique
             anonymized_email = shopify_data.get('anonymized_email')
             if anonymized_email:
                 purchase_count = shopify_data.get('purchase_count', 0)
-                if purchase_count > 0:
-                    shop_activity_text = (
-                        f"**Commandes :** `{purchase_count}`\n"
-                        f"**Total dépensé :** `{shopify_data.get('total_spent', 0.0):.2f} €`\n"
-                        f"**E-mail lié :** `{anonymized_email}`"
-                    )
-                else:
-                    shop_activity_text = f"✅ Compte lié à `{anonymized_email}`\n*(Aucune commande trouvée)*"
+                shop_activity_text = (
+                    f"**Commandes :** `{purchase_count}`\n"
+                    f"**Total dépensé :** `{shopify_data.get('total_spent', 0.0):.2f} €`\n"
+                    f"**E-mail lié :** `{anonymized_email}`"
+                )
             else:
                 shop_activity_text = "❌ Compte non lié. Utilise `/lier_compte`."
-            
             embed.add_field(name="🛍️ Activité sur la Boutique", value=shop_activity_text, inline=False)
-            # --- FIN DU BLOC ---
 
-            discord_activity_text = "Aucune note enregistrée."
+            # Section Discord
             if user_stats.get('count', 0) > 0:
                 discord_activity_text = (
                     f"**Classement :** `#{user_stats.get('rank', 'N/C')}`\n"
@@ -1577,6 +1571,8 @@ class SlashCommands(commands.Cog):
                 )
                 if user_stats.get('monthly_rank'):
                     discord_activity_text += "\n**Badge :** `🏅 Top Noteur du Mois`"
+            else:
+                discord_activity_text = "Aucune note enregistrée."
             embed.add_field(name="📝 Activité sur le Discord", value=discord_activity_text, inline=False)
             
             can_reset = membre and membre.id != interaction.user.id and await is_staff_or_owner(interaction)
