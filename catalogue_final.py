@@ -9,7 +9,7 @@ import traceback
 import time
 import time as a_time
 from datetime import time as dt_time, datetime, timedelta
-from typing import List
+from typing import List, Optional
 import sqlite3
 import re
 import asyncio # Assurez-vous qu'il est bien importé
