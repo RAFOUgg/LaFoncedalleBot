@@ -6,12 +6,18 @@ services:
     build: .
     container_name: lafoncedalleapi
     restart: always
-    # Lance uniquement l'API
     command: ["python", "app.py"]
     env_file:
       - .env
     volumes:
       - ./ratings.db:/app/ratings.db
+      - ./bot_state.json:/app/bot_state.json
+      - ./welcome_codes.txt:/app/welcome_codes.txt
+      - ./claimed_welcome_codes.json:/app/claimed_welcome_codes.json
+      - ./nitro_codes.txt:/app/nitro_codes.txt
+      - ./claimed_nitro_codes.json:/app/claimed_nitro_codes.json
+      - ./scrape_cache.json:/app/scrape_cache.json
+      - ./user_actions.log:/app/user_actions.log
     networks:
       - lafoncedallenet
 
@@ -20,16 +26,21 @@ services:
     build: .
     container_name: lafoncedallebot
     restart: always
-    # Le bot attend que l'API soit prête
     depends_on:
       - lafoncedalleapi
     env_file:
       - .env
     volumes:
       - ./ratings.db:/app/ratings.db
+      - ./bot_state.json:/app/bot_state.json
+      - ./welcome_codes.txt:/app/welcome_codes.txt
+      - ./claimed_welcome_codes.json:/app/claimed_welcome_codes.json
+      - ./nitro_codes.txt:/app/nitro_codes.txt
+      - ./claimed_nitro_codes.json:/app/claimed_nitro_codes.json
+      - ./scrape_cache.json:/app/scrape_cache.json
+      - ./user_actions.log:/app/user_actions.log
     networks:
       - lafoncedallenet
-    # Utilise la commande par défaut du Dockerfile (start.sh)
 
 # Définition du réseau partagé
 networks:
