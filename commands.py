@@ -1277,6 +1277,7 @@ class SlashCommands(commands.Cog):
             status_text += f"✅ **API Shopify :** `Connectée en {round((end_time - start_time) * 1000)} ms`\n"
         except Exception:
             status_text += f"❌ **API Shopify :** `Échec de connexion`\n"
+
         # Test Flask
         try:
             import requests
@@ -1293,7 +1294,7 @@ class SlashCommands(commands.Cog):
         def format_setting(item_id, get_method, is_critical=False):
             if not item_id:
                 return f"{'❌' if is_critical else '⚠️'} `Non défini`"
-            item = get_method(item_id)
+            item = get_method(int(item_id)) if item_id.isdigit() else None
             if item:
                 return f"✅ {item.mention}"
             return f"{'❌' if is_critical else '⚠️'} `Introuvable (ID: {item_id})`"
@@ -1343,9 +1344,6 @@ class SlashCommands(commands.Cog):
         view = DebugView(self.bot, interaction.user)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
-    # Dans commands.py, classe SlashCommands
-
-    # Fichier : commands.py -> dans la classe SlashCommands
 
     @app_commands.command(name="check", description="Vérifie si de nouveaux produits sont disponibles (cooldown 12h).")
     async def check(self, interaction: discord.Interaction):
