@@ -127,17 +127,18 @@ def start_verification():
     context = ssl.create_default_context()
     try:
         with smtplib.SMTP_SSL("mail.infomaniak.com", 465, context=context) as server:
+            # --- Authentification manuelle (cette partie est CORRECTE) ---
             auth_string = f"\0{SENDER_EMAIL}\0{INFOMANIAK_APP_PASSWORD}"
             auth_bytes_utf8 = auth_string.encode('utf-8')
             auth_bytes_b64 = base64.b64encode(auth_bytes_utf8)
             server.docmd("AUTH", f"PLAIN {auth_bytes_b64.decode('ascii')}")
-            server.sendmail(SENDER_EMAIL, recipient_email, message.as_string()) # Attention: recipient_email dans test_email
-        if "test-email" in request.url:
-            return jsonify({"success": True, "message": f"E-mail de test envoyé à {recipient_email}."}), 200
-        else:
-            print(f"E-mail de vérification envoyé avec succès à {email}")
+            
+            # --- LIGNE CORRIGÉE CI-DESSOUS ---
+            # On utilise la variable "email" qui est définie dans cette fonction
+            server.sendmail(SENDER_EMAIL, email, message.as_string())
+
+        print(f"E-mail de vérification envoyé avec succès à {email}")
     except Exception as e:
-        # CE BLOC EST EXÉCUTÉ
         print(f"ERREUR SMTP CRITIQUE: {e}") 
         traceback.print_exc() 
         return jsonify({"error": "Impossible d'envoyer l'e-mail de vérification."}), 500
