@@ -589,21 +589,27 @@ async def scheduled_selection():
 
 @bot.event
 async def on_ready():
-    # --- DÉBUT DE LA SECTION DE SYNCHRONISATION CORRIGÉE ---
+    # --- DÉBUT DU BLOC DE SYNCHRONISATION FORCÉE ---
     try:
+        # ÉTAPE 1 : On vide les commandes pour le serveur de test (si GUILD_ID est défini)
+        # Cela force Discord à oublier l'ancienne structure.
+        if GUILD_ID:
+            guild_obj = discord.Object(id=GUILD_ID)
+            bot.tree.clear_commands(guild=guild_obj)
+            await bot.tree.sync(guild=guild_obj)
+            Logger.warning(f"Commandes vidées pour le serveur de test (ID: {GUILD_ID}).")
+        # ÉTAPE 2 : On synchronise les nouvelles commandes pour tous les serveurs.
         synced = await bot.tree.sync()
         Logger.success(f"Synchronisation globale terminée : {len(synced)} commandes enregistrées.")
     except Exception as e:
-        Logger.error(f"Échec de la synchronisation globale des commandes : {e}")
+        Logger.error(f"Échec de la synchronisation des commandes : {e}")
+    # --- FIN DU BLOC DE SYNCHRONISATION ---
     await asyncio.to_thread(initialize_database)
-    
     async def initial_update_task():
         await asyncio.sleep(5) 
         Logger.info("Lancement de la vérification initiale différée...")
         await check_for_updates(bot, force_publish=False)
-
     asyncio.create_task(initial_update_task())
-    
     try:
         bot.add_view(MenuView())
         Logger.success("Vue de menu persistante ré-enregistrée avec succès.")
