@@ -1463,98 +1463,98 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, f"a consulté le profil de {target_user.display_name}")
 
         def _fetch_user_data_sync(user_id):
-            import requests
-            conn = sqlite3.connect(DB_FILE); conn.row_factory = sqlite3.Row; c = conn.cursor()
+            # On récupère toutes les données de la base de données en une fois
+            conn = sqlite3.connect(DB_FILE)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            # 1. Notes de l'utilisateur
             c.execute("SELECT * FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC", (user_id,))
             user_ratings = [dict(row) for row in c.fetchall()]
+
+            # 2. Statistiques et classement
             c.execute("""
                 WITH UserAverageNotes AS (
                     SELECT user_id, (COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0 AS avg_note
                     FROM ratings
-                ),
-                AllRanks AS (
+                ), AllRanks AS (
                     SELECT user_id, COUNT(user_id) as rating_count, AVG(avg_note) as global_avg, MIN(avg_note) as min_note, MAX(avg_note) as max_note,
-                           RANK() OVER (ORDER BY COUNT(user_id) DESC, AVG(avg_note) DESC) as user_rank
+                        RANK() OVER (ORDER BY COUNT(user_id) DESC, AVG(avg_note) DESC) as user_rank
                     FROM UserAverageNotes GROUP BY user_id
                 )
-                SELECT user_rank, rating_count, global_avg, min_note, max_note
-                FROM AllRanks WHERE user_id = ?
+                SELECT user_rank, rating_count, global_avg, min_note, max_note FROM AllRanks WHERE user_id = ?
             """, (user_id,))
             stats_row = c.fetchone()
             
-            # --- FIX STARTS HERE ---
-            # Initialize with default values. These keys are expected by the rest of the code.
             user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0}
             if stats_row:
-                # Explicitly map the database column names to the expected dictionary keys.
-                # This fixes the mismatch between 'rating_count' and 'count', etc.
-                user_stats['rank'] = stats_row['user_rank']
-                user_stats['count'] = stats_row['rating_count']
-                user_stats['avg'] = stats_row['global_avg']
-                user_stats['min_note'] = stats_row['min_note']
-                user_stats['max_note'] = stats_row['max_note']
-            # --- FIX ENDS HERE ---
+                user_stats.update(dict(stats_row))
 
+            # 3. Badge mensuel
             one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
             c.execute("SELECT user_id FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY COUNT(id) DESC LIMIT 3", (one_month_ago,))
             top_3_monthly_ids = [row['user_id'] for row in c.fetchall()]
-            user_stats['monthly_rank'] = None # Par défaut, personne n'est classé
-            if user_id in top_3_monthly_ids:
-                user_stats['monthly_rank'] = top_3_monthly_ids.index(user_id) + 1 # On donne le rang 1, 2, ou 3
+            user_stats['monthly_rank'] = top_3_monthly_ids.index(user_id) + 1 if user_id in top_3_monthly_ids else None
+            
+            # 4. Email lié (avec la correction)
+            c.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (str(user_id),))
+            email_row = c.fetchone()
+            user_email = email_row['user_email'] if email_row else None
+
             conn.close()
             
+            # On récupère les données Shopify
             shopify_data = {}
-            api_url = f"{APP_URL}/api/get_purchased_products/{user_id}"
-            try:
-                res = requests.get(api_url, timeout=10)
-                if res.ok:
-                    try: shopify_data = res.json()
-                    except requests.exceptions.JSONDecodeError:
-                        Logger.error(f"L'API Flask a renvoyé une réponse non-JSON pour {user_id}. Contenu: {res.text[:200]}")
-                else: Logger.warning(f"L'API Flask a retourné un statut {res.status_code} pour {user_id}.")
-            except requests.exceptions.RequestException as e: Logger.error(f"API Flask inaccessible pour {user_id}: {e}")
+            if user_email:
+                shopify_data['anonymized_email'] = anonymize_email(user_email)
+                api_url = f"{APP_URL}/api/get_purchased_products/{user_id}"
+                try:
+                    import requests
+                    res = requests.get(api_url, timeout=10)
+                    if res.ok:
+                        shopify_data.update(res.json())
+                    else:
+                        Logger.warning(f"L'API Flask a retourné un statut {res.status_code} pour {user_id}.")
+                except requests.exceptions.RequestException as e:
+                    Logger.error(f"API Flask inaccessible pour {user_id}: {e}")
             
             return user_stats, user_ratings, shopify_data
 
         try:
             user_stats, user_ratings, shopify_data = await asyncio.to_thread(_fetch_user_data_sync, target_user.id)
 
-            if user_stats['count'] == 0 and not shopify_data.get('purchase_count', 0) > 0:
+            if user_stats['count'] == 0 and not shopify_data.get('purchase_count'):
                 await interaction.followup.send("Cet utilisateur n'a aucune activité enregistrée.", ephemeral=True); return
 
             embed = discord.Embed(title=f"Profil de {target_user.display_name}", color=target_user.color)
             embed.set_thumbnail(url=target_user.display_avatar.url)
 
+            # --- BLOC D'AFFICHAGE UNIQUE ET CORRIGÉ POUR LA BOUTIQUE ---
             anonymized_email = shopify_data.get('anonymized_email')
             if anonymized_email:
-                if shopify_data.get('purchase_count', 0) > 0:
+                purchase_count = shopify_data.get('purchase_count', 0)
+                if purchase_count > 0:
                     shop_activity_text = (
-                        f"**Commandes :** `{shopify_data['purchase_count']}`\n"
-                        f"**Total dépensé :** `{shopify_data['total_spent']:.2f} €`\n"
+                        f"**Commandes :** `{purchase_count}`\n"
+                        f"**Total dépensé :** `{shopify_data.get('total_spent', 0.0):.2f} €`\n"
                         f"**E-mail lié :** `{anonymized_email}`"
                     )
                 else:
                     shop_activity_text = f"✅ Compte lié à `{anonymized_email}`\n*(Aucune commande trouvée)*"
             else:
                 shop_activity_text = "❌ Compte non lié. Utilise `/lier_compte`."
-        
+            
             embed.add_field(name="🛍️ Activité sur la Boutique", value=shop_activity_text, inline=False)
-            if shopify_data.get('purchase_count', 0) > 0:
-                shop_activity_text = (
-                    f"**Commandes :** `{shopify_data['purchase_count']}`\n"
-                    f"**Total dépensé :** `{shopify_data['total_spent']:.2f} €`"
-                )
-            embed.add_field(name="🛍️ Activité sur la Boutique", value=shop_activity_text, inline=False)
+            # --- FIN DU BLOC ---
 
             discord_activity_text = "Aucune note enregistrée."
             if user_stats.get('count', 0) > 0:
                 discord_activity_text = (
-                    f"**Classement :** `#{user_stats['rank']}`\n"
-                    f"**Nombre de notes :** `{user_stats['count']}`\n"
-                    f"**Moyenne des notes :** `{user_stats['avg']:.2f}/10`\n"
-                    f"**Note Min/Max :** `{user_stats['min_note']:.2f}` / `{user_stats['max_note']:.2f}`"
+                    f"**Classement :** `#{user_stats.get('rank', 'N/C')}`\n"
+                    f"**Nombre de notes :** `{user_stats.get('count', 0)}`\n"
+                    f"**Moyenne des notes :** `{user_stats.get('avg', 0):.2f}/10`\n"
+                    f"**Note Min/Max :** `{user_stats.get('min_note', 0):.2f}` / `{user_stats.get('max_note', 0):.2f}`"
                 )
-                # --- FIX: Check for 'monthly_rank' instead of 'is_top_3_monthly' ---
                 if user_stats.get('monthly_rank'):
                     discord_activity_text += "\n**Badge :** `🏅 Top Noteur du Mois`"
             embed.add_field(name="📝 Activité sur le Discord", value=discord_activity_text, inline=False)
@@ -1567,6 +1567,7 @@ class SlashCommands(commands.Cog):
         except Exception as e:
             Logger.error(f"Erreur /profil pour {target_user.display_name}: {e}"); traceback.print_exc()
             await interaction.followup.send("❌ Erreur lors de la récupération du profil.", ephemeral=True)
+
     @app_commands.command(name="lier_force", description="[STAFF] Lie un compte à un e-mail sans vérification.")
     @app_commands.check(is_staff_or_owner)
     @app_commands.describe(membre="Le membre à lier.", email="L'email à associer.")
