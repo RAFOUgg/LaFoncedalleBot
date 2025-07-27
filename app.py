@@ -127,7 +127,7 @@ def start_verification():
     try:
         with smtplib.SMTP_SSL("mail.infomaniak.com", 465, context=context) as server:
             # L'erreur se produit FORCÉMENT sur l'une de ces deux lignes
-            server.login(SENDER_EMAIL.encode('utf-8'), INFOMANIAK_APP_PASSWORD.encode('utf-8')) 
+            server.login(SENDER_EMAIL, INFOMANIAK_APP_PASSWORD)
             server.sendmail(SENDER_EMAIL, email, message.as_string())
         print(f"E-mail de vérification envoyé avec succès à {email}")
     except Exception as e:
@@ -173,7 +173,7 @@ def test_email():
     try:
         with smtplib.SMTP_SSL("mail.infomaniak.com", 465, context=context) as server:
             # On s'assure que les identifiants sont bien formatés avant l'envoi
-            server.login(SENDER_EMAIL.encode('utf-8'), INFOMANIAK_APP_PASSWORD.encode('utf-8'))
+            server.login(SENDER_EMAIL, INFOMANIAK_APP_PASSWORD)
             server.sendmail(SENDER_EMAIL, recipient_email, message.as_string())
         return jsonify({"success": True, "message": f"E-mail de test envoyé à {recipient_email}."}), 200
     except Exception as e:
