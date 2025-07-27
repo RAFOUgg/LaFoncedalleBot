@@ -16,7 +16,7 @@ from email.header import Header # [CORRECTION] Importé pour gérer l'encodage d
 from flask import Flask, request, jsonify
 import shopify
 from dotenv import load_dotenv
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # [CORRECTION] Import des variables depuis config.py et catalogue_final pour le bot
 
@@ -38,6 +38,7 @@ SHOPIFY_ADMIN_ACCESS_TOKEN = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
 
 # On utilise le même chemin que le bot pour avoir une seule DB
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+paris_tz = timezone(timedelta(hours=2))
 
 
 # --- Initialisation de la Base de Données ---
