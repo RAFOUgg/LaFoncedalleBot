@@ -210,8 +210,8 @@ class RatingsPaginatorView(discord.ui.View):
         if p_details.get('image'): 
             embed.set_thumbnail(url=p_details['image'])
         
-        embed.add_field(name="Description du Produit", value=p_details.get('detailed_description', 'N/A')[:1024], inline=False)
-        embed.add_field(name="Prix", value=p_details.get('price', 'N/A'), inline=True)
+        embed.add_field(name="Description du Produit", value=p_details.get('detailed_description', 'N/A')[:1024], inline=True)
+        embed.add_field(name="Prix", value=p_details.get('price', 'N/A'), inline=False)
         embed.add_field(name="Note de la Communauté", value=community_score_str, inline=True)
         embed.add_field(name="Votre Note Globale", value=f"**{user_avg:.2f} / 10**", inline=True)
 
@@ -1484,12 +1484,14 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, f"a consulté le profil de {target_user.display_name}")
 
         def _fetch_user_data_sync(user_id):
-            # ... (cette fonction interne est correcte et ne change pas) ...
-            conn = sqlite3.connect(DB_FILE)
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
+            conn = sqlite3.connect(DB_FILE); conn.row_factory = sqlite3.Row; c = conn.cursor()
+            
+            # 1. Notes
             c.execute("SELECT * FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC", (user_id,))
             user_ratings = [dict(row) for row in c.fetchall()]
+
+            # 2. Statistiques (avec le MAPPING CORRIGÉ)
+            user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0, 'monthly_rank': None}
             c.execute("""
                 WITH UserAverageNotes AS (
                     SELECT user_id, (COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0 AS avg_note
@@ -1502,16 +1504,29 @@ class SlashCommands(commands.Cog):
                 SELECT user_rank, rating_count, global_avg, min_note, max_note FROM AllRanks WHERE user_id = ?
             """, (user_id,))
             stats_row = c.fetchone()
-            user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0}
-            if stats_row: user_stats.update(dict(stats_row))
+            
+            if stats_row:
+                # CORRECTION CRUCIALE : On mappe les noms de colonnes SQL aux clés attendues par le code.
+                user_stats['rank'] = stats_row['user_rank']
+                user_stats['count'] = stats_row['rating_count']
+                user_stats['avg'] = stats_row['global_avg']
+                user_stats['min_note'] = stats_row['min_note']
+                user_stats['max_note'] = stats_row['max_note']
+
+            # 3. Badge
             one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
             c.execute("SELECT user_id FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY COUNT(id) DESC LIMIT 3", (one_month_ago,))
             top_3_monthly_ids = [row['user_id'] for row in c.fetchall()]
-            user_stats['monthly_rank'] = top_3_monthly_ids.index(user_id) + 1 if user_id in top_3_monthly_ids else None
+            if user_id in top_3_monthly_ids:
+                user_stats['monthly_rank'] = top_3_monthly_ids.index(user_id) + 1
+
+            # 4. Email
             c.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (str(user_id),))
             email_row = c.fetchone()
             user_email = email_row['user_email'] if email_row else None
             conn.close()
+            
+            # 5. Données Shopify
             shopify_data = {}
             if user_email:
                 shopify_data['anonymized_email'] = anonymize_email(user_email)
@@ -1519,18 +1534,15 @@ class SlashCommands(commands.Cog):
                 try:
                     import requests
                     res = requests.get(api_url, timeout=10)
-                    if res.ok:
-                        shopify_data.update(res.json())
-                    else:
-                        Logger.warning(f"L'API Flask a retourné un statut {res.status_code} pour {user_id}.")
-                except requests.exceptions.RequestException as e:
-                    Logger.error(f"API Flask inaccessible pour {user_id}: {e}")
+                    if res.ok: shopify_data.update(res.json())
+                except requests.RequestException: pass
+            
             return user_stats, user_ratings, shopify_data
 
         try:
             user_stats, user_ratings, shopify_data = await asyncio.to_thread(_fetch_user_data_sync, target_user.id)
 
-            if not user_ratings and not shopify_data.get('purchase_count'):
+            if user_stats.get('count', 0) == 0 and not shopify_data.get('purchase_count'):
                 await interaction.followup.send("Cet utilisateur n'a aucune activité enregistrée.", ephemeral=True)
                 return
 
@@ -1550,9 +1562,8 @@ class SlashCommands(commands.Cog):
                 shop_activity_text = "❌ Compte non lié. Utilise `/lier_compte`."
             embed.add_field(name="🛍️ Activité sur la Boutique", value=shop_activity_text, inline=False)
 
-            # --- BLOC D'AFFICHAGE CORRIGÉ POUR LE DISCORD ---
-            # On utilise `user_ratings` directement pour vérifier s'il y a des notes.
-            if user_ratings:
+            # Section Discord
+            if user_stats.get('count', 0) > 0:
                 discord_activity_text = (
                     f"**Classement :** `#{user_stats.get('rank', 'N/C')}`\n"
                     f"**Nombre de notes :** `{user_stats.get('count', 0)}`\n"
@@ -1564,7 +1575,6 @@ class SlashCommands(commands.Cog):
             else:
                 discord_activity_text = "Aucune note enregistrée."
             embed.add_field(name="📝 Activité sur le Discord", value=discord_activity_text, inline=False)
-            # --- FIN DU BLOC CORRIGÉ ---
             
             can_reset = membre and membre.id != interaction.user.id and await is_staff_or_owner(interaction)
             view = ProfileView(target_user, user_stats, user_ratings, shopify_data, can_reset, self.bot)
