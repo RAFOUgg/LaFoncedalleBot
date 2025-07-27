@@ -1403,19 +1403,15 @@ class SlashCommands(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         await log_user_action(interaction, "a demandé les promotions.")
         try:
-            def _read_cache_sync():
-                try:
-                    with open(CACHE_FILE, 'r', encoding='utf-8') as f: return json.load(f)
-                except (FileNotFoundError, json.JSONDecodeError): return {}
-
-            site_data = await asyncio.to_thread(_read_cache_sync)
+            # On utilise le cache du bot qui est toujours à jour
+            site_data = self.bot.product_cache
             if not site_data:
                 await interaction.followup.send("Les informations sur les promotions ne sont pas disponibles pour le moment.", ephemeral=True); return
             
             promo_products = [p for p in site_data.get('products', []) if p.get('is_promo')]
-            # On lit la liste des promotions dynamiques directement depuis le cache
             general_promos = site_data.get('general_promos', [])
             
+            # On utilise la NOUVELLE vue
             paginator = PromoPaginatorView(promo_products, general_promos)
             embed = paginator.create_embed()
             await interaction.followup.send(embed=embed, view=paginator, ephemeral=True)
