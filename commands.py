@@ -886,7 +886,7 @@ class SlashCommands(commands.Cog):
         self.bot = bot
 
     # --- Commandes dans le sous-dossier "roles" ---
-    config = app_commands.Group(name="config", description="Gère la configuration du bot.", guild_only=True)
+    config = app_commands.Group(name="lfdconfig", description="Gère la configuration du bot LaFoncedalle.", guild_only=True)
 
     @config.command(name="role_staff", description="Définit le rôle des administrateurs.")
     @app_commands.check(is_staff_or_owner)
