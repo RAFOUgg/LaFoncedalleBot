@@ -65,7 +65,7 @@ class ConfirmOverwriteView(discord.ui.View):
         self.stop()
 
 class PromoPaginatorView(discord.ui.View):
-    def __init__(self, promo_products: List[dict], general_promos: List[str], items_per_page=3):
+    def __init__(self, promo_products: List[dict], general_promos: List[str], items_per_page=2): # On affiche 2 produits par page pour plus de clarté
         super().__init__(timeout=180)
         self.promo_products = promo_products
         self.general_promos = general_promos
@@ -81,47 +81,47 @@ class PromoPaginatorView(discord.ui.View):
 
         if self.total_product_pages > 0:
             self.add_item(self.PrevButton(disabled=(self.current_page == 0)))
-            self.add_item(self.NextButton(disabled=(self.current_page > self.total_product_pages)))
+            self.add_item(self.NextButton(disabled=(self.current_page >= self.total_product_pages)))
 
     def create_embed(self) -> discord.Embed:
         embed = create_styled_embed(
             title="🎁 Promotions & Avantages en Cours",
             description="Toutes les offres actuellement disponibles sur la boutique.",
-            color=discord.Color.from_rgb(230, 80, 150) # Un rose plus "punchy"
+            color=discord.Color.from_rgb(230, 80, 150)
         )
 
-        # Ajout de la bannière visuelle
         banner_url = config_manager.get_config("contact_info.promo_banner_url")
         if banner_url:
             embed.set_image(url=banner_url)
 
-        # --- Section 1 : Avantages Généraux ---
+        # --- Section 1 : Avantages Généraux (liste verticale) ---
         if self.general_promos:
-            embed.add_field(name="\u200b\n✨ Avantages Généraux", value="", inline=False)
+            promo_lines = []
             for promo in self.general_promos:
                 p_lower = promo.lower()
-                emoji = "💰"
-                if "%" in p_lower: emoji = "💯"
-                elif "€" in p_lower: emoji = "💶"
-                elif "livraison" in p_lower or "offert" in p_lower: emoji = "🚚"
-                embed.add_field(name=f"{emoji} {promo}", value="\u200b", inline=True)
+                emoji = "✨"
+                if "livraison" in p_lower or "offert" in p_lower: emoji = "🚚"
+                elif "%" in p_lower or "€" in p_lower: emoji = "💰"
+                promo_lines.append(f"{emoji} {promo}")
+            
+            embed.add_field(
+                name="\u200b\nAvantages Généraux",
+                value="\n".join(promo_lines),
+                inline=False
+            )
         
-        if self.general_promos and self.promo_products:
-            embed.add_field(name="\u200b", value="\u200b", inline=False) # Espaceur
-
-        # --- Section 2 : Produits en Promotion (paginée) ---
+        # --- Section 2 : Produits en Promotion (liste verticale) ---
         if not self.promo_products:
             if not self.general_promos:
                  embed.description = "Il n'y a aucune promotion ou avantage en cours pour le moment."
         else:
-            embed.add_field(name="🛍️ Produits Spécifiques en Promotion", value="", inline=False)
             start_index = self.current_page * self.items_per_page
             page_products = self.promo_products[start_index : start_index + self.items_per_page]
             
+            product_entries = []
             for product in page_products:
                 discount_str = ""
                 try:
-                    # On nettoie les chaînes de prix pour le calcul
                     price_str = product.get('price', '0').split(' ')[-2].replace(',', '.')
                     compare_price_str = product.get('original_price', '0').replace(' €', '').replace(',', '.')
                     price = float(price_str)
@@ -129,15 +129,25 @@ class PromoPaginatorView(discord.ui.View):
                     if compare_price > price:
                         percentage = round((1 - (price / compare_price)) * 100)
                         discount_str = f" **(-{percentage}%)**"
-                except (ValueError, IndexError):
-                    pass # On ignore les erreurs de formatage
+                except (ValueError, IndexError): pass
 
                 price_text = f"**{product.get('price')}** ~~{product.get('original_price')}~~"
                 product_url = product.get('product_url', CATALOG_URL)
                 
-                field_name = f"🏷️ {product.get('name', 'Produit Inconnu')}"
-                field_value = f"💰 {price_text}{discount_str}\n🛒 **[Voir le produit]({product_url})**"
-                embed.add_field(name=field_name, value=field_value, inline=True)
+                entry = (
+                    f"**🏷️ {product.get('name', 'Produit Inconnu')}**\n"
+                    f"> 💰 {price_text}{discount_str}\n"
+                    f"> 🛒 **[Voir le produit sur le site]({product_url})**"
+                )
+                product_entries.append(entry)
+            
+            # On joint les entrées avec un séparateur visuel
+            separator = "\n\n"
+            embed.add_field(
+                name="\u200b\nProduits en Promotion",
+                value=separator.join(product_entries),
+                inline=False
+            )
         
         if self.total_product_pages > 0:
             embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_product_pages + 1}", icon_url=embed.footer.icon_url)
