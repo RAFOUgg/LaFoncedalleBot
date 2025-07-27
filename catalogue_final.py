@@ -585,18 +585,19 @@ async def post_weekly_ranking(): await generate_and_send_ranking(bot)
 async def scheduled_selection():
     if datetime.now(paris_tz).weekday() == 0: await post_weekly_selection(bot)
 
+# Dans catalogue_final.py
+
 @bot.event
 async def on_ready():
-    Logger.success("Commandes slash synchronisées sur la guilde de test.")
+    # --- DÉBUT DE LA SECTION DE SYNCHRONISATION CORRIGÉE ---
+    try:
+        synced = await bot.tree.sync()
+        Logger.success(f"Synchronisation globale terminée : {len(synced)} commandes enregistrées.")
+    except Exception as e:
+        Logger.error(f"Échec de la synchronisation globale des commandes : {e}")
     await asyncio.to_thread(initialize_database)
-
-    # --- CORRECTION FINALE ET CRUCIALE ---
-    # On ne lance PAS la mise à jour immédiatement.
-    # On la programme pour dans quelques secondes, pour laisser le bot
-    # le temps de devenir pleinement réactif.
     
     async def initial_update_task():
-        # On attend 5 secondes que le bot soit 100% stable et prêt à recevoir des commandes.
         await asyncio.sleep(5) 
         Logger.info("Lancement de la vérification initiale différée...")
         await check_for_updates(bot, force_publish=False)
