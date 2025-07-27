@@ -881,16 +881,14 @@ class ContactButtonsView(discord.ui.View):
         if contact_info.get("tiktok"): self.add_item(discord.ui.Button(label="TikTok", style=discord.ButtonStyle.link, url=contact_info["tiktok"], emoji=TIKTOK_EMOJI))
 
 # --- COMMANDES ---
-
-config_group = app_commands.Group(name="config", description="Gère la configuration du bot.", guild_only=True)
-
 class SlashCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
     # --- Commandes dans le sous-dossier "roles" ---
-
-    @config_group.command(name="role_staff", description="Définit le rôle des administrateurs.") # Changé
+    config = app_commands.Group(name="config", description="Gère la configuration du bot.", guild_only=True)
+    
+    @config.command(name="role_staff", description="Définit le rôle des administrateurs.")
     @app_commands.check(is_staff_or_owner)
     @app_commands.describe(role="Le rôle qui aura les permissions staff.")
     async def set_staff_role(self, interaction: discord.Interaction, role: discord.Role):
@@ -899,7 +897,8 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, f"a défini le Rôle Staff sur {role.name}")
         await interaction.followup.send(f"✅ Le **Rôle Staff** est maintenant {role.mention}.", ephemeral=True)
 
-    @config_group.command(name="role_mention", description="Définit le rôle à mentionner pour les nouveautés.") # Changé
+    # ON FAIT DE MÊME POUR TOUTES LES AUTRES COMMANDES DU GROUPE
+    @config.command(name="role_mention", description="Définit le rôle à mentionner pour les nouveautés.")
     @app_commands.check(is_staff_or_owner)
     @app_commands.describe(role="Le rôle qui sera notifié.")
     async def set_mention_role(self, interaction: discord.Interaction, role: discord.Role):
@@ -908,8 +907,7 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, f"a défini le Rôle à Mentionner sur {role.name}")
         await interaction.followup.send(f"✅ Le **Rôle à Mentionner** est maintenant {role.mention}.", ephemeral=True)
 
-
-    @config_group.command(name="salon_menu", description="Définit le salon où le menu sera posté.") # Changé
+    @config.command(name="salon_menu", description="Définit le salon où le menu sera posté.")
     @app_commands.check(is_staff_or_owner)
     @app_commands.describe(salon="Le salon qui affichera le menu.")
     async def set_menu_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
@@ -918,7 +916,7 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, f"a défini le Salon du Menu sur {salon.name}")
         await interaction.followup.send(f"✅ Le **Salon du Menu** est maintenant {salon.mention}.", ephemeral=True)
 
-    @config_group.command(name="salon_selection", description="Définit le salon de la sélection de la semaine.") # Changé
+    @config.command(name="salon_selection", description="Définit le salon de la sélection de la semaine.")
     @app_commands.check(is_staff_or_owner)
     @app_commands.describe(salon="Le salon qui affichera la sélection.")
     async def set_selection_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
@@ -926,6 +924,15 @@ class SlashCommands(commands.Cog):
         await config_manager.update_state(interaction.guild.id, 'selection_channel_id', salon.id)
         await log_user_action(interaction, f"a défini le Salon de la Sélection sur {salon.name}")
         await interaction.followup.send(f"✅ Le **Salon de la Sélection** est maintenant {salon.mention}.", ephemeral=True)
+        
+    @config.command(name="salon_bots", description="Définit le salon pour les commandes inter-bots (ex: XP DraftBot).")
+    @app_commands.check(is_staff_or_owner)
+    @app_commands.describe(salon="Le salon où les bots peuvent s'envoyer des commandes.")
+    async def set_bots_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
+        await interaction.response.defer(ephemeral=True)
+        await config_manager.update_state(interaction.guild.id, 'bots_channel_id', salon.id)
+        await log_user_action(interaction, f"a défini le Salon des Bots sur {salon.name}")
+        await interaction.followup.send(f"✅ Le **Salon des Bots** pour ce serveur est maintenant {salon.mention}.", ephemeral=True)
 
     @app_commands.command(name="menu", description="Affiche le menu interactif des produits disponibles.")
     async def menu(self, interaction: discord.Interaction):
@@ -1607,6 +1614,4 @@ class SlashCommands(commands.Cog):
             await interaction.followup.send("❌ Erreur lors de la récupération des promotions.", ephemeral=True)
 
 async def setup(bot: commands.Bot):
-    cog = SlashCommands(bot)
-    bot.tree.add_command(config_group)
-    await bot.add_cog(cog)
+    await bot.add_cog(SlashCommands(bot))
