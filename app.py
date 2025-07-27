@@ -228,7 +228,7 @@ def add_comment():
         traceback.print_exc()
         return jsonify({"error": "Erreur lors de la sauvegarde du commentaire."}), 500
     
-@app_route('/api/confirm-verification', methods=['POST'])
+@app.route('/api/confirm-verification', methods=['POST'])
 def confirm_verification():
     data = request.json
     discord_id = data.get('discord_id')
