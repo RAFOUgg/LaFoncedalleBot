@@ -71,107 +71,93 @@ class PromoPaginatorView(discord.ui.View):
         self.general_promos = general_promos
         self.items_per_page = items_per_page
         self.current_page = 0
-        
-        # La pagination ne s'applique qu'aux produits, pas aux promos générales
-        self.total_product_pages = 0
-        if self.promo_products:
-            self.total_product_pages = (len(self.promo_products) - 1) // self.items_per_page
-            
+        self.total_product_pages = max(0, (len(self.promo_products) - 1) // self.items_per_page)
         self.update_buttons()
 
     def update_buttons(self):
-        # On nettoie les anciens boutons de navigation
         for item in self.children[:]:
             if isinstance(item, (self.PrevButton, self.NextButton)):
                 self.remove_item(item)
 
-        # On ajoute les boutons uniquement s'il y a plus d'une page de produits
         if self.total_product_pages > 0:
-            prev_button = self.PrevButton(disabled=(self.current_page == 0))
-            next_button = self.NextButton(disabled=(self.current_page >= self.total_product_pages))
-            self.add_item(prev_button)
-            self.add_item(next_button)
+            self.add_item(self.PrevButton(disabled=(self.current_page == 0)))
+            self.add_item(self.NextButton(disabled=(self.current_page > self.total_product_pages)))
 
     def create_embed(self) -> discord.Embed:
         embed = create_styled_embed(
             title="🎁 Promotions & Avantages en Cours",
             description="Toutes les offres actuellement disponibles sur la boutique.",
-            color=discord.Color.from_rgb(255, 105, 180) # Rose "promo"
+            color=discord.Color.from_rgb(230, 80, 150) # Un rose plus "punchy"
         )
 
-        # --- CORRECTION MAJEURE ICI ---
-        # 1. Section des promotions générales (gère le dépassement de 1024 caractères)
+        # Ajout de la bannière visuelle
+        banner_url = config_manager.get_config("contact_info.promo_banner_url")
+        if banner_url:
+            embed.set_image(url=banner_url)
+
+        # --- Section 1 : Avantages Généraux ---
         if self.general_promos:
-            current_chunk = ""
-            # On divise les promotions en blocs de 1024 caractères max
-            for i, promo in enumerate(self.general_promos):
-                line = f"**•** {promo}\n"
-                if len(current_chunk) + len(line) > 1024:
-                    field_name = "✨ Avantages Généraux" if not embed.fields else "\u200b"
-                    embed.add_field(name=field_name, value=current_chunk, inline=False)
-                    current_chunk = ""
-                current_chunk += line
-            
-            # On ajoute le dernier bloc restant
-            if current_chunk:
-                field_name = "✨ Avantages Généraux" if not embed.fields else "\u200b"
-                embed.add_field(name=field_name, value=current_chunk, inline=False)
+            embed.add_field(name="\u200b\n✨ Avantages Généraux", value="", inline=False)
+            for promo in self.general_promos:
+                p_lower = promo.lower()
+                emoji = "💰"
+                if "%" in p_lower: emoji = "💯"
+                elif "€" in p_lower: emoji = "💶"
+                elif "livraison" in p_lower or "offert" in p_lower: emoji = "🚚"
+                embed.add_field(name=f"{emoji} {promo}", value="\u200b", inline=True)
         
-        # Séparateur visuel si les deux sections sont présentes
         if self.general_promos and self.promo_products:
-            embed.add_field(name="\u200b", value="-"*30, inline=False)
-        
-        # 2. Section des produits en promotion (paginée)
+            embed.add_field(name="\u200b", value="\u200b", inline=False) # Espaceur
+
+        # --- Section 2 : Produits en Promotion (paginée) ---
         if not self.promo_products:
-            if not self.general_promos: # Si rien n'est affiché
+            if not self.general_promos:
                  embed.description = "Il n'y a aucune promotion ou avantage en cours pour le moment."
         else:
+            embed.add_field(name="🛍️ Produits Spécifiques en Promotion", value="", inline=False)
             start_index = self.current_page * self.items_per_page
-            end_index = start_index + self.items_per_page
-            page_products = self.promo_products[start_index:end_index]
+            page_products = self.promo_products[start_index : start_index + self.items_per_page]
             
-            # Titre de la section des produits
-            embed.add_field(name="🛍️ Produits Spécifiques en Promotion", value="\u200b", inline=False)
-            if page_products: # Enlever le titre si la page est vide (ne devrait pas arriver, mais sécurisant)
-                embed.remove_field(len(embed.fields)-1) 
-                embed.add_field(name="🛍️ Produits Spécifiques en Promotion", value="\u200b", inline=False)
-            
-                for product in page_products:
-                    price_text = f"**{product.get('price')}** ~~{product.get('original_price')}~~"
-                    product_url = product.get('product_url', CATALOG_URL)
-                    
-                    field_value = (
-                        f"**Prix :** {price_text}\n"
-                        f"**[🛒 Voir le produit]({product_url})**"
-                    )
-                    embed.add_field(name=f"🏷️ {product.get('name', 'Produit Inconnu')}", value=field_value, inline=True)
+            for product in page_products:
+                discount_str = ""
+                try:
+                    # On nettoie les chaînes de prix pour le calcul
+                    price_str = product.get('price', '0').split(' ')[-2].replace(',', '.')
+                    compare_price_str = product.get('original_price', '0').replace(' €', '').replace(',', '.')
+                    price = float(price_str)
+                    compare_price = float(compare_price_str)
+                    if compare_price > price:
+                        percentage = round((1 - (price / compare_price)) * 100)
+                        discount_str = f" **(-{percentage}%)**"
+                except (ValueError, IndexError):
+                    pass # On ignore les erreurs de formatage
+
+                price_text = f"**{product.get('price')}** ~~{product.get('original_price')}~~"
+                product_url = product.get('product_url', CATALOG_URL)
+                
+                field_name = f"🏷️ {product.get('name', 'Produit Inconnu')}"
+                field_value = f"💰 {price_text}{discount_str}\n🛒 **[Voir le produit]({product_url})**"
+                embed.add_field(name=field_name, value=field_value, inline=True)
         
-        # 3. Footer de pagination
-        if self.promo_products and self.total_product_pages > 0:
-            original_footer_text = embed.footer.text or "LaFoncedalle"
-            embed.set_footer(text=f"{original_footer_text} • Page {self.current_page + 1}/{self.total_product_pages + 1}", icon_url=embed.footer.icon_url)
+        if self.total_product_pages > 0:
+            embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_product_pages + 1}", icon_url=embed.footer.icon_url)
             
         return embed
         
     async def update_message(self, interaction: discord.Interaction):
         self.update_buttons()
-        embed = self.create_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
     class PrevButton(discord.ui.Button):
-        def __init__(self, disabled=False):
-            super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary, disabled=disabled)
+        def __init__(self, disabled=False): super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary, disabled=disabled)
         async def callback(self, interaction: discord.Interaction):
-            if self.view.current_page > 0:
-                self.view.current_page -= 1
+            if self.view.current_page > 0: self.view.current_page -= 1
             await self.view.update_message(interaction)
 
     class NextButton(discord.ui.Button):
-        def __init__(self, disabled=False):
-            super().__init__(label="Suivant ➡️", style=discord.ButtonStyle.secondary, disabled=disabled)
+        def __init__(self, disabled=False): super().__init__(label="Suivant ➡️", style=discord.ButtonStyle.secondary, disabled=disabled)
         async def callback(self, interaction: discord.Interaction):
-            if self.view.current_page < self.view.total_product_pages:
-                self.view.current_page += 1
+            if self.view.current_page < self.view.total_product_pages: self.view.current_page += 1
             await self.view.update_message(interaction)
             
 class RatingsPaginatorView(discord.ui.View):
