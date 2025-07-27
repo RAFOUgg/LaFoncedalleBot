@@ -232,123 +232,131 @@ def get_site_data_from_api():
         if 'shopify' in locals() and shopify.ShopifyResource.get_session():
             shopify.ShopifyResource.clear_session()
 
-async def post_weekly_selection(bot_instance: commands.Bot):
-    Logger.info("Génération et publication de la sélection de la semaine...")
-    
-    # --- MODIFICATION ---
-    guild_id = await config_manager.get_state('guild_id', GUILD_ID)
-    selection_channel_id = await config_manager.get_state('selection_channel_id', SELECTION_CHANNEL_ID)
+# Dans catalogue_final.py
 
-    if not guild_id or not selection_channel_id:
-        Logger.error("GUILD_ID ou SELECTION_CHANNEL_ID ne sont pas définis. Annulation.")
-        return
+async def post_weekly_selection(bot_instance: commands.Bot, guild_id_to_run: Optional[int] = None):
+    async def run_for_guild(guild_id):
+        Logger.info(f"Génération de la sélection de la semaine pour le serveur {guild_id}...")
+        selection_channel_id = await config_manager.get_state(guild_id, 'selection_channel_id')
 
-    guild = bot_instance.get_guild(guild_id)
-    channel = bot_instance.get_channel(selection_channel_id)
-    if not guild or not channel:
-        Logger.error(f"Impossible de trouver la guilde ({GUILD_ID}) ou le salon ({SELECTION_CHANNEL_ID}).")
-        return
-
-    try:
-        def _get_top_products_sync():
-            conn = sqlite3.connect(DB_FILE)
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT 
-                    product_name,
-                    AVG((COALESCE(visual_score,0) + COALESCE(smell_score,0) + COALESCE(touch_score,0) + COALESCE(taste_score,0) + COALESCE(effects_score,0)) / 5.0) as avg_score,
-                    COUNT(id) as num_ratings
-                FROM ratings GROUP BY LOWER(TRIM(product_name)) HAVING COUNT(id) > 0
-                ORDER BY avg_score DESC LIMIT 3
-            """)
-            results = cursor.fetchall()
-            conn.close()
-            return results
-
-        def _get_weekly_top_raters_sync():
-            conn = sqlite3.connect(DB_FILE)
-            cursor = conn.cursor()
-            seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
-            cursor.execute("""
-                SELECT user_id, COUNT(id) as weekly_rating_count FROM ratings
-                WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY weekly_rating_count DESC LIMIT 3
-            """, (seven_days_ago,))
-            results = cursor.fetchall()
-            conn.close()
-            return results
-
-        def _read_product_cache_sync():
-            with open(CACHE_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-
-        top_products, weekly_top_raters, site_data = await asyncio.gather(
-            asyncio.to_thread(_get_top_products_sync),
-            asyncio.to_thread(_get_weekly_top_raters_sync),
-            asyncio.to_thread(_read_product_cache_sync)
-        )
-
-        if not top_products or not site_data.get("products"):
-            Logger.warning("Données insuffisantes pour générer la sélection. Annulation.")
-            await channel.send("⚠️ Aucune sélection de la semaine à publier, pas assez de données.")
+        if not selection_channel_id:
+            Logger.warning(f"Pas de salon de sélection configuré pour le serveur {guild_id}. On saute.")
             return
 
-        week_number = datetime.utcnow().isocalendar()[1]
-        product_map = {p['name'].strip().lower(): p for p in site_data.get("products", [])}
-        
-        embed = create_styled_embed(
-            f"🔎 Sélection de la Semaine #{week_number}",
-            "Voici les 3 produits les mieux notés par la communauté !",
-            color=discord.Color.purple()
-        )
+        guild = bot_instance.get_guild(guild_id)
+        channel = bot_instance.get_channel(selection_channel_id)
+        if not guild or not channel:
+            Logger.error(f"Impossible de trouver la guilde ou le salon pour la sélection sur le serveur {guild_id}.")
+            return
 
-        medals = ["🥇", "🥈", "🥉"]
-        for i, (prod_name, avg_score, num_ratings) in enumerate(top_products):
-            prod = product_map.get(prod_name.strip().lower())
-            note_str = f"**Note :** {round(avg_score,2)}/10\n"
-            count_str = f"**Nombre de notations :** {num_ratings}\n"
-            if prod:
-                description = prod.get('detailed_description', 'Pas de description.')
-                if len(description) > 150:
-                    description = description[:150] + "..."
-                
-                value = f"{note_str}{count_str}[Voir sur le site]({prod.get('product_url', '#')})\nPrix : {prod.get('price', 'N/A')}\n{description}"
-                
-                embed.add_field(name=f"{medals[i]} {prod['name']}", value=value, inline=False)
-                if i == 0 and prod.get("image"):
-                    embed.set_thumbnail(url=prod["image"])
-            else:
-                embed.add_field(name=f"{medals[i]} {prod_name}", value=f"{note_str}{count_str}Produit non trouvé dans le cache.", inline=False)
-            
-            if i < len(top_products) - 1:
-                embed.add_field(name="\u200b", value="▬▬▬▬▬▬▬▬▬▬", inline=False)
+        try:
+            # --- DÉBUT DE LA LOGIQUE RESTAURÉE ---
+            def _get_top_products_sync():
+                conn = sqlite3.connect(DB_FILE)
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT 
+                        product_name,
+                        AVG((COALESCE(visual_score,0) + COALESCE(smell_score,0) + COALESCE(touch_score,0) + COALESCE(taste_score,0) + COALESCE(effects_score,0)) / 5.0) as avg_score,
+                        COUNT(id) as num_ratings
+                    FROM ratings GROUP BY LOWER(TRIM(product_name)) HAVING COUNT(id) > 0
+                    ORDER BY avg_score DESC LIMIT 3
+                """)
+                results = cursor.fetchall()
+                conn.close()
+                return results
 
-        if weekly_top_raters:
-            embed.add_field(name="\u200b", value="▬▬▬▬▬▬▬▬▬▬", inline=False)
-            thanks_text = ""
-            for i, (user_id, weekly_count) in enumerate(weekly_top_raters):
-                member = guild.get_member(user_id)
-                if member is None:
-                    try:
-                        member = await guild.fetch_member(user_id)
-                    except discord.NotFound:
-                        member = None
-                
-                display_name = member.mention if member else f"Ancien Membre (ID: {user_id})"
-                plural_s = 's' if weekly_count > 1 else ''
-                thanks_text += f"{medals[i]} {display_name} (**{weekly_count}** nouvelle{plural_s} notation{plural_s})\n"
-            
-            embed.add_field(
-                name="🌟 Un grand merci à nos Critiques de la Semaine !",
-                value=thanks_text,
-                inline=False
+            def _get_weekly_top_raters_sync():
+                conn = sqlite3.connect(DB_FILE)
+                cursor = conn.cursor()
+                seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+                cursor.execute("""
+                    SELECT user_id, COUNT(id) as weekly_rating_count FROM ratings
+                    WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY weekly_rating_count DESC LIMIT 3
+                """, (seven_days_ago,))
+                results = cursor.fetchall()
+                conn.close()
+                return results
+
+            def _read_product_cache_sync():
+                with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+
+            top_products, weekly_top_raters, site_data = await asyncio.gather(
+                asyncio.to_thread(_get_top_products_sync),
+                asyncio.to_thread(_get_weekly_top_raters_sync),
+                asyncio.to_thread(_read_product_cache_sync)
             )
-        
-        await channel.send(embed=embed)
-        Logger.success("Sélection de la semaine publiée avec succès.")
 
-    except Exception as e:
-        Logger.error(f"Erreur lors de la génération de la sélection : {e}")
-        traceback.print_exc()
+            if not top_products or not site_data.get("products"):
+                Logger.warning("Données insuffisantes pour générer la sélection. Annulation.")
+                await channel.send("⚠️ Aucune sélection de la semaine à publier, pas assez de données.")
+                return
+
+            week_number = datetime.utcnow().isocalendar()[1]
+            product_map = {p['name'].strip().lower(): p for p in site_data.get("products", [])}
+            
+            embed = create_styled_embed(
+                f"🔎 Sélection de la Semaine #{week_number}",
+                "Voici les 3 produits les mieux notés par la communauté !",
+                color=discord.Color.purple()
+            )
+
+            medals = ["🥇", "🥈", "🥉"]
+            for i, (prod_name, avg_score, num_ratings) in enumerate(top_products):
+                prod = product_map.get(prod_name.strip().lower())
+                note_str = f"**Note :** {round(avg_score,2)}/10\n"
+                count_str = f"**Nombre de notations :** {num_ratings}\n"
+                if prod:
+                    description = prod.get('detailed_description', 'Pas de description.')
+                    if len(description) > 150:
+                        description = description[:150] + "..."
+                    
+                    value = f"{note_str}{count_str}[Voir sur le site]({prod.get('product_url', '#')})\nPrix : {prod.get('price', 'N/A')}\n{description}"
+                    
+                    embed.add_field(name=f"{medals[i]} {prod['name']}", value=value, inline=False)
+                    if i == 0 and prod.get("image"):
+                        embed.set_thumbnail(url=prod["image"])
+                else:
+                    embed.add_field(name=f"{medals[i]} {prod_name}", value=f"{note_str}{count_str}Produit non trouvé dans le cache.", inline=False)
+                
+                if i < len(top_products) - 1:
+                    embed.add_field(name="\u200b", value="▬▬▬▬▬▬▬▬▬▬", inline=False)
+
+            if weekly_top_raters:
+                embed.add_field(name="\u200b", value="▬▬▬▬▬▬▬▬▬▬", inline=False)
+                thanks_text = ""
+                for i, (user_id, weekly_count) in enumerate(weekly_top_raters):
+                    member = guild.get_member(user_id)
+                    if member is None:
+                        try:
+                            member = await guild.fetch_member(user_id)
+                        except discord.NotFound:
+                            member = None
+                    
+                    display_name = member.mention if member else f"Ancien Membre (ID: {user_id})"
+                    plural_s = 's' if weekly_count > 1 else ''
+                    thanks_text += f"{medals[i]} {display_name} (**{weekly_count}** nouvelle{plural_s} notation{plural_s})\n"
+                
+                embed.add_field(
+                    name="🌟 Un grand merci à nos Critiques de la Semaine !",
+                    value=thanks_text,
+                    inline=False
+                )
+            
+            await channel.send(embed=embed)
+            Logger.success(f"Sélection de la semaine publiée avec succès sur le serveur {guild_id}.")
+            # --- FIN DE LA LOGIQUE RESTAURÉE ---
+        except Exception as e:
+            Logger.error(f"Erreur lors de la génération de la sélection pour le serveur {guild_id}: {e}")
+            traceback.print_exc()
+
+    if guild_id_to_run:
+        await run_for_guild(guild_id_to_run)
+    else:
+        configured_guilds = await config_manager.get_all_configured_guilds()
+        for guild_id in configured_guilds:
+            await run_for_guild(guild_id)
 
 def get_smart_promotions_from_api():
     """
@@ -412,30 +420,23 @@ def get_smart_promotions_from_api():
         Logger.error(f"Erreur lors de la récupération des PriceRule : {e}")
         return ["Impossible de charger les promotions."]
     
-async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: bool = False):
-    Logger.info(f"Publication du menu (mention: {mention})...")
+async def publish_menu(bot_instance: commands.Bot, site_data: dict, guild_id: int, mention: bool = False):
+    Logger.info(f"Publication du menu pour le serveur {guild_id} (mention: {mention})...")
     
-    channel_id = await config_manager.get_state('menu_channel_id', CHANNEL_ID)
+    # On récupère la config spécifique à ce serveur
+    channel_id = await config_manager.get_state(guild_id, 'menu_channel_id', CHANNEL_ID)
     if not channel_id:
-        Logger.error("Aucun ID de salon pour le menu n'est configuré (ni via /config, ni dans le .env).")
+        Logger.error(f"Aucun ID de salon pour le menu n'est configuré pour le serveur {guild_id}.")
         return False
         
     channel = bot_instance.get_channel(int(channel_id))
     if not channel:
-        Logger.error(f"Salon avec l'ID {channel_id} non trouvé pour la publication.")
+        Logger.error(f"Salon avec l'ID {channel_id} non trouvé pour la publication sur le serveur {guild_id}.")
         return False
 
-    # --- CORRECTION : Définition unique des variables ---
     products = site_data.get('products', [])
     promos_list = site_data.get('general_promos', [])
-    
-    promos_to_show = promos_list[:5]
-    general_promos_text = "\n".join([f"• {promo.strip()}" for promo in promos_to_show if promo.strip()])
-    
-    if len(promos_list) > 5:
-        general_promos_text += "\n• ... et plus ! Utilisez `/promos` pour tout voir."
-    elif not promos_list:
-        general_promos_text = "Aucune promotion générale en cours."
+    general_promos_text = "\n".join([f"• {promo.strip()}" for promo in promos_list if promo.strip()]) or "Aucune promotion générale en cours."
 
     hash_count, weed_count, box_count, accessoire_count = get_product_counts(products)
 
@@ -454,11 +455,12 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
         embed.set_thumbnail(url=main_logo_url)
     
     view = MenuView()
-    bot_instance.add_view(view)
-
-    role_id_to_mention = await config_manager.get_state('mention_role_id', ROLE_ID_TO_MENTION)
+    
+    role_id_to_mention = await config_manager.get_state(guild_id, 'mention_role_id', ROLE_ID_TO_MENTION)
     content = f"<@&{role_id_to_mention}>" if mention and role_id_to_mention else None
-    last_message_id = await config_manager.get_state('last_message_id')
+    
+    # Le last_message_id est maintenant aussi par serveur
+    last_message_id = await config_manager.get_state(guild_id, 'last_message_id')
     
     try:
         if last_message_id:
@@ -466,12 +468,17 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, mention: boo
                 old_message = await channel.fetch_message(int(last_message_id))
                 await old_message.delete()
             except (discord.NotFound, discord.Forbidden): pass
+        
+        # On s'assure que la vue est enregistrée avant l'envoi
+        # C'est une bonne pratique, même si add_view est global
+        bot_instance.add_view(view) 
+        
         new_message = await channel.send(content=content, embed=embed, view=view)
-        await config_manager.update_state('last_message_id', str(new_message.id))
-        Logger.success(f"Nouveau menu publié (ID: {new_message.id}).")
+        await config_manager.update_state(guild_id, 'last_message_id', str(new_message.id))
+        Logger.success(f"Nouveau menu publié (ID: {new_message.id}) sur le serveur {guild_id}.")
         return True
     except Exception as e:
-        Logger.error(f"Erreur fatale lors de la publication du menu : {e}"); traceback.print_exc()
+        Logger.error(f"Erreur fatale lors de la publication du menu sur le serveur {guild_id} : {e}"); traceback.print_exc()
         return False
 
 
@@ -498,20 +505,24 @@ async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = Fa
         'products': site_data.get('products', []),
         'general_promos': sorted(site_data.get('general_promos', [])) 
     }
-    
     current_hash = hashlib.sha256(json.dumps(data_to_hash, sort_keys=True).encode('utf-8')).hexdigest()
-    last_hash = await config_manager.get_state('last_menu_hash', "")
 
-    if current_hash != last_hash or force_publish:
-        Logger.info(f"Changement détecté (ou forcé). Publication du menu.")
-        if await publish_menu(bot_instance, site_data, mention=True): 
-            await config_manager.update_state('last_menu_hash', current_hash)
-            return True
-        else: return False
-    else:
-        Logger.info("Aucun changement détecté. Mise à jour du message existant sans mention.")
-        await publish_menu(bot_instance, site_data, mention=False)
-        return False
+    # On boucle sur tous les serveurs qui ont une configuration
+    configured_guilds = await config_manager.get_all_configured_guilds()
+    Logger.info(f"Vérification des mises à jour pour {len(configured_guilds)} serveur(s) configuré(s).")
+
+    for guild_id in configured_guilds:
+        last_hash = await config_manager.get_state(guild_id, 'last_menu_hash', "")
+        
+        if current_hash != last_hash or force_publish:
+            Logger.info(f"Changement détecté (ou forcé) pour le serveur {guild_id}. Publication du menu.")
+            if await publish_menu(bot_instance, site_data, guild_id, mention=True): 
+                await config_manager.update_state(guild_id, 'last_menu_hash', current_hash)
+        else:
+            Logger.info(f"Aucun changement pour le serveur {guild_id}. Mise à jour silencieuse.")
+            await publish_menu(bot_instance, site_data, guild_id, mention=False)
+            
+    return True # La fonction a terminé son travail
 
 async def generate_and_send_ranking(bot_instance: commands.Bot, force_run: bool = False):
     Logger.info("Exécution de la logique de classement...")
@@ -617,8 +628,11 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
     if isinstance(original_error, discord.errors.NotFound) and original_error.code == 10062:
         Logger.warning("Erreur 'Unknown Interaction' détectée (démarrage à froid). Envoi du message d'attente.")
         
-        staff_role_id = await config_manager.get_state('staff_role_id', STAFF_ROLE_ID)
-        staff_mention = f"<@&{staff_role_id}>" if staff_role_id else "@Staff"
+        staff_mention = "@Staff"
+        if interaction.guild: # On ne peut récupérer le rôle que si on est sur un serveur
+            staff_role_id = await config_manager.get_state(interaction.guild.id, 'staff_role_id', STAFF_ROLE_ID)
+            if staff_role_id:
+                staff_mention = f"<@&{staff_role_id}>"
 
         embed = discord.Embed(
             title="⏳ Le bot est en train de démarrer",

@@ -15,10 +15,15 @@ FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY')
 # --- Logique des permissions ---
 async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
     if await interaction.client.is_owner(interaction.user): return True
-    staff_role_id = await config_manager.get_state('staff_role_id', STAFF_ROLE_ID)
+    if not interaction.guild: return False # Ne peut pas être staff en DM
+    # On récupère l'ID du rôle pour CE serveur spécifique
+    staff_role_id = await config_manager.get_state(interaction.guild.id, 'staff_role_id', STAFF_ROLE_ID)
     if not staff_role_id: return False
-    try: staff_role_id_int = int(staff_role_id)
-    except (ValueError, TypeError): return False
+    
+    try: 
+        staff_role_id_int = int(staff_role_id)
+    except (ValueError, TypeError): 
+        return False
     return any(role.id == staff_role_id_int for role in interaction.user.roles)
 
 # --- VUES ET MODALES ---
@@ -66,7 +71,7 @@ class PromoPaginatorView(discord.ui.View):
             for i, promo in enumerate(self.general_promos):
                 line = f"**•** {promo}\n"
                 if len(current_chunk) + len(line) > 1024:
-                    field_name = "✨ Avantages Généraux" if not current_chunk else "\u200b"
+                    field_name = "✨ Avantages Généraux" if not embed.fields else "\u200b"
                     embed.add_field(name=field_name, value=current_chunk, inline=False)
                     current_chunk = ""
                 current_chunk += line
@@ -91,16 +96,19 @@ class PromoPaginatorView(discord.ui.View):
             
             # Titre de la section des produits
             embed.add_field(name="🛍️ Produits Spécifiques en Promotion", value="\u200b", inline=False)
-
-            for product in page_products:
-                price_text = f"**{product.get('price')}** ~~{product.get('original_price')}~~"
-                product_url = product.get('product_url', CATALOG_URL)
-                
-                field_value = (
-                    f"**Prix :** {price_text}\n"
-                    f"**[🛒 Voir le produit]({product_url})**"
-                )
-                embed.add_field(name=f"🏷️ {product.get('name', 'Produit Inconnu')}", value=field_value, inline=True)
+            if page_products: # Enlever le titre si la page est vide (ne devrait pas arriver, mais sécurisant)
+                embed.remove_field(len(embed.fields)-1) 
+                embed.add_field(name="🛍️ Produits Spécifiques en Promotion", value="\u200b", inline=False)
+            
+                for product in page_products:
+                    price_text = f"**{product.get('price')}** ~~{product.get('original_price')}~~"
+                    product_url = product.get('product_url', CATALOG_URL)
+                    
+                    field_value = (
+                        f"**Prix :** {price_text}\n"
+                        f"**[🛒 Voir le produit]({product_url})**"
+                    )
+                    embed.add_field(name=f"🏷️ {product.get('name', 'Produit Inconnu')}", value=field_value, inline=True)
         
         # 3. Footer de pagination
         if self.promo_products and self.total_product_pages > 0:
@@ -831,7 +839,7 @@ class SlashCommands(commands.Cog):
     @app_commands.describe(role="Le rôle qui aura les permissions staff.")
     async def set_staff_role(self, interaction: discord.Interaction, role: discord.Role):
         await interaction.response.defer(ephemeral=True)
-        await config_manager.update_state('staff_role_id', role.id)
+        await config_manager.update_state(interaction.guild.id, 'staff_role_id', role.id)
         await log_user_action(interaction, f"a défini le Rôle Staff sur {role.name}")
         await interaction.followup.send(f"✅ Le **Rôle Staff** est maintenant {role.mention}.", ephemeral=True)
 
@@ -840,7 +848,7 @@ class SlashCommands(commands.Cog):
     @app_commands.describe(role="Le rôle qui sera notifié.")
     async def set_mention_role(self, interaction: discord.Interaction, role: discord.Role):
         await interaction.response.defer(ephemeral=True)
-        await config_manager.update_state('mention_role_id', role.id)
+        await config_manager.update_state(interaction.guild.id, 'mention_role_id', role.id)
         await log_user_action(interaction, f"a défini le Rôle à Mentionner sur {role.name}")
         await interaction.followup.send(f"✅ Le **Rôle à Mentionner** est maintenant {role.mention}.", ephemeral=True)
 
@@ -850,7 +858,7 @@ class SlashCommands(commands.Cog):
     @app_commands.describe(salon="Le salon qui affichera le menu.")
     async def set_menu_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
         await interaction.response.defer(ephemeral=True)
-        await config_manager.update_state('menu_channel_id', salon.id)
+        await config_manager.update_state(interaction.guild.id, 'menu_channel_id', salon.id)
         await log_user_action(interaction, f"a défini le Salon du Menu sur {salon.name}")
         await interaction.followup.send(f"✅ Le **Salon du Menu** est maintenant {salon.mention}.", ephemeral=True)
 
@@ -859,7 +867,7 @@ class SlashCommands(commands.Cog):
     @app_commands.describe(salon="Le salon qui affichera la sélection.")
     async def set_selection_channel(self, interaction: discord.Interaction, salon: discord.TextChannel):
         await interaction.response.defer(ephemeral=True)
-        await config_manager.update_state('selection_channel_id', salon.id)
+        await config_manager.update_state(interaction.guild.id, 'selection_channel_id', salon.id)
         await log_user_action(interaction, f"a défini le Salon de la Sélection sur {salon.name}")
         await interaction.followup.send(f"✅ Le **Salon de la Sélection** est maintenant {salon.mention}.", ephemeral=True)
 
@@ -1100,24 +1108,35 @@ class SlashCommands(commands.Cog):
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    # Dans commands.py, classe SlashCommands
+
     @app_commands.command(name="check", description="Vérifie si de nouveaux produits sont disponibles (cooldown 12h).")
     async def check(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
+        if not interaction.guild: # Commande non dispo en DM
+            await interaction.followup.send("Cette commande doit être utilisée sur un serveur.", ephemeral=True)
+            return
+
         cooldown_period = timedelta(hours=12)
-        last_check_iso = await config_manager.get_state('last_check_command_timestamp')
+        # On utilise interaction.guild.id pour le cooldown
+        last_check_iso = await config_manager.get_state(interaction.guild.id, 'last_check_command_timestamp')
+        
         if last_check_iso:
             time_since = datetime.utcnow() - datetime.fromisoformat(last_check_iso)
             if time_since < cooldown_period:
                 next_time = datetime.fromisoformat(last_check_iso) + cooldown_period
-                await interaction.followup.send(f"⏳ Prochaine vérification possible <t:{int(next_time.timestamp())}:R>.", ephemeral=True)
+                await interaction.followup.send(f"⏳ Prochaine vérification possible pour ce serveur <t:{int(next_time.timestamp())}:R>.", ephemeral=True)
                 return
         
         await log_user_action(interaction, "a utilisé /check.")
         try:
+            # La vérification des updates est globale, mais la notification sera par serveur
             updates_found = await self.bot.check_for_updates(self.bot, force_publish=False)
-            await config_manager.update_state('last_check_command_timestamp', datetime.utcnow().isoformat())
+            # On sauvegarde le timestamp pour CE serveur
+            await config_manager.update_state(interaction.guild.id, 'last_check_command_timestamp', datetime.utcnow().isoformat())
+            
             if updates_found:
-                await interaction.followup.send("✅ Merci ! Le menu a été mis à jour grâce à vous.", ephemeral=True)
+                await interaction.followup.send("✅ Merci ! Le menu a été mis à jour grâce à vous sur tous les serveurs configurés.", ephemeral=True)
             else:
                 await interaction.followup.send("👍 Le menu est déjà à jour. Merci d'avoir vérifié !", ephemeral=True)
         except Exception as e:
@@ -1411,7 +1430,7 @@ class SlashCommands(commands.Cog):
     @app_commands.check(is_staff_or_owner)
     async def selection(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        await self.bot.post_weekly_selection(self.bot)
+        await self.bot.post_weekly_selection(self.bot, interaction.guild.id)
         await interaction.followup.send("La sélection de la semaine a été publiée.", ephemeral=True)
     
     @app_commands.command(name="promos", description="Affiche toutes les promotions en cours.")

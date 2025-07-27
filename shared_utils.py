@@ -78,18 +78,40 @@ class ConfigManager:
                 return default
         return val if val is not None else default
 
-    async def get_state(self, key, default=None):
-        async with self._lock: # --- CORRECTION 1/2 : "with" devient "async with" ---
+    # --- MÉTHODES MODIFIÉES ---
+    async def get_state(self, guild_id: int, key: str, default=None):
+        """Récupère une valeur de configuration pour un serveur spécifique."""
+        async with self._lock:
             current_state = await self._async_load_json(self.state_path)
-            return current_state.get(key, default)
+            # On cherche d'abord dans le dictionnaire du serveur, puis on retourne le défaut
+            return current_state.get(str(guild_id), {}).get(key, default)
 
-    async def update_state(self, key, value):
-        async with self._lock: # --- CORRECTION 2/2 : "with" devient "async with" ---
+    async def update_state(self, guild_id: int, key: str, value):
+        """Met à jour une valeur de configuration pour un serveur spécifique."""
+        async with self._lock:
             current_state = await self._async_load_json(self.state_path)
-            current_state[key] = value
+            guild_id_str = str(guild_id)
+            
+            # Si c'est la première config pour ce serveur, on crée son dictionnaire
+            if guild_id_str not in current_state:
+                current_state[guild_id_str] = {}
+            
+            current_state[guild_id_str][key] = value
+            
             success = await asyncio.to_thread(self._sync_save_json, current_state, self.state_path)
             if not success:
-                Logger.error(f"Échec de la mise à jour de l'état pour la clé '{key}'.")
+                Logger.error(f"Échec de la mise à jour de l'état pour la clé '{key}' sur le serveur {guild_id}.")
+
+    # --- NOUVELLE MÉTHODE UTILE ---
+    async def get_all_configured_guilds(self) -> List[int]:
+        """Retourne une liste des ID de tous les serveurs ayant une configuration."""
+        async with self._lock:
+            current_state = await self._async_load_json(self.state_path)
+            try:
+                # On ne retourne que les clés qui sont des ID de serveur valides
+                return [int(guild_id) for guild_id in current_state.keys() if guild_id.isdigit()]
+            except (ValueError, TypeError):
+                return []
 
     def _sync_load_json(self, file_path):
         try:
@@ -101,7 +123,7 @@ class ConfigManager:
 
     def _sync_save_json(self, data, file_path):
         try:
-            with open(file_path, 'w', encoding='utf-8') as f: json.dump(data, f, indent=2)
+            with open(file_path, 'w', encoding='utf-8') as f: json.dump(data, f, indent=4)
             return True
         except Exception as e:
             Logger.error(f"Impossible de sauvegarder l'état dans '{file_path}': {e}")
