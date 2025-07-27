@@ -1132,7 +1132,7 @@ class SlashCommands(commands.Cog):
                     Logger.error(f"Erreur API get_purchased_products: {e}"); return []
             
             purchased_products = await asyncio.to_thread(fetch_purchased_products)
-            Logger.info(f"Produits achetés trouvés pour {interaction.user}: {purchased_products}")
+            Logger.info(f"Produits achetés trouvés pour {interaction.user} avec l'email {anonymize_email}: {purchased_products}")
 
             if purchased_products is None:
                 await interaction.followup.send("Ton compte Discord n'est pas lié. Utilise `/lier_compte`.", ephemeral=True); return
