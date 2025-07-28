@@ -29,6 +29,113 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
 
    
 # --- VUES ET MODALES ---
+
+class HelpView(discord.ui.View):
+    def __init__(self, cog_instance):
+        super().__init__(timeout=None)
+        self.cog = cog_instance
+        self.main_embed = self.create_main_embed()
+
+    def create_main_embed(self) -> discord.Embed:
+        return create_styled_embed(
+            title="👋 Centre d'Aide de LaFoncedalleBot",
+            description=(
+                "Bienvenue ! Que souhaites-tu découvrir ?\n\n"
+                "• **Tu es nouveau ?** Commence par ici pour un tour du propriétaire.\n"
+                "• **Commandes** : Découvre tout ce que le bot peut faire pour toi.\n"
+                "• **Fidélité** : Comprends comment tes notes te récompensent.\n"
+                "• **Liens Utiles** : Accède à notre FAQ et à nos vidéos."
+            )
+        )
+
+    @discord.ui.button(label="Tu es nouveau ?", style=discord.ButtonStyle.success, emoji="🚀", row=0)
+    async def new_user_guide(self, interaction: discord.Interaction, button: discord.ui.Button):
+        config = config_manager.get_config("help_command", {})
+        channels = config.get("channels_to_mention", {})
+        
+        menu_ch = f"<#{channels.get('menu')}>" if channels.get('menu') else "#menu"
+        selection_ch = f"<#{channels.get('selection')}>" if channels.get('selection') else "#sélection"
+        nouveautes_ch = f"<#{channels.get('nouveautes')}>" if channels.get('nouveautes') else "#nouveautés"
+
+        embed = create_styled_embed(
+            title="🚀 Guide du Nouveau Membre",
+            description=(
+                "Bienvenue sur le serveur ! Voici les bases pour bien démarrer :\n\n"
+                f"**1. Le Menu Interactif**\n"
+                f"Le cœur du serveur ! Consulte le salon {menu_ch} pour voir tous nos produits. Tu peux naviguer par catégorie grâce aux boutons.\n\n"
+                f"**2. La Sélection de la Semaine**\n"
+                f"Chaque semaine, découvre les produits les mieux notés par la communauté dans {selection_ch}.\n\n"
+                f"**3. Les Nouveautés**\n"
+                f"Sois le premier au courant des nouveaux arrivages et des promotions en suivant le salon {nouveautes_ch}."
+            )
+        )
+        await interaction.response.edit_message(embed=embed, view=HelpNavigateView(self))
+
+    @discord.ui.button(label="Commandes", style=discord.ButtonStyle.primary, emoji="🤖", row=0)
+    async def commands_guide(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = create_styled_embed("🤖 Guide des Commandes", "Voici les commandes essentielles à connaître :")
+        embed.add_field(name="</lier_compte:0>", value="Lie ton compte Discord à ton e-mail de commande. **C'est la première chose à faire !**", inline=False)
+        embed.add_field(name="</menu:0>", value="Affiche le menu interactif pour explorer tous nos produits.", inline=False)
+        embed.add_field(name="</noter:0>", value="Donne une note détaillée à un produit que tu as acheté pour gagner des points de fidélité.", inline=False)
+        embed.add_field(name="</profil:0>", value="Affiche ton profil, tes statistiques de notes, tes commandes et ton badge de fidélité.", inline=False)
+        embed.add_field(name="</promos:0>", value="Affiche toutes les promotions et avantages en cours sur la boutique.", inline=False)
+        await interaction.response.edit_message(embed=embed, view=HelpNavigateView(self))
+
+    @discord.ui.button(label="Système de Fidélité", style=discord.ButtonStyle.primary, emoji="🏆", row=1)
+    async def loyalty_guide(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = create_styled_embed("🏆 Le Système de Fidélité", "Chaque note que tu donnes est récompensée !")
+        embed.description += (
+            "\n\nEn notant les produits que tu achètes, tu gagnes en expérience et débloques des rôles exclusifs qui montrent ton statut d'expert au sein de la communauté.\n\n"
+            "**Voici les paliers actuels :**"
+        )
+        loyalty_config = config_manager.get_config("loyalty_roles", {})
+        if not loyalty_config:
+            embed.add_field(name="Paliers", value="Aucun palier n'est configuré pour le moment.")
+        else:
+            sorted_roles = sorted(loyalty_config.values(), key=lambda item: item.get('threshold', 0))
+            for role_data in sorted_roles:
+                embed.add_field(
+                    name=f"{role_data.get('emoji', '⭐')} {role_data.get('name', 'N/A')}",
+                    value=f"Se débloque à **{role_data.get('threshold', 0)}** notes.",
+                    inline=True
+                )
+        await interaction.response.edit_message(embed=embed, view=HelpNavigateView(self))
+
+    @discord.ui.button(label="Liens Utiles", style=discord.ButtonStyle.secondary, emoji="🔗", row=1)
+    async def useful_links(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(embed=None, view=HelpLinksView(self, interaction.guild_id))
+
+class HelpNavigateView(discord.ui.View):
+    def __init__(self, main_view: HelpView):
+        super().__init__(timeout=None)
+        self.main_view = main_view
+
+    @discord.ui.button(label="⬅️ Retour", style=discord.ButtonStyle.secondary)
+    async def go_back(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(embed=self.main_view.main_embed, view=self.main_view)
+
+class HelpLinksView(discord.ui.View):
+    def __init__(self, main_view: HelpView, guild_id: int):
+        super().__init__(timeout=None)
+        self.main_view = main_view
+        
+        config = config_manager.get_config("help_command", {})
+        faq_id = config.get("faq_channel_id")
+        video_url = config.get("video_url")
+
+        if faq_id:
+            self.add_item(discord.ui.Button(label="Consulter la FAQ", emoji="❓", url=f"https://discord.com/channels/{guild_id}/{faq_id}"))
+        if video_url:
+            self.add_item(discord.ui.Button(label="Voir la Vidéo Explicative", emoji="🎬", url=video_url))
+
+        # Le bouton retour est un bouton normal qui a une logique
+        back_button = discord.ui.Button(label="⬅️ Retour", style=discord.ButtonStyle.secondary)
+        back_button.callback = self.go_back_callback
+        self.add_item(back_button)
+
+    async def go_back_callback(self, interaction: discord.Interaction):
+        await interaction.response.edit_message(embed=self.main_view.main_embed, view=self.main_view)
+
 class EmailTestModal(discord.ui.Modal, title="Tester l'envoi d'e-mail"):
     email_input = discord.ui.TextInput(
         label="Adresse e-mail de destination",
@@ -2091,6 +2198,11 @@ class SlashCommands(commands.Cog):
             Logger.error(f"Erreur dans /promos : {e}"); traceback.print_exc()
             await interaction.followup.send("❌ Erreur lors de la récupération des promotions.", ephemeral=True)
 
+    @app_commands.command(name="help", description="Affiche le menu d'aide interactif du bot.")
+    async def help(self, interaction: discord.Interaction):
+        view = HelpView(self)
+        await interaction.response.send_message(embed=view.main_embed, view=view, ephemeral=True)
+        
 async def setup(bot: commands.Bot):
     await bot.add_cog(SlashCommands(bot))
     await bot.add_cog(ConfigCog(bot))
