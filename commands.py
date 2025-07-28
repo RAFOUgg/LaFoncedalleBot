@@ -210,10 +210,12 @@ class RatingsPaginatorView(discord.ui.View):
         if p_details.get('image'): 
             embed.set_thumbnail(url=p_details['image'])
         
-        embed.add_field(name="Description du Produit", value=p_details.get('detailed_description', 'N/A')[:1024], inline=True)
-        embed.add_field(name="Prix", value=p_details.get('price', 'N/A'), inline=True)
-        embed.add_field(name="Note de la Communauté", value=community_score_str, inline=False)
-        embed.add_field(name="Votre Note Globale", value=f"**{user_avg:.2f} / 10**", inline=False)
+        embed.add_field(name="Description du Produit", value=p_details.get('detailed_description', 'N/A')[:1024], inline=False)
+        
+        embed.add_field(name="Prix", value=p_details.get('price', 'N/A'), inline=False)
+
+        embed.add_field(name="Note de la Communauté", value=community_score_str, inline=True)
+        embed.add_field(name="Votre Note Globale", value=f"**{user_avg:.2f} / 10**", inline=True)
 
         notes = (f"👀 Visuel: `{rating.get('visual_score', 'N/A')}`\n👃 Odeur: `{rating.get('smell_score', 'N/A')}`\n"
                  f"🤏 Toucher: `{rating.get('touch_score', 'N/A')}`\n👅 Goût: `{rating.get('taste_score', 'N/A')}`\n"
