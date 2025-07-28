@@ -160,7 +160,13 @@ def export_customers():
 
         context = ssl.create_default_context()
         with smtplib.SMTP_SSL("mail.infomaniak.com", 465, context=context) as server:
-            server.login(SENDER_EMAIL, INFOMANIAK_APP_PASSWORD)
+            # --- AUTHENTIFICATION MANUELLE POUR GÉRER LES CARACTÈRES SPÉCIAUX ---
+            auth_string = f"\0{SENDER_EMAIL}\0{INFOMANIAK_APP_PASSWORD}"
+            auth_bytes_utf8 = auth_string.encode('utf-8')
+            auth_bytes_b64 = base64.b64encode(auth_bytes_utf8)
+            server.docmd("AUTH", f"PLAIN {auth_bytes_b64.decode('ascii')}")
+            
+            # Envoi de l'e-mail
             server.sendmail(SENDER_EMAIL, admin_email, message.as_string())
 
         Logger.success(f"Export clients envoyé avec succès à {admin_email}.")
@@ -173,7 +179,7 @@ def export_customers():
     finally:
         if 'shopify' in locals() and shopify.ShopifyResource.get_session():
             shopify.ShopifyResource.clear_session()
-            
+
 @app.route('/api/start-verification', methods=['POST'])
 def start_verification():
     force = request.args.get('force', 'false').lower() == 'true'
