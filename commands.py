@@ -212,7 +212,7 @@ class RatingsPaginatorView(discord.ui.View):
         
         embed.add_field(name="Description du Produit", value=p_details.get('detailed_description', 'N/A')[:1024], inline=True)
         embed.add_field(name="Prix", value=p_details.get('price', 'N/A'), inline=True)
-        embed.add_field(name="Note de la Communauté", value=community_score_str, inline=True)
+        embed.add_field(name="Note de la Communauté", value=community_score_str, inline=False)
         embed.add_field(name="Votre Note Globale", value=f"**{user_avg:.2f} / 10**", inline=True)
 
         notes = (f"👀 Visuel: `{rating.get('visual_score', 'N/A')}`\n👃 Odeur: `{rating.get('smell_score', 'N/A')}`\n"
