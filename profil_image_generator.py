@@ -1,6 +1,7 @@
 # Fichier : profil_image_generator.py (Version Finale avec Correction de Mesure)
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+import PIL
+from PIL import Image, ImageDraw, ImageFont, ImageOps, features
 import requests
 import io
 import os
@@ -10,7 +11,12 @@ import traceback
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 
+print(f"--- [ImageGen DEBUG] Pillow version: {PIL.__version__} ---")
+print(f"--- [ImageGen DEBUG] Raqm support: {features.check('raqm')} ---")
+print(f"--- [ImageGen DEBUG] Freetype support: {features.check('freetype2')} ---")
+
 async def create_profile_card(user_data: dict) -> io.BytesIO:
+    print(f"DEBUG [ImageGen]: Données utilisateur reçues -> {user_data}")
     def _generate():
         # ... (Palette de couleurs et chargement des polices inchangés) ...
         COLORS = {
@@ -80,6 +86,10 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
             badge_text = badge_data.get('name', 'Badge').upper()
             emoji_text = badge_data.get('emoji', '⭐')
             
+            # DEBUG 
+            print(f"DEBUG [ImageGen]: Données du badge trouvées -> {badge_data}")
+            print(f"DEBUG [ImageGen]: Texte de l'émoji à dessiner -> '{emoji_text}'")
+
             # --- CORRECTION FINALE : Utiliser textbbox pour une mesure précise ---
             emoji_bbox = draw.textbbox((0, 0), emoji_text, font=fonts['emoji'])
             text_bbox = draw.textbbox((0, 0), badge_text, font=fonts['badge'])
@@ -96,7 +106,12 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
             draw.rounded_rectangle((badge_x, badge_y, badge_x + badge_width, badge_y + badge_h), fill=COLORS["accent"], radius=8)
             
             emoji_x = badge_x + padding
-            draw.text((emoji_x, badge_y_center), emoji_text, font=fonts['emoji'], embedded_color=True, anchor="lm")
+            try:
+                draw.text((emoji_x, badge_y_center), emoji_text, font=fonts['emoji'], embedded_color=True, anchor="lm")
+                print("DEBUG [ImageGen]: Le dessin de l'émoji a été exécuté.")
+            except Exception as e:
+                print(f"ERREUR CRITIQUE [ImageGen]: Impossible de dessiner l'émoji '{emoji_text}'. Erreur: {e}")
+                traceback.print_exc()
             
             text_x = emoji_x + emoji_width + spacing
             draw.text((text_x, badge_y_center), badge_text, font=fonts['badge'], fill=COLORS["badge_text_color"], anchor="lm")
