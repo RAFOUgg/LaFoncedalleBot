@@ -766,52 +766,84 @@ class NotationProductSelectView(discord.ui.View):
                     await interaction.followup.send("❌ Oups, une erreur est survenue lors de l'ouverture du formulaire.", ephemeral=True)
 
 class TopRatersPaginatorView(discord.ui.View):
-    def __init__(self, top_raters, guild, items_per_page=5): # On met un peu moins de noteurs par page pour la lisibilité
+    def __init__(self, top_raters, guild, items_per_page=5):
         super().__init__(timeout=180)
         self.top_raters = top_raters
         self.guild = guild
         self.items_per_page = items_per_page
         self.current_page = 0
-        self.total_pages = (len(self.top_raters) - 1) // self.items_per_page
+        self.total_pages = max(0, (len(self.top_raters) - 1) // self.items_per_page)
         self.update_buttons()
         
     def update_buttons(self):
         self.clear_items()
         if self.total_pages > 0:
-            self.add_item(self.PrevButton())
-            self.add_item(self.NextButton())
-            self.children[0].disabled = self.current_page == 0
-            self.children[1].disabled = self.current_page >= self.total_pages
+            self.add_item(self.PrevButton(disabled=(self.current_page == 0)))
+            self.add_item(self.NextButton(disabled=(self.current_page >= self.total_pages)))
             
     def create_embed_for_page(self):
         start_index = self.current_page * self.items_per_page
         end_index = start_index + self.items_per_page
         page_raters = self.top_raters[start_index:end_index]
         
-        embed = discord.Embed(title="🏆 Top des Noteurs", description="Classement basé sur le nombre de notes uniques.", color=discord.Color.gold())
+        embed = create_styled_embed(
+            title="🏆 Top des Noteurs",
+            description="Classement basé sur le nombre de notes uniques.",
+            color=discord.Color.gold()
+        )
         
+        # Ajout de la miniature du premier si elle existe
+        if self.current_page == 0 and page_raters:
+            first_rater_id = page_raters[0].get('user_id')
+            member = self.guild.get_member(first_rater_id)
+            if member:
+                embed.set_thumbnail(url=member.display_avatar.url)
+
+        medals = ["🥇", "🥈", "🥉"]
+
         for i, rater_data in enumerate(page_raters):
+            rank = start_index + i + 1
             user_id = rater_data.get('user_id')
             last_user_name = rater_data.get('last_user_name')
             rating_count = rater_data.get('rating_count')
             global_average = rater_data.get('global_avg', 0)
             best_product = rater_data.get('best_rated_product', 'N/A')
             
-            rank = start_index + i + 1
             member = self.guild.get_member(user_id)
             display_name = member.display_name if member else last_user_name
             mention_text = member.mention if member else f"`{last_user_name} (parti)`"
-            field_name = f"#{rank} - {display_name}"
+            
+            # --- Nouvelle Mise en Page ---
+            medal_emoji = medals[rank - 1] if rank <= len(medals) else "🔹"
+            field_name = f"{medal_emoji} #{rank} - {display_name}"
+            
             field_value = (
                 f"{mention_text}\n"
-                f"> **Notes :** `{rating_count}` | **Moyenne :** `{global_average:.2f}/10`\n"
-                f"> **Produit Préféré :** ⭐ *{best_product}*"
+                f"> 📝 **Notes :** `{rating_count}`\n"
+                f"> 📊 **Moyenne :** `{global_average:.2f}/10`\n"
+                f"> ⭐ **Produit Préféré :** *{best_product}*"
             )
             
             embed.add_field(name=field_name, value=field_value, inline=False)
             
         embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages + 1}")
         return embed
+
+    async def update_message(self, interaction: discord.Interaction):
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.create_embed_for_page(), view=self)
+
+    class PrevButton(discord.ui.Button):
+        def __init__(self, disabled=False): super().__init__(label="⬅️", style=discord.ButtonStyle.secondary, disabled=disabled)
+        async def callback(self, interaction: discord.Interaction):
+            if self.view.current_page > 0: self.view.current_page -= 1
+            await self.view.update_message(interaction)
+
+    class NextButton(discord.ui.Button):
+        def __init__(self, disabled=False): super().__init__(label="➡️", style=discord.ButtonStyle.secondary, disabled=disabled)
+        async def callback(self, interaction: discord.Interaction):
+            if self.view.current_page < self.view.total_pages: self.view.current_page += 1
+            await self.view.update_message(interaction)
             
 class RankingPaginatorView(discord.ui.View):
     def __init__(self, all_products_ratings, product_map, items_per_page=5):
