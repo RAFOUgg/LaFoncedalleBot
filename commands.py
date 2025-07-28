@@ -714,8 +714,6 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
         except Exception as e:
             Logger.error(f"Erreur API lors de la soumission de la note : {e}")
             await interaction.followup.send("❌ Une erreur est survenue lors de l'enregistrement de votre note. Le staff a été notifié.", ephemeral=True)
-            
-# D'abord, la vue
 class NotationProductSelectView(discord.ui.View):
     def __init__(self, products: list, user: discord.User):
         super().__init__(timeout=180)
@@ -1007,6 +1005,24 @@ class ContactButtonsView(discord.ui.View):
         if contact_info.get("telegram"): self.add_item(discord.ui.Button(label="Telegram", style=discord.ButtonStyle.link, url=contact_info["telegram"], emoji=TELEGRAM_EMOJI))
         if contact_info.get("tiktok"): self.add_item(discord.ui.Button(label="TikTok", style=discord.ButtonStyle.link, url=contact_info["tiktok"], emoji=TIKTOK_EMOJI))
 
+class ContactButtonsView(discord.ui.View):
+    def __init__(self, contact_info: dict):
+        super().__init__(timeout=None) # Pas de timeout pour que les boutons restent cliquables
+
+        # On crée les boutons dynamiquement à partir du config.json
+        # Le format est : (clé_dans_le_json, Label du bouton, Emoji)
+        button_map = [
+            ("site", "Boutique", LFONCEDALLE_EMOJI),
+            ("instagram", "Instagram", INSTAGRAM_EMOJI),
+            ("telegram", "Telegram", TELEGRAM_EMOJI),
+            ("tiktok", "TikTok", TIKTOK_EMOJI)
+        ]
+
+        for key, label, emoji in button_map:
+            url = contact_info.get(key)
+            if url: # On ajoute le bouton uniquement si l'URL existe dans la config
+                self.add_item(discord.ui.Button(label=label, style=discord.ButtonStyle.link, url=url, emoji=emoji))
+
 @app_commands.guild_only()
 class ConfigCog(commands.GroupCog, name="config", description="Gère la configuration du bot LaFoncedalle."):
     def __init__(self, bot: commands.Bot):
@@ -1263,16 +1279,27 @@ class SlashCommands(commands.Cog):
             Logger.error(f"Erreur lors de l'envoi du fichier DB : {e}")
             await interaction.followup.send("Erreur lors de l'envoi du fichier de base de données.", ephemeral=True)
 
-    @app_commands.command(name="contacts", description="Afficher les informations de contact de LaFoncedalle")
+    @app_commands.command(name="contacts", description="Affiche tous les liens utiles de LaFoncedalle.")
     async def contacts(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         await log_user_action(interaction, "a demandé les contacts.")
+        
         contact_info = config_manager.get_config("contact_info", {})
-        embed = create_styled_embed(f"{SUCETTE_EMOJI} LaFoncedalle - Contacts", 
-            contact_info.get("description", "Contactez-nous !"), 
-            color=discord.Color.blue()
+        
+        embed = create_styled_embed(
+            title=f"Nos Plateformes",
+            description=contact_info.get("description", "Rejoignez-nous sur nos réseaux !"),
+            color=discord.Color.from_rgb(167, 68, 232) # Violet "brandé"
         )
+        
+        # On utilise le thumbnail du config, qui est le logo rond
+        thumbnail_url = contact_info.get("thumbnail_logo_url")
+        if thumbnail_url:
+            embed.set_thumbnail(url=thumbnail_url)
+        
+        # On crée la vue avec les boutons
         view = ContactButtonsView(contact_info)
+        
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     # Dans commands.py, à l'intérieur de la classe SlashCommands
