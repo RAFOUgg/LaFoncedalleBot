@@ -1530,7 +1530,7 @@ class SlashCommands(commands.Cog):
         
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
-        @app_commands.command(name="debug", description="[STAFF] Affiche un diagnostic complet du bot et propose des actions.")
+    @app_commands.command(name="debug", description="[STAFF] Affiche un diagnostic complet du bot et propose des actions.")
     @app_commands.check(is_staff_or_owner)
     async def debug(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
