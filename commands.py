@@ -391,7 +391,7 @@ class DebugView(discord.ui.View):
     async def test_email(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Ouvre la fenêtre modale pour demander l'adresse e-mail
         await interaction.response.send_modal(EmailTestModal())
-        
+
 class MenuView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -703,16 +703,21 @@ class AddCommentView(discord.ui.View):
         button.disabled = True
         await interaction.message.edit(view=self)
 
-class RatingModal(discord.ui.Modal, title="Noter un produit"):
-    def __init__(self, product_name: str, user: discord.User, cog_instance):
-        super().__init__(timeout=None)
+class RatingModal(discord.ui.Modal):
+    def __init__(self, product_name: str, user: discord.User, cog_instance, existing_rating: Optional[dict] = None):
+        super().__init__(title="Modifier votre note" if existing_rating else "Noter un produit", timeout=None)
+        
         self.product_name, self.user = product_name, user
         self.cog_instance = cog_instance
-        self.visual_score = discord.ui.TextInput(label="👀 Note Visuel /10", placeholder="Ex: 8.5", required=True)
-        self.smell_score = discord.ui.TextInput(label="👃🏼 Note Odeur /10", placeholder="Ex: 9", required=True)
-        self.touch_score = discord.ui.TextInput(label="🤏🏼 Note Toucher /10", placeholder="Ex: 7", required=True)
-        self.taste_score = discord.ui.TextInput(label="👅 Note Goût /10", placeholder="Ex: 8", required=True)
-        self.effects_score = discord.ui.TextInput(label="🧠 Note Effets /10", placeholder="Ex: 9.5", required=True)
+        def get_score(key: str) -> str:
+            return str(existing_rating.get(key, '')) if existing_rating else ''
+
+        self.visual_score = discord.ui.TextInput(label="👀 Note Visuel /10", placeholder="Ex: 8.5", required=True, default=get_score('visual_score'))
+        self.smell_score = discord.ui.TextInput(label="👃🏼 Note Odeur /10", placeholder="Ex: 9", required=True, default=get_score('smell_score'))
+        self.touch_score = discord.ui.TextInput(label="🤏🏼 Note Toucher /10", placeholder="Ex: 7", required=True, default=get_score('touch_score'))
+        self.taste_score = discord.ui.TextInput(label="👅 Note Goût /10", placeholder="Ex: 8", required=True, default=get_score('taste_score'))
+        self.effects_score = discord.ui.TextInput(label="🧠 Note Effets /10", placeholder="Ex: 9.5", required=True, default=get_score('effects_score'))
+        
         for item in [self.visual_score, self.smell_score, self.touch_score, self.taste_score, self.effects_score]:
             self.add_item(item)
 
@@ -761,39 +766,67 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
             Logger.error(f"Erreur API lors de la soumission de la note : {e}"); traceback.print_exc()
             await interaction.followup.send("❌ Une erreur est survenue lors de l'enregistrement de votre note.", ephemeral=True)
 
-class NotationProductSelectView(discord.ui.View):
-    def __init__(self, products: list, user: discord.User, cog_instance):
-        super().__init__(timeout=180)
-        self.products = products
-        self.cog_instance = cog_instance
-        if products:
-            self.add_item(self.ProductSelect(products, user, self.cog_instance))
-
-    class ProductSelect(discord.ui.Select):
-        def __init__(self, products: list, user: discord.User, cog_instance):
-            self.user = user
-            self.cog_instance = cog_instance
-            options = [discord.SelectOption(label=p[:100], value=p[:100]) for p in products[:25]]
-            if not options:
-                options = [discord.SelectOption(label="Aucun produit à noter", value="disabled", default=True)]
-            super().__init__(placeholder="Choisissez un produit à noter...", options=options)
-        
-        async def callback(self, interaction: discord.Interaction):
+async def callback(self, interaction: discord.Interaction):
             try:
                 if not self.values or self.values[0] == "disabled":
-                    await interaction.response.edit_message(content="Aucun produit sélectionné.", view=None); return
+                    await interaction.response.edit_message(content="Aucun produit sélectionné.", view=None)
+                    return
                 
                 selected_value = self.values[0]
                 full_product_name = next((p for p in self.view.products if p.startswith(selected_value)), selected_value)
                 
-                Logger.info(f"Produit '{full_product_name}' sélectionné. Affichage du modal.")
-                await interaction.response.send_modal(RatingModal(full_product_name, self.user, self.cog_instance))
+                # On informe l'utilisateur que la recherche est en cours
+                await interaction.response.defer(thinking=True, ephemeral=True)
+
+                def _fetch_existing_rating_sync(user_id, product_name):
+                    conn = sqlite3.connect(DB_FILE)
+                    conn.row_factory = sqlite3.Row
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT * FROM ratings WHERE user_id = ? AND product_name = ?", (user_id, product_name))
+                    row = cursor.fetchone()
+                    conn.close()
+                    return dict(row) if row else None
+
+                existing_rating = await asyncio.to_thread(
+                    _fetch_existing_rating_sync, interaction.user.id, full_product_name
+                )
+                
+                if existing_rating:
+                    # Une note existe, on affiche la confirmation
+                    Logger.info(f"Note existante trouvée pour '{full_product_name}'. Demande de confirmation.")
+                    
+                    # Calculer la moyenne existante pour l'afficher
+                    scores = [existing_rating.get(s, 0) for s in ['visual_score', 'smell_score', 'touch_score', 'taste_score', 'effects_score']]
+                    avg_score = sum(scores) / len(scores) if scores else 0
+                    
+                    view = ConfirmRatingOverwriteView(full_product_name, self.user, self.cog_instance, existing_rating, avg_score)
+                    await interaction.followup.send(
+                        f"⚠️ Vous avez déjà noté **{full_product_name}** avec une moyenne de **{avg_score:.2f}/10**.\n\n"
+                        "Voulez-vous modifier votre note ?",
+                        view=view,
+                        ephemeral=True
+                    )
+                else:
+                    # Aucune note, on ouvre le modal directement
+                    Logger.info(f"Aucune note existante pour '{full_product_name}'. Affichage du modal de notation.")
+                    modal = RatingModal(full_product_name, self.user, self.cog_instance)
+                    await interaction.followup.send("Veuillez remplir le formulaire ci-dessous.", ephemeral=True, view=None) # Message placeholder
+                    await interaction.response.send_modal(modal) # Utiliser l'interaction originale
+                    # Supprimer le message placeholder après un court délai
+                    await asyncio.sleep(0.1)
+                    await interaction.delete_original_response()
+
+
             except Exception as e:
                 Logger.error(f"Échec de l'affichage du modal de notation : {e}"); traceback.print_exc()
+                # Assurons-nous d'avoir un message de retour même si ça plante
                 if not interaction.response.is_done():
-                    await interaction.response.send_message("❌ Oups, une erreur est survenue.", ephemeral=True)
+                     await interaction.response.send_message("❌ Oups, une erreur est survenue.", ephemeral=True)
                 else:
-                    await interaction.followup.send("❌ Oups, une erreur est survenue.", ephemeral=True)
+                    try:
+                        await interaction.followup.send("❌ Oups, une erreur est survenue.", ephemeral=True)
+                    except:
+                        pass # Si même le followup échoue, on ne peut plus rien faire
 
 class TopRatersPaginatorView(discord.ui.View):
     def __init__(self, top_raters, guild, items_per_page=5):
@@ -1057,6 +1090,30 @@ class ProfilePaginatorView(discord.ui.View):
         def __init__(self): super().__init__(label="Réinitialiser", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
         async def callback(self, i: discord.Interaction):
             await i.response.send_message(f"Voulez-vous vraiment supprimer les notes de {self.view.target_user.mention} ?", view=ConfirmResetNotesView(self.view.target_user, self.view.bot), ephemeral=True)
+
+class ConfirmRatingOverwriteView(discord.ui.View):
+    def __init__(self, product_name: str, user: discord.User, cog_instance, existing_rating: dict, avg_score: float):
+        super().__init__(timeout=60)
+        self.product_name = product_name
+        self.user = user
+        self.cog_instance = cog_instance
+        self.existing_rating = existing_rating
+        self.avg_score = avg_score
+    @discord.ui.button(label="Modifier ma note", style=discord.ButtonStyle.primary, emoji="✏️")
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = RatingModal(
+            self.product_name,
+            self.user,
+            self.cog_instance,
+            existing_rating=self.existing_rating
+        )
+        await interaction.response.send_modal(modal)
+        for item in self.children:
+            item.disabled = True
+        await interaction.message.edit(view=self)
+    @discord.ui.button(label="Annuler", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Opération annulée.", view=None)
 
 class ConfirmResetNotesView(discord.ui.View):
     def __init__(self, user, bot): super().__init__(timeout=60); self.user=user; self.bot=bot
