@@ -44,7 +44,6 @@ class HelpView(discord.ui.View):
                 "• **Tu es nouveau ?** Commence par ici pour un tour du propriétaire.\n"
                 "• **Commandes** : Découvre tout ce que le bot peut faire pour toi.\n"
                 "• **Fidélité** : Comprends comment tes notes te récompensent.\n"
-                "• **Liens Utiles** : Accède à notre FAQ et à nos vidéos."
             )
         )
 
@@ -2186,7 +2185,7 @@ class SlashCommands(commands.Cog):
             Logger.error(f"Erreur dans /promos : {e}"); traceback.print_exc()
             await interaction.followup.send("❌ Erreur lors de la récupération des promotions.", ephemeral=True)
 
-    @app_commands.command(name="help", description="Affiche le menu d'aide interactif du bot.")
+    @app_commands.command(name="aide", description="Affiche le menu d'aide interactif du bot.")
     async def help(self, interaction: discord.Interaction):
         view = HelpView(self)
         await interaction.response.send_message(embed=view.main_embed, view=view, ephemeral=True)
