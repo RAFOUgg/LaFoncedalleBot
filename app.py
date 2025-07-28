@@ -135,7 +135,11 @@ def start_verification():
     context = ssl.create_default_context()
     try:
         with smtplib.SMTP_SSL("mail.infomaniak.com", 465, context=context) as server:
-            server.login(SENDER_EMAIL, INFOMANIAK_APP_PASSWORD)
+            auth_string = f"\0{SENDER_EMAIL}\0{INFOMANIAK_APP_PASSWORD}"
+            auth_bytes_utf8 = auth_string.encode('utf-8')
+            auth_bytes_b64 = base64.b64encode(auth_bytes_utf8)
+            server.docmd("AUTH", f"PLAIN {auth_bytes_b64.decode('ascii')}")
+            
             server.sendmail(SENDER_EMAIL, email, message.as_string())
     except Exception as e:
         print(f"ERREUR SMTP CRITIQUE: {e}"); traceback.print_exc()
@@ -172,7 +176,11 @@ def test_email():
     context = ssl.create_default_context()
     try:
         with smtplib.SMTP_SSL("mail.infomaniak.com", 465, context=context) as server:
-            server.login(SENDER_EMAIL, INFOMANIAK_APP_PASSWORD)
+            auth_string = f"\0{SENDER_EMAIL}\0{INFOMANIAK_APP_PASSWORD}"
+            auth_bytes_utf8 = auth_string.encode('utf-8')
+            auth_bytes_b64 = base64.b64encode(auth_bytes_utf8)
+            server.docmd("AUTH", f"PLAIN {auth_bytes_b64.decode('ascii')}")
+            
             server.sendmail(SENDER_EMAIL, recipient_email, message.as_string())
         
         # La logique a été simplifiée. On retourne directement le succès.
@@ -276,7 +284,11 @@ def confirm_verification():
         message.attach(MIMEText(html_body, "html", "utf-8"))
         context = ssl.create_default_context()
         with smtplib.SMTP_SSL("mail.infomaniak.com", 465, context=context) as server:
-            server.login(SENDER_EMAIL, INFOMANIAK_APP_PASSWORD)
+            auth_string = f"\0{SENDER_EMAIL}\0{INFOMANIAK_APP_PASSWORD}"
+            auth_bytes_utf8 = auth_string.encode('utf-8')
+            auth_bytes_b64 = base64.b64encode(auth_bytes_utf8)
+            server.docmd("AUTH", f"PLAIN {auth_bytes_b64.decode('ascii')}")
+            
             server.sendmail(SENDER_EMAIL, user_email, message.as_string())
 
         claimed_users[str(discord_id)] = {"code": gift_code, "date": datetime.utcnow().isoformat()}
