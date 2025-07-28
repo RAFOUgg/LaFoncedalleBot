@@ -65,24 +65,34 @@ class HelpView(discord.ui.View):
             title="🚀 Guide du Nouveau Membre",
             description=(
                 "Bienvenue sur le serveur ! Voici les bases pour bien démarrer :\n\n"
-                f"**1. Le Menu Interactif**\n"
+                f"**1. Menu Interactif & Nouveautés**\n"
                 f"Le cœur du serveur ! Consulte le salon {menu_ch} pour voir tous nos produits. Tu peux naviguer par catégorie grâce aux boutons.\n\n"
-                f"**2. La Sélection de la Semaine**\n"
+                f"**2. Sélection de la Semaine**\n"
                 f"Chaque semaine, découvre les produits les mieux notés par la communauté dans {selection_ch}.\n\n"
-                f"**3. Les Nouveautés**\n"
-                f"Sois le premier au courant des nouveaux arrivages et des promotions en suivant le salon {nouveautes_ch}."
             )
         )
         await interaction.response.edit_message(embed=embed, view=HelpNavigateView(self))
 
     @discord.ui.button(label="Commandes", style=discord.ButtonStyle.primary, emoji="🤖", row=0)
     async def commands_guide(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = create_styled_embed("🤖 Guide des Commandes", "Voici les commandes essentielles à connaître :")
-        embed.add_field(name="</lier_compte:0>", value="Lie ton compte Discord à ton e-mail de commande. **C'est la première chose à faire !**", inline=False)
-        embed.add_field(name="</menu:0>", value="Affiche le menu interactif pour explorer tous nos produits.", inline=False)
-        embed.add_field(name="</noter:0>", value="Donne une note détaillée à un produit que tu as acheté pour gagner des points de fidélité.", inline=False)
-        embed.add_field(name="</profil:0>", value="Affiche ton profil, tes statistiques de notes, tes commandes et ton badge de fidélité.", inline=False)
-        embed.add_field(name="</promos:0>", value="Affiche toutes les promotions et avantages en cours sur la boutique.", inline=False)
+        embed = create_styled_embed("🤖 Guide des Commandes", "Voici les commandes essentielles à connaître. Tu peux cliquer sur leur nom pour les utiliser !")
+        
+        # Pour rendre les commandes cliquables, nous devons récupérer leurs IDs.
+        # C'est une méthode avancée mais qui offre une bien meilleure expérience.
+        app_commands = await self.cog.bot.tree.fetch_commands()
+        cmd_map = {cmd.name: cmd.id for cmd in app_commands}
+
+        def format_cmd(name):
+            return f"</{name}:{cmd_map.get(name, 0)}>"
+
+        embed.add_field(name=format_cmd("lier_compte"), value="Lie ton compte Discord à ton e-mail de commande. **C'est la première chose à faire !**", inline=False)
+        embed.add_field(name=format_cmd("menu"), value="Affiche le menu interactif pour explorer tous nos produits.", inline=False)
+        embed.add_field(name=format_cmd("noter"), value="Donne une note détaillée à un produit que tu as acheté pour gagner des points de fidélité.", inline=False)
+        embed.add_field(name=format_cmd("profil"), value="Affiche ton profil, tes statistiques de notes, tes commandes et ton badge de fidélité.", inline=False)
+        embed.add_field(name=format_cmd("promos"), value="Affiche toutes les promotions et avantages en cours sur la boutique.", inline=False)
+        embed.add_field(name=format_cmd("top_noteurs"), value="Consulte le classement des membres les plus actifs.", inline=False)
+        embed.add_field(name=format_cmd("classement_produits"), value="Découvre les produits préférés de la communauté.", inline=False)
+        
         await interaction.response.edit_message(embed=embed, view=HelpNavigateView(self))
 
     @discord.ui.button(label="Système de Fidélité", style=discord.ButtonStyle.primary, emoji="🏆", row=1)
