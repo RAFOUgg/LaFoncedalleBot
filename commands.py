@@ -1349,29 +1349,60 @@ class SlashCommands(commands.Cog):
     async def noter(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
         await log_user_action(interaction, "a initié la commande /noter")
+        
         try:
+            # Cette fonction interne contacte l'API Flask
             def fetch_purchased_products():
                 import requests
                 try:
-                    res = requests.get(f"{APP_URL}/api/get_purchased_products/{interaction.user.id}", timeout=10)
-                    if res.status_code == 404: return None
-                    res.raise_for_status()
-                    return res.json().get("products", [])
-                except Exception: return []
-            
-            purchased_products = await asyncio.to_thread(fetch_purchased_products)
+                    api_url = f"{APP_URL}/api/get_purchased_products/{interaction.user.id}"
+                    res = requests.get(api_url, timeout=10)
+                    
+                    # --- NOUVELLE GESTION D'ERREUR DÉTAILLÉE ---
+                    if res.status_code == 404:
+                        # L'API a explicitement dit que le compte n'est pas lié
+                        return {"error": "not_linked"}
+                    
+                    res.raise_for_status() # Lève une exception pour les autres erreurs HTTP (500, etc.)
+                    return {"products": res.json().get("products", [])}
 
-            if purchased_products is None:
-                await interaction.followup.send("Ton compte Discord n'est pas lié. Utilise `/lier_compte`.", ephemeral=True); return
+                except requests.RequestException as e:
+                    # L'API n'a pas pu être contactée
+                    Logger.error(f"Erreur de connexion à l'API pour /noter : {e}")
+                    return {"error": "api_unavailable"}
+                except Exception as e:
+                    # Autre erreur inattendue
+                    Logger.error(f"Erreur inattendue dans fetch_purchased_products: {e}")
+                    return {"error": "unknown"}
+
+            # On exécute la fonction dans un thread pour ne pas bloquer le bot
+            result = await asyncio.to_thread(fetch_purchased_products)
+
+            # Cas 1: Erreur détectée (compte non lié, API indisponible, etc.)
+            if "error" in result:
+                if result["error"] == "not_linked":
+                    message = "❌ **Compte non lié !**\nPour pouvoir noter tes produits, tu dois d'abord lier ton compte Discord à l'e-mail de tes commandes avec la commande `/lier_compte`."
+                elif result["error"] == "api_unavailable":
+                    message = "🔌 Le service de vérification des achats est momentanément indisponible. Merci de réessayer plus tard."
+                else:
+                    message = "❌ Oups, une erreur inattendue est survenue. Le staff a été notifié."
+                await interaction.followup.send(message, ephemeral=True)
+                return
+
+            # Cas 2: Le compte est lié, mais aucun produit n'est disponible à la notation
+            purchased_products = result.get("products", [])
             if not purchased_products:
-                await interaction.followup.send("Aucun produit trouvé dans ton historique d'achats pouvant être noté.", ephemeral=True); return
-            
-            # --- CORRECTION : On passe 'self' (l'instance du Cog) à la Vue ---
+                message = "🤔 **Aucun produit à noter pour le moment.**\nIl se peut que tu n'aies pas encore de commande enregistrée ou que tu aies déjà noté tous tes produits achetés."
+                await interaction.followup.send(message, ephemeral=True)
+                return
+
+            # Cas 3: Tout est OK, on affiche le menu de sélection
             view = NotationProductSelectView(purchased_products, interaction.user, self)
-            await interaction.followup.send("Veuillez choisir un produit à noter :", view=view, ephemeral=True)
+            await interaction.followup.send("Veuillez choisir un produit à noter dans la liste ci-dessous :", view=view, ephemeral=True)
+
         except Exception as e:
             Logger.error(f"Erreur majeure dans la commande /noter : {e}"); traceback.print_exc()
-            await interaction.followup.send("❌ Oups, une erreur est survenue.", ephemeral=True)
+            await interaction.followup.send("❌ Oups, une erreur critique est survenue. Le staff a été notifié.", ephemeral=True)
 
     @app_commands.command(name="top_noteurs", description="Affiche le classement des membres qui ont noté le plus de produits.")
     @app_commands.guild_only()
@@ -1499,7 +1530,7 @@ class SlashCommands(commands.Cog):
         
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
-    @app_commands.command(name="debug", description="[STAFF] Affiche un diagnostic complet du bot et propose des actions.")
+        @app_commands.command(name="debug", description="[STAFF] Affiche un diagnostic complet du bot et propose des actions.")
     @app_commands.check(is_staff_or_owner)
     async def debug(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -1515,8 +1546,8 @@ class SlashCommands(commands.Cog):
         # --- 1. Connectivité ---
         status_text = f"**API Discord :** `{round(self.bot.latency * 1000)} ms`\n"
         
-        # Test Shopify (avec activation de session)
         try:
+            import shopify
             start_time = time.time()
             shop_url = os.getenv('SHOPIFY_SHOP_URL')
             api_version = os.getenv('SHOPIFY_API_VERSION')
@@ -1532,7 +1563,6 @@ class SlashCommands(commands.Cog):
         except Exception:
             status_text += f"❌ **API Shopify :** `Échec de connexion`\n"
 
-        # Test Flask
         try:
             import requests
             res = await asyncio.to_thread(requests.get, f"{APP_URL}/", timeout=5)
@@ -1543,15 +1573,37 @@ class SlashCommands(commands.Cog):
         
         embed.add_field(name="🌐 Connectivité", value=status_text, inline=False)
         
-        # --- 2. Configuration du Serveur ---
+        # --- 2. Tâches Programmées (NOUVELLE SECTION) ---
+        tasks_text = ""
+        # Accéder aux tâches enregistrées dans le fichier principal du bot
+        from catalogue_final import scheduled_check, post_weekly_ranking, scheduled_selection, daily_role_sync
+
+        tasks_to_check = {
+            "Vérification Menu": scheduled_check,
+            "Classement Hebdo": post_weekly_ranking,
+            "Sélection Semaine": scheduled_selection,
+            "Synchro Rôles": daily_role_sync
+        }
+
+        for name, task in tasks_to_check.items():
+            if task.is_running():
+                next_run = task.next_iteration
+                if next_run:
+                    # On utilise le format de timestamp Discord R (relatif)
+                    tasks_text += f"✅ **{name} :** Prochaine <t:{int(next_run.timestamp())}:R>\n"
+                else:
+                    tasks_text += f"⚠️ **{name} :** En cours (pas de prochaine itération prévue)\n"
+            else:
+                tasks_text += f"❌ **{name} :** `Arrêtée`\n"
+        
+        embed.add_field(name="⏰ Tâches Programmées", value=tasks_text, inline=False)
+
+        # --- 3. Configuration du Serveur ---
         config_text = ""
         def format_setting(item_id, get_method, is_critical=False):
-            if not item_id:
-                return f"{'❌' if is_critical else '⚠️'} `Non défini`"
-            # On s'assure de passer un int à get_role/get_channel
+            if not item_id: return f"{'❌' if is_critical else '⚠️'} `Non défini`"
             item = get_method(int(item_id))
-            if item:
-                return f"✅ {item.mention}"
+            if item: return f"✅ {item.mention}"
             return f"{'❌' if is_critical else '⚠️'} `Introuvable (ID: {item_id})`"
 
         staff_role_id = await config_manager.get_state(guild.id, 'staff_role_id')
@@ -1568,7 +1620,7 @@ class SlashCommands(commands.Cog):
         
         embed.add_field(name="🔧 Configuration Locale", value=config_text, inline=False)
         
-        # --- 3. & 4. Cache et Base de Données ---
+        # --- 4. & 5. Cache et Base de Données ---
         if self.bot.product_cache:
             products_count = len(self.bot.product_cache.get('products', []))
             cache_age_ts = self.bot.product_cache.get('timestamp', 0)
@@ -1586,7 +1638,7 @@ class SlashCommands(commands.Cog):
         except Exception as e:
             embed.add_field(name="💾 Base de Données", value=f"❌ `Erreur d'accès`\n`{e}`", inline=True)
 
-        # --- 5. Variables d'Environnement ---
+        # --- 6. Variables d'Environnement ---
         env_text = ""
         env_vars_to_check = ['SHOPIFY_SHOP_URL', 'SHOPIFY_API_VERSION', 'SHOPIFY_ADMIN_ACCESS_TOKEN', 'APP_URL', 'FLASK_SECRET_KEY']
         for var in env_vars_to_check:
