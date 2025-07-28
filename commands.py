@@ -30,6 +30,38 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
    
 # --- VUES ET MODALES ---
 
+class EmailTestModal(discord.ui.Modal, title="Tester l'envoi d'e-mail"):
+    email_input = discord.ui.TextInput(
+        label="Adresse e-mail de destination",
+        placeholder="exemple@domaine.com",
+        required=True,
+        style=discord.TextStyle.short
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        recipient_email = self.email_input.value
+
+        api_url = f"{APP_URL}/api/test-email"
+        payload = {"recipient_email": recipient_email}
+        headers = {"Authorization": f"Bearer {FLASK_SECRET_KEY}"}
+
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.post(api_url, json=payload, headers=headers, timeout=20) as response:
+                    data = await response.json()
+                    if response.ok:
+                        await interaction.followup.send(f"✅ **Succès !** Un e-mail de test a été envoyé à `{recipient_email}`.", ephemeral=True)
+                    else:
+                        error_details = data.get("details", "Aucun détail.")
+                        await interaction.followup.send(f"❌ **Échec :** `{data.get('error')}`\n\n**Détails:**\n```{error_details}```", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ **Erreur Critique :** Impossible de contacter l'API Flask. `{e}`", ephemeral=True)
+
+
+class DebugView(discord.ui.View):
+
 class ConfirmOverwriteView(discord.ui.View):
     def __init__(self, api_url: str, payload: dict, headers: Optional[dict]):
         super().__init__(timeout=60)
@@ -361,24 +393,9 @@ class DebugView(discord.ui.View):
 
     @discord.ui.button(label="📨 Tester l'Envoi d'E-mail", style=discord.ButtonStyle.danger, row=1)
     async def test_email(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(thinking=True, ephemeral=True)
-        api_url = f"{APP_URL}/api/test-email"
-        payload = {"recipient_email": interaction.user.email} # Assumes the user has a public email or needs to be fetched
-        headers = {"Authorization": f"Bearer {FLASK_SECRET_KEY}"}
+        # Ouvre la fenêtre modale pour demander l'adresse e-mail
+        await interaction.response.send_modal(EmailTestModal())
         
-        try:
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
-                async with session.post(api_url, json=payload, headers=headers, timeout=20) as response:
-                    data = await response.json()
-                    if response.ok:
-                        await interaction.followup.send(f"✅ **Succès !** Un e-mail de test a été envoyé à `{interaction.user.email}`. Vérifiez votre boîte de réception (et vos spams).", ephemeral=True)
-                    else:
-                        error_details = data.get("details", "Aucun détail.")
-                        await interaction.followup.send(f"❌ **Échec de l'envoi de l'e-mail :**\n`{data.get('error')}`\n\n**Détails:**\n```{error_details}```", ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"❌ **Erreur Critique :** Impossible de contacter l'API Flask pour le test d'e-mail. `{e}`", ephemeral=True)
-
 class MenuView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
