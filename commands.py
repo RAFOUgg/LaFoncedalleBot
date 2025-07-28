@@ -705,7 +705,18 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
             response.raise_for_status()
 
             avg_score = sum(scores.values()) / len(scores)
+
+            def _get_count(user_id):
+                conn = sqlite3.connect(DB_FILE)
+                c = conn.cursor()
+                c.execute("SELECT COUNT(id) FROM ratings WHERE user_id = ?", (user_id,))
+                count = c.fetchone()[0]
+                conn.close()
+                return count
             
+            new_rating_count = await asyncio.to_thread(_get_count, interaction.user.id)
+            await update_loyalty_roles(interaction, new_rating_count)
+
             view = AddCommentView(self.product_name, self.user)
             await interaction.followup.send(
                 f"✅ Merci ! Votre note de **{avg_score:.2f}/10** pour **{self.product_name}** a été enregistrée.",
@@ -1084,8 +1095,6 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
     async def view_config(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
         guild = interaction.guild
-
-        # ... (le code de la fonction view_config est parfait et reste inchangé) ...
         staff_role_id = await config_manager.get_state(guild.id, 'staff_role_id')
         mention_role_id = await config_manager.get_state(guild.id, 'mention_role_id')
         menu_channel_id = await config_manager.get_state(guild.id, 'menu_channel_id')
@@ -1109,7 +1118,7 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
         )
         embed.add_field(name="📌 Rôles", value=f"**Staff :** {staff_role_text}\n**Mention Nouveautés :** {mention_role_text}", inline=False)
         embed.add_field(name="📺 Salons", value=f"**Menu Principal :** {menu_channel_text}\n**Sélection de la Semaine :** {selection_channel_text}", inline=False)
-        embed.set_footer(text="Utilisez /config set <role|salon> pour modifier un paramètre.")
+        embed.set_footer(text="Utilisez /config set <role|salon> ou /config loyalty pour gérer les rôles.")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # --- COMMANDE /config set role ---
@@ -1137,6 +1146,58 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
         await config_manager.update_state(interaction.guild.id, parametre.value, valeur.id)
         await log_user_action(interaction, f"a configuré le paramètre '{parametre.name}' sur {valeur.name}")
         await interaction.response.send_message(f"✅ Le paramètre **{parametre.name}** est maintenant assigné à {valeur.mention}.", ephemeral=True)
+
+    
+    loyalty_group = app_commands.Group(name="loyalty", description="Gère les rôles de fidélité.")
+    
+    @loyalty_group.command(name="view", description="[STAFF] Affiche la configuration des rôles de fidélité.")
+    @app_commands.check(is_staff_or_owner)
+    async def view_loyalty(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        loyalty_config = config_manager.get_config("loyalty_roles", {})
+        
+        embed = create_styled_embed("Configuration des Rôles de Fidélité", "Voici les paliers actuellement configurés.", color=discord.Color.gold())
+        
+        if not loyalty_config:
+            embed.description = "Aucun rôle de fidélité n'est configuré.\nUtilisez `/config loyalty set` pour en ajouter un."
+        else:
+            sorted_roles = sorted(loyalty_config.items(), key=lambda item: item[1].get('threshold', 0))
+            for name, data in sorted_roles:
+                role_id = data.get('id')
+                role = interaction.guild.get_role(int(role_id)) if role_id else None
+                role_mention = role.mention if role else f"⚠️ Rôle introuvable (ID: {role_id})"
+                threshold = data.get('threshold', 'N/A')
+                emoji = data.get('emoji', '')
+                embed.add_field(
+                    name=f"{emoji} {data.get('name', name.capitalize())}",
+                    value=f"**Rôle :** {role_mention}\n**Seuil :** `{threshold} notes`",
+                    inline=False
+                )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @loyalty_group.command(name="set", description="[STAFF] Ajoute ou modifie un palier de rôle de fidélité.")
+    @app_commands.check(is_staff_or_owner)
+    @app_commands.describe(
+        tier_name="Le nom du palier (ex: 'Fidèle', 'Adepte').",
+        role="Le rôle Discord à assigner pour ce palier.",
+        threshold="Le nombre de notes requis pour atteindre ce palier.",
+        emoji="L'émoji à afficher pour ce badge (ex: 💚)."
+    )
+    async def set_loyalty(self, interaction: discord.Interaction, tier_name: str, role: discord.Role, threshold: app_commands.Range[int, 1, 1000], emoji: str):
+        await interaction.response.defer(ephemeral=True)
+        
+        tier_key = tier_name.lower().strip().replace(" ", "_")
+        
+        loyalty_config = config_manager.get_config("loyalty_roles", {})
+        loyalty_config[tier_key] = {
+            "id": str(role.id),
+            "threshold": threshold,
+            "name": tier_name,
+            "emoji": emoji
+        }
+        
+        await config_manager.update_config("loyalty_roles", loyalty_config)
+        await interaction.followup.send(f"✅ Le palier de fidélité **{tier_name}** a été configuré avec le rôle {role.mention} à partir de **{threshold}** notes.", ephemeral=True)
 
 # -- COMMANDES --
 class SlashCommands(commands.Cog):
@@ -1585,11 +1646,16 @@ class SlashCommands(commands.Cog):
                 user_stats['max_note'] = stats_row['max_note']
 
             # 3. Badge (NOUVELLE LOGIQUE)
-            one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
-            c.execute("SELECT user_id FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY COUNT(id) DESC LIMIT 3", (one_month_ago,))
-            top_3_monthly_ids = [row['user_id'] for row in c.fetchall()]
-            if user_id in top_3_monthly_ids:
-                user_stats['monthly_rank'] = top_3_monthly_ids.index(user_id) + 1
+            loyalty_config = config_manager.get_config("loyalty_roles", {})
+            if loyalty_config:
+                sorted_roles = sorted(loyalty_config.values(), key=lambda r: r.get('threshold', 0), reverse=True)
+                for role_data in sorted_roles:
+                    if user_stats['count'] >= role_data.get('threshold', 0):
+                        user_stats['loyalty_badge'] = {
+                            "name": role_data.get('name'),
+                            "emoji": role_data.get('emoji')
+                        }
+                        break # On a trouvé le badge le plus élevé
 
             # 4. Email
             c.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (str(user_id),))
@@ -1638,11 +1704,12 @@ class SlashCommands(commands.Cog):
                 discord_activity_text = (
                     f"**Classement :** `#{user_stats.get('rank', 'N/C')}`\n"
                     f"**Nombre de notes :** `{user_stats.get('count', 0)}`\n"
-                    f"**Moyenne des notes :** `{user_stats.get('avg', 0):.2f}/10`\n"
-                    f"**Note Min/Max :** `{user_stats.get('min_note', 0):.2f}` / `{user_stats.get('max_note', 0):.2f}`"
+                    f"**Moyenne des notes :** `{user_stats.get('avg', 0):.2f}/10`"
                 )
-                if user_stats.get('monthly_rank'):
-                    discord_activity_text += "\n**Badge :** `🏅 Top Noteur du Mois`"
+                if badge := user_stats.get('loyalty_badge'):
+                    badge_name = badge.get('name', 'Fidèle')
+                    badge_emoji = badge.get('emoji', '⭐')
+                    discord_activity_text += f"\n**Badge :** {badge_emoji} `{badge_name}`"
             else:
                 discord_activity_text = "Aucune note enregistrée."
             embed.add_field(name="📝 Activité sur le Discord", value=discord_activity_text, inline=False)

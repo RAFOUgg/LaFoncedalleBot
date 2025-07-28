@@ -80,6 +80,26 @@ class ConfigManager:
         return val if val is not None else default
 
     # --- MÉTHODES MODIFIÉES ---
+    async def update_config(self, key_path: str, value):
+        """Met à jour une valeur dans le fichier de configuration principal (config.json) et le sauvegarde."""
+        async with self._lock:
+            keys = key_path.split('.')
+            current_level = self.config
+            
+            for i, key in enumerate(keys[:-1]):
+                if key not in current_level or not isinstance(current_level[key], dict):
+                    current_level[key] = {}
+                current_level = current_level[key]
+            
+            current_level[keys[-1]] = value
+            
+            # Sauvegarde asynchrone dans le fichier config.json
+            success = await asyncio.to_thread(self._sync_save_json, self.config, self.config_path)
+            if not success:
+                Logger.error(f"Échec de la mise à jour de la configuration pour la clé '{key_path}'.")
+            else:
+                Logger.info(f"Configuration mise à jour pour la clé '{key_path}'.")
+
     async def get_state(self, guild_id: int, key: str, default=None):
         """Récupère une valeur de configuration pour un serveur spécifique."""
         async with self._lock:
@@ -123,11 +143,16 @@ class ConfigManager:
         return await asyncio.to_thread(self._sync_load_json, file_path)
 
     def _sync_save_json(self, data, file_path):
+        """Sauvegarde de manière synchrone les données JSON dans un fichier."""
         try:
-            with open(file_path, 'w', encoding='utf-8') as f: json.dump(data, f, indent=4)
+            # Sauvegarde atomique pour éviter la corruption de fichier
+            temp_path = f"{file_path}.tmp"
+            with open(temp_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+            os.replace(temp_path, file_path)
             return True
         except Exception as e:
-            Logger.error(f"Impossible de sauvegarder l'état dans '{file_path}': {e}")
+            Logger.error(f"Impossible de sauvegarder le JSON dans '{file_path}': {e}")
             return False
 
 # --- ORDRE DE DÉFINITION CORRIGÉ ---
