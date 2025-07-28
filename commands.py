@@ -1039,9 +1039,9 @@ class ContactButtonsView(discord.ui.View):
         # Format : (clé_dans_le_json, Label du bouton, Emoji)
         button_map = [
             ("site", "Boutique", LFONCEDALLE_EMOJI),
+            ("tiktok", "TikTok", TIKTOK_EMOJI),
             ("instagram", "Instagram", INSTAGRAM_EMOJI),
-            ("telegram", "Telegram", TELEGRAM_EMOJI),
-            ("tiktok", "TikTok", TIKTOK_EMOJI)
+            ("telegram", "Telegram", TELEGRAM_EMOJI)
         ]
 
         for key, label, emoji in button_map:
@@ -1561,7 +1561,7 @@ class SlashCommands(commands.Cog):
             c.execute("SELECT * FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC", (user_id,))
             user_ratings = [dict(row) for row in c.fetchall()]
 
-            # 2. Statistiques (avec le MAPPING CORRIGÉ)
+            # 2. Statistiques (avec l'initialisation de la nouvelle clé 'monthly_rank')
             user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0, 'monthly_rank': None}
             c.execute("""
                 WITH UserAverageNotes AS (
@@ -1584,7 +1584,7 @@ class SlashCommands(commands.Cog):
                 user_stats['min_note'] = stats_row['min_note']
                 user_stats['max_note'] = stats_row['max_note']
 
-            # 3. Badge
+            # 3. Badge (NOUVELLE LOGIQUE)
             one_month_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
             c.execute("SELECT user_id FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY COUNT(id) DESC LIMIT 3", (one_month_ago,))
             top_3_monthly_ids = [row['user_id'] for row in c.fetchall()]
