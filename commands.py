@@ -667,10 +667,10 @@ class AddCommentView(discord.ui.View):
         await interaction.message.edit(view=self)
 
 class RatingModal(discord.ui.Modal, title="Noter un produit"):
-    def __init__(self, product_name: str, user: discord.User):
+    def __init__(self, product_name: str, user: discord.User, cog_instance):
         super().__init__(timeout=None)
         self.product_name, self.user = product_name, user
-        # ... (les 5 champs de notes restent les mêmes) ...
+        self.cog_instance = cog_instance
         self.visual_score = discord.ui.TextInput(label="👀 Note Visuel /10", placeholder="Ex: 8.5", required=True)
         self.smell_score = discord.ui.TextInput(label="👃🏼 Note Odeur /10", placeholder="Ex: 9", required=True)
         self.touch_score = discord.ui.TextInput(label="🤏🏼 Note Toucher /10", placeholder="Ex: 7", required=True)
@@ -682,7 +682,6 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         scores = {}
-        
         try:
             scores['visual'] = float(self.visual_score.value.replace(',', '.'))
             scores['smell'] = float(self.smell_score.value.replace(',', '.'))
@@ -696,14 +695,12 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
             await interaction.followup.send("❌ Veuillez n'entrer que des nombres pour les notes.", ephemeral=True); return
         
         api_url = f"{APP_URL}/api/submit-rating"
-        # Le commentaire est maintenant géré par un autre modal, donc on le met à None
         payload = {"user_id": self.user.id, "user_name": str(self.user), "product_name": self.product_name, "scores": scores, "comment": None}
         
         try:
             import requests
             response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=10)
             response.raise_for_status()
-
             avg_score = sum(scores.values()) / len(scores)
 
             def _get_count(user_id):
@@ -715,30 +712,29 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
                 return count
             
             new_rating_count = await asyncio.to_thread(_get_count, interaction.user.id)
-            await update_loyalty_roles(interaction, new_rating_count)
+            await self.cog_instance.update_loyalty_roles(interaction, new_rating_count)
 
             view = AddCommentView(self.product_name, self.user)
             await interaction.followup.send(
                 f"✅ Merci ! Votre note de **{avg_score:.2f}/10** pour **{self.product_name}** a été enregistrée.",
-                view=view, 
-                ephemeral=True
+                view=view, ephemeral=True
             )
-
         except Exception as e:
-            Logger.error(f"Erreur API lors de la soumission de la note : {e}")
-            await interaction.followup.send("❌ Une erreur est survenue lors de l'enregistrement de votre note. Le staff a été notifié.", ephemeral=True)
+            Logger.error(f"Erreur API lors de la soumission de la note : {e}"); traceback.print_exc()
+            await interaction.followup.send("❌ Une erreur est survenue lors de l'enregistrement de votre note.", ephemeral=True)
+
 class NotationProductSelectView(discord.ui.View):
     def __init__(self, products: list, user: discord.User, cog_instance):
         super().__init__(timeout=180)
         self.products = products
-        self.cog_instance = cog_instance # On transmet l'instance du Cog
+        self.cog_instance = cog_instance
         if products:
             self.add_item(self.ProductSelect(products, user, self.cog_instance))
 
     class ProductSelect(discord.ui.Select):
         def __init__(self, products: list, user: discord.User, cog_instance):
             self.user = user
-            self.cog_instance = cog_instance # On stocke l'instance
+            self.cog_instance = cog_instance
             options = [discord.SelectOption(label=p[:100], value=p[:100]) for p in products[:25]]
             if not options:
                 options = [discord.SelectOption(label="Aucun produit à noter", value="disabled", default=True)]
@@ -753,7 +749,6 @@ class NotationProductSelectView(discord.ui.View):
                 full_product_name = next((p for p in self.view.products if p.startswith(selected_value)), selected_value)
                 
                 Logger.info(f"Produit '{full_product_name}' sélectionné. Affichage du modal.")
-                # --- CORRECTION : On passe l'instance du cog au Modal ---
                 await interaction.response.send_modal(RatingModal(full_product_name, self.user, self.cog_instance))
             except Exception as e:
                 Logger.error(f"Échec de l'affichage du modal de notation : {e}"); traceback.print_exc()
@@ -1621,14 +1616,10 @@ class SlashCommands(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         target_user = membre or interaction.user
         await log_user_action(interaction, f"a consulté le profil de {target_user.display_name}")
-
         def _fetch_user_data_sync(user_id):
             conn = sqlite3.connect(DB_FILE); conn.row_factory = sqlite3.Row; c = conn.cursor()
-            
             c.execute("SELECT * FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC", (user_id,))
             user_ratings = [dict(row) for row in c.fetchall()]
-
-            # --- CORRECTION : La clé 'monthly_rank' est supprimée de l'initialisation ---
             user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0, 'loyalty_badge': None}
             c.execute("""
                 WITH UserAverageNotes AS ( SELECT user_id, (COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0 AS avg_note FROM ratings),
@@ -1636,10 +1627,8 @@ class SlashCommands(commands.Cog):
                 SELECT user_rank, rating_count, global_avg, min_note, max_note FROM AllRanks WHERE user_id = ?
             """, (user_id,))
             stats_row = c.fetchone()
-            
             if stats_row:
-                user_stats.update(dict(zip(stats_row.keys(), stats_row)))
-
+                user_stats.update(dict(stats_row))
             loyalty_config = config_manager.get_config("loyalty_roles", {})
             if loyalty_config and user_stats.get('count', 0) > 0:
                 sorted_roles = sorted(loyalty_config.values(), key=lambda r: r.get('threshold', 0), reverse=True)
@@ -1647,11 +1636,10 @@ class SlashCommands(commands.Cog):
                     if user_stats['count'] >= role_data.get('threshold', 0):
                         user_stats['loyalty_badge'] = {"name": role_data.get('name'), "emoji": role_data.get('emoji')}
                         break
-            
             c.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (str(user_id),))
-            user_email = c.fetchone()['user_email'] if c.fetchone() else None
+            email_row = c.fetchone()
+            user_email = email_row['user_email'] if email_row else None
             conn.close()
-            
             shopify_data = {}
             if user_email:
                 shopify_data['anonymized_email'] = anonymize_email(user_email)
@@ -1661,16 +1649,12 @@ class SlashCommands(commands.Cog):
                     res = requests.get(api_url, timeout=10)
                     if res.ok: shopify_data.update(res.json())
                 except requests.RequestException: pass
-            
             return user_stats, user_ratings, shopify_data
-
         try:
             user_stats, user_ratings, shopify_data = await asyncio.to_thread(_fetch_user_data_sync, target_user.id)
-
             if user_stats.get('count', 0) == 0 and not shopify_data.get('purchase_count'):
                 await interaction.followup.send("Cet utilisateur n'a aucune activité enregistrée.", ephemeral=True)
                 return
-
             embed = discord.Embed(title=f"Profil de {target_user.display_name}", color=target_user.color)
             embed.set_thumbnail(url=target_user.display_avatar.url)
 
