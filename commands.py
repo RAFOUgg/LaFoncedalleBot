@@ -728,55 +728,39 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
             Logger.error(f"Erreur API lors de la soumission de la note : {e}")
             await interaction.followup.send("❌ Une erreur est survenue lors de l'enregistrement de votre note. Le staff a été notifié.", ephemeral=True)
 class NotationProductSelectView(discord.ui.View):
-    def __init__(self, products: list, user: discord.User):
+    def __init__(self, products: list, user: discord.User, cog_instance):
         super().__init__(timeout=180)
-        # On stocke la liste complète des produits pour plus tard
-        self.products = products 
+        self.products = products
+        self.cog_instance = cog_instance # On transmet l'instance du Cog
         if products:
-            # On passe la liste complète au Select
-            self.add_item(self.ProductSelect(products, user))
+            self.add_item(self.ProductSelect(products, user, self.cog_instance))
 
-    # Ensuite, le menu déroulant (Select) à l'intérieur de la vue
     class ProductSelect(discord.ui.Select):
-        def __init__(self, products: list, user: discord.User):
+        def __init__(self, products: list, user: discord.User, cog_instance):
             self.user = user
-            
-            # [CORRECTION] On tronque à la fois le label ET la value à 100 caractères
-            options = [
-                discord.SelectOption(label=p[:100], value=p[:100]) 
-                for p in products[:25] # On ne peut afficher que 25 options max
-            ]
-            
+            self.cog_instance = cog_instance # On stocke l'instance
+            options = [discord.SelectOption(label=p[:100], value=p[:100]) for p in products[:25]]
             if not options:
                 options = [discord.SelectOption(label="Aucun produit à noter", value="disabled", default=True)]
-            
             super().__init__(placeholder="Choisissez un produit à noter...", options=options)
         
         async def callback(self, interaction: discord.Interaction):
             try:
-                # --- TOUT CE BLOC DOIT ÊTRE INDENTÉ SOUS LE "try:" ---
                 if not self.values or self.values[0] == "disabled":
-                    await interaction.response.edit_message(content="Aucun produit sélectionné.", view=None)
-                    return
+                    await interaction.response.edit_message(content="Aucun produit sélectionné.", view=None); return
                 
                 selected_value = self.values[0]
+                full_product_name = next((p for p in self.view.products if p.startswith(selected_value)), selected_value)
                 
-                full_product_name = next(
-                    (p for p in self.view.products if p.startswith(selected_value)),
-                    selected_value
-                )
-                
-                Logger.info(f"Produit '{full_product_name}' sélectionné. Affichage du modal de notation.")
-                await interaction.response.send_modal(RatingModal(full_product_name, self.user))
-            
+                Logger.info(f"Produit '{full_product_name}' sélectionné. Affichage du modal.")
+                # --- CORRECTION : On passe l'instance du cog au Modal ---
+                await interaction.response.send_modal(RatingModal(full_product_name, self.user, self.cog_instance))
             except Exception as e:
-                # --- TOUT CE BLOC DOIT ÊTRE INDENTÉ SOUS LE "except:" ---
-                Logger.error(f"Échec de l'affichage du modal de notation : {e}")
-                traceback.print_exc()
+                Logger.error(f"Échec de l'affichage du modal de notation : {e}"); traceback.print_exc()
                 if not interaction.response.is_done():
-                    await interaction.response.send_message("❌ Oups, une erreur est survenue lors de l'ouverture du formulaire.", ephemeral=True)
+                    await interaction.response.send_message("❌ Oups, une erreur est survenue.", ephemeral=True)
                 else:
-                    await interaction.followup.send("❌ Oups, une erreur est survenue lors de l'ouverture du formulaire.", ephemeral=True)
+                    await interaction.followup.send("❌ Oups, une erreur est survenue.", ephemeral=True)
 
 class TopRatersPaginatorView(discord.ui.View):
     def __init__(self, top_raters, guild, items_per_page=5):
@@ -1184,6 +1168,49 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
 class SlashCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        
+    async def update_loyalty_roles(self, interaction: discord.Interaction, rating_count: int):
+        """Met à jour les rôles de fidélité d'un membre."""
+        guild = interaction.guild
+        member = interaction.user
+        if not guild or not isinstance(member, discord.Member): return
+
+        loyalty_config = config_manager.get_config("loyalty_roles", {})
+        if not loyalty_config: return
+
+        sorted_roles = sorted(loyalty_config.values(), key=lambda r: r.get('threshold', 0), reverse=True)
+        
+        target_role_id_str = None
+        for role_data in sorted_roles:
+            if rating_count >= role_data.get('threshold', 0):
+                target_role_id_str = role_data.get('id')
+                break
+        
+        target_role_id = int(target_role_id_str) if target_role_id_str else None
+        all_loyalty_role_ids = {int(r['id']) for r in loyalty_config.values() if r.get('id')}
+        
+        roles_to_add, roles_to_remove = [], []
+
+        if target_role_id:
+            target_role = guild.get_role(target_role_id)
+            if target_role and target_role not in member.roles:
+                roles_to_add.append(target_role)
+
+        for role_id in all_loyalty_role_ids:
+            if role_id != target_role_id:
+                role_to_check = guild.get_role(role_id)
+                if role_to_check and role_to_check in member.roles:
+                    roles_to_remove.append(role_to_check)
+        
+        try:
+            if roles_to_add:
+                await member.add_roles(*roles_to_add, reason="Mise à jour du rôle de fidélité")
+            if roles_to_remove:
+                await member.remove_roles(*roles_to_remove, reason="Mise à jour du rôle de fidélité")
+        except discord.Forbidden:
+            Logger.error(f"Permissions manquantes pour gérer les rôles de {member.name}.")
+        except Exception as e:
+            Logger.error(f"Erreur lors de la mise à jour des rôles pour {member.name}: {e}")
 
     @app_commands.command(name="menu", description="Affiche le menu interactif des produits disponibles.")
     async def menu(self, interaction: discord.Interaction):
@@ -1232,22 +1259,21 @@ class SlashCommands(commands.Cog):
                     if res.status_code == 404: return None
                     res.raise_for_status()
                     return res.json().get("products", [])
-                except Exception as e:
-                    Logger.error(f"Erreur API get_purchased_products: {e}"); return []
+                except Exception: return []
             
             purchased_products = await asyncio.to_thread(fetch_purchased_products)
-            Logger.info(f"Produits achetés trouvés pour {interaction.user} avec l'email {anonymize_email}: {purchased_products}")
 
             if purchased_products is None:
                 await interaction.followup.send("Ton compte Discord n'est pas lié. Utilise `/lier_compte`.", ephemeral=True); return
             if not purchased_products:
                 await interaction.followup.send("Aucun produit trouvé dans ton historique d'achats pouvant être noté.", ephemeral=True); return
             
-            view = NotationProductSelectView(purchased_products, interaction.user)
+            # --- CORRECTION : On passe 'self' (l'instance du Cog) à la Vue ---
+            view = NotationProductSelectView(purchased_products, interaction.user, self)
             await interaction.followup.send("Veuillez choisir un produit à noter :", view=view, ephemeral=True)
         except Exception as e:
             Logger.error(f"Erreur majeure dans la commande /noter : {e}"); traceback.print_exc()
-            await interaction.followup.send("❌ Oups, une erreur est survenue lors de la préparation du menu de notation.", ephemeral=True)
+            await interaction.followup.send("❌ Oups, une erreur est survenue.", ephemeral=True)
 
     @app_commands.command(name="top_noteurs", description="Affiche le classement des membres qui ont noté le plus de produits.")
     @app_commands.guild_only()
@@ -1599,52 +1625,33 @@ class SlashCommands(commands.Cog):
         def _fetch_user_data_sync(user_id):
             conn = sqlite3.connect(DB_FILE); conn.row_factory = sqlite3.Row; c = conn.cursor()
             
-            # 1. Notes
             c.execute("SELECT * FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC", (user_id,))
             user_ratings = [dict(row) for row in c.fetchall()]
 
-            # 2. Statistiques (avec l'initialisation de la nouvelle clé 'monthly_rank')
-            user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0, 'monthly_rank': None}
+            # --- CORRECTION : La clé 'monthly_rank' est supprimée de l'initialisation ---
+            user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0, 'loyalty_badge': None}
             c.execute("""
-                WITH UserAverageNotes AS (
-                    SELECT user_id, (COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0 AS avg_note
-                    FROM ratings
-                ), AllRanks AS (
-                    SELECT user_id, COUNT(user_id) as rating_count, AVG(avg_note) as global_avg, MIN(avg_note) as min_note, MAX(avg_note) as max_note,
-                        RANK() OVER (ORDER BY COUNT(user_id) DESC, AVG(avg_note) DESC) as user_rank
-                    FROM UserAverageNotes GROUP BY user_id
-                )
+                WITH UserAverageNotes AS ( SELECT user_id, (COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0 AS avg_note FROM ratings),
+                AllRanks AS (SELECT user_id, COUNT(user_id) as rating_count, AVG(avg_note) as global_avg, MIN(avg_note) as min_note, MAX(avg_note) as max_note, RANK() OVER (ORDER BY COUNT(user_id) DESC, AVG(avg_note) DESC) as user_rank FROM UserAverageNotes GROUP BY user_id)
                 SELECT user_rank, rating_count, global_avg, min_note, max_note FROM AllRanks WHERE user_id = ?
             """, (user_id,))
             stats_row = c.fetchone()
             
             if stats_row:
-                # CORRECTION CRUCIALE : On mappe les noms de colonnes SQL aux clés attendues par le code.
-                user_stats['rank'] = stats_row['user_rank']
-                user_stats['count'] = stats_row['rating_count']
-                user_stats['avg'] = stats_row['global_avg']
-                user_stats['min_note'] = stats_row['min_note']
-                user_stats['max_note'] = stats_row['max_note']
+                user_stats.update(dict(zip(stats_row.keys(), stats_row)))
 
-            # 3. Badge (NOUVELLE LOGIQUE)
             loyalty_config = config_manager.get_config("loyalty_roles", {})
-            if loyalty_config:
+            if loyalty_config and user_stats.get('count', 0) > 0:
                 sorted_roles = sorted(loyalty_config.values(), key=lambda r: r.get('threshold', 0), reverse=True)
                 for role_data in sorted_roles:
                     if user_stats['count'] >= role_data.get('threshold', 0):
-                        user_stats['loyalty_badge'] = {
-                            "name": role_data.get('name'),
-                            "emoji": role_data.get('emoji')
-                        }
-                        break # On a trouvé le badge le plus élevé
-
-            # 4. Email
+                        user_stats['loyalty_badge'] = {"name": role_data.get('name'), "emoji": role_data.get('emoji')}
+                        break
+            
             c.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (str(user_id),))
-            email_row = c.fetchone()
-            user_email = email_row['user_email'] if email_row else None
+            user_email = c.fetchone()['user_email'] if c.fetchone() else None
             conn.close()
             
-            # 5. Données Shopify
             shopify_data = {}
             if user_email:
                 shopify_data['anonymized_email'] = anonymize_email(user_email)
@@ -1682,22 +1689,17 @@ class SlashCommands(commands.Cog):
 
             # Section Discord
             if user_stats.get('count', 0) > 0:
-                discord_activity_text = (
-                    f"**Classement :** `#{user_stats.get('rank', 'N/C')}`\n"
-                    f"**Nombre de notes :** `{user_stats.get('count', 0)}`\n"
-                    f"**Moyenne des notes :** `{user_stats.get('avg', 0):.2f}/10`"
-                )
+                discord_activity_text = (f"**Classement :** `#{user_stats.get('rank', 'N/C')}`\n"
+                                         f"**Nombre de notes :** `{user_stats.get('count', 0)}`\n"
+                                         f"**Moyenne des notes :** `{user_stats.get('avg', 0):.2f}/10`")
                 if badge := user_stats.get('loyalty_badge'):
-                    badge_name = badge.get('name', 'Fidèle')
-                    badge_emoji = badge.get('emoji', '⭐')
-                    discord_activity_text += f"\n**Badge :** {badge_emoji} `{badge_name}`"
+                    discord_activity_text += f"\n**Badge :** {badge.get('emoji', '⭐')} `{badge.get('name', 'Fidèle')}`"
             else:
                 discord_activity_text = "Aucune note enregistrée."
             embed.add_field(name="📝 Activité sur le Discord", value=discord_activity_text, inline=False)
             
             can_reset = membre and membre.id != interaction.user.id and await is_staff_or_owner(interaction)
             view = ProfileView(target_user, user_stats, user_ratings, shopify_data, can_reset, self.bot)
-
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
         except Exception as e:
