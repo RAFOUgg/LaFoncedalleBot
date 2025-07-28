@@ -150,7 +150,6 @@ def start_verification():
 
 @app.route('/api/test-email', methods=['POST'])
 def test_email():
-    # Protection par clé secrète
     auth_header = request.headers.get('Authorization')
     expected_header = f"Bearer {FLASK_SECRET_KEY}"
     if not auth_header or auth_header != expected_header:
@@ -167,14 +166,10 @@ def test_email():
     message["From"] = f"LaFoncedalle <{SENDER_EMAIL}>"
     message["To"] = recipient_email
     html_body = f"""
-    <html>
-      <body>
-        <h3>Ceci est un e-mail de test.</h3>
-        <p>Si vous recevez cet e-mail, la configuration SMTP de votre application Flask est <strong>correcte</strong>.</p>
-        <p><b>Heure du test:</b> {datetime.now(paris_tz).strftime('%Y-%m-%d %H:%M:%S')}</p>
-      </body>
-    </html>
-    """
+    <html><body><h3>Ceci est un e-mail de test.</h3>
+    <p>Si vous recevez cet e-mail, la configuration SMTP est <strong>correcte</strong>.</p>
+    <p><b>Heure du test:</b> {datetime.now(paris_tz).strftime('%Y-%m-%d %H:%M:%S')}</p>
+    </body></html>"""
     message.attach(MIMEText(html_body, "html", "utf-8"))
     
     context = ssl.create_default_context()
@@ -184,14 +179,14 @@ def test_email():
             auth_bytes_utf8 = auth_string.encode('utf-8')
             auth_bytes_b64 = base64.b64encode(auth_bytes_utf8)
             server.docmd("AUTH", f"PLAIN {auth_bytes_b64.decode('ascii')}")
-            server.sendmail(SENDER_EMAIL, recipient_email, message.as_string()) # Attention: recipient_email dans test_email
-        if "test-email" in request.url:
-            return jsonify({"success": True, "message": f"E-mail de test envoyé à {recipient_email}."}), 200
-        else:
-            print(f"E-mail de vérification envoyé avec succès à {email}")
+            server.sendmail(SENDER_EMAIL, recipient_email, message.as_string())
+        
+        # La logique a été simplifiée. On retourne directement le succès.
+        return jsonify({"success": True, "message": f"E-mail de test envoyé à {recipient_email}."}), 200
+
     except Exception as e:
         error_trace = traceback.format_exc()
-        print(f"ERREUR LORS DU TEST SMTP: {error_trace}")
+        Logger.error(f"ERREUR LORS DU TEST SMTP: {error_trace}")
         return jsonify({"error": "Échec de l'envoi de l'e-mail de test.", "details": str(e)}), 500
     
 @app.route('/api/add-comment', methods=['POST'])
