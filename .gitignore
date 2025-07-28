@@ -1,6 +1,3 @@
-# Fichiers secrets
-*.env
-
 # Fichiers de cache Python
 __pycache__/
 *.pyc
@@ -8,12 +5,16 @@ __pycache__/
 # Fichiers de base de données et logs (gérés par le disque Render)
 *.db
 *.log
-user_actions.log
-bot_state.json
-scrape_cache.json
 claimed_nitro_codes.json
+claimed_welcome_codes.json
+nitro_codes.txt
+config.json
+bot_state.json
 
 # Fichiers spécifiques au système ou à l'IDE
 .vscode/
 *.exe
 charts/
+.env
+.dockerignore
+.gitignore
