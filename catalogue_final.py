@@ -41,6 +41,7 @@ bot.product_cache = {}
 update_time = dt_time(hour=8, minute=0, tzinfo=paris_tz)
 ranking_time = dt_time(hour=16, minute=0, tzinfo=paris_tz)
 selection_time = dt_time(hour=12, minute=0, tzinfo=paris_tz)
+role_sync_time = dt_time(hour=8, minute=5, tzinfo=paris_tz)
 
 # --- NOUVEAU : Requête GraphQL pour résoudre les URLs des fichiers ---
 RESOLVE_FILES_QUERY = """
@@ -583,6 +584,46 @@ async def generate_and_send_ranking(bot_instance: commands.Bot, force_run: bool 
     except Exception as e:
         Logger.error(f"Impossible d'envoyer le message de classement : {e}")
 
+async def sync_all_loyalty_roles(bot_instance: commands.Bot):
+    """Tâche quotidienne pour synchroniser les rôles de tous les membres."""
+    Logger.info("Démarrage de la synchronisation quotidienne des rôles de fidélité...")
+    
+    slash_commands_cog = bot_instance.get_cog("SlashCommands")
+    if not slash_commands_cog:
+        Logger.error("Impossible de démarrer la synchro des rôles : le cog 'SlashCommands' est introuvable.")
+        return
+
+    def _get_all_raters_sync():
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id, COUNT(id) as rating_count FROM ratings GROUP BY user_id")
+        return cursor.fetchall()
+
+    try:
+        all_raters = await asyncio.to_thread(_get_all_raters_sync)
+        if not all_raters:
+            Logger.info("Aucun membre avec des notes trouvé. Fin de la synchro des rôles.")
+            return
+
+        configured_guilds = await config_manager.get_all_configured_guilds()
+        for guild_id in configured_guilds:
+            guild = bot_instance.get_guild(guild_id)
+            if not guild:
+                continue
+
+            Logger.info(f"Synchro des rôles pour le serveur '{guild.name}'...")
+            for user_id, rating_count in all_raters:
+                member = guild.get_member(user_id)
+                if member:
+                    await slash_commands_cog.update_loyalty_roles(guild, member, rating_count)
+                    await asyncio.sleep(0.2) # Pour ne pas surcharger l'API Discord
+
+        Logger.success("Synchronisation quotidienne des rôles de fidélité terminée.")
+    except Exception as e:
+        Logger.error(f"Erreur critique lors de la synchronisation des rôles : {e}")
+        traceback.print_exc()
+
+bot.sync_all_loyalty_roles = sync_all_loyalty_roles
 bot.check_for_updates = check_for_updates
 bot.post_weekly_selection = post_weekly_selection
 
@@ -595,6 +636,10 @@ async def post_weekly_ranking(): await generate_and_send_ranking(bot)
 @tasks.loop(time=selection_time)
 async def scheduled_selection():
     if datetime.now(paris_tz).weekday() == 0: await post_weekly_selection(bot)
+
+@tasks.loop(time=role_sync_time)
+async def daily_role_sync():
+    await sync_all_loyalty_roles(bot)
 
 # Dans catalogue_final.py
 
@@ -631,6 +676,7 @@ async def on_ready():
     if not scheduled_check.is_running(): scheduled_check.start()
     if not post_weekly_ranking.is_running(): post_weekly_ranking.start()
     if not scheduled_selection.is_running(): scheduled_selection.start()
+    if not daily_role_sync.is_running(): daily_role_sync.start()
     Logger.success("Toutes les tâches programmées ont démarré.")
 
 

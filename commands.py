@@ -710,7 +710,8 @@ class RatingModal(discord.ui.Modal, title="Noter un produit"):
                 return count
             
             new_rating_count = await asyncio.to_thread(_get_count, interaction.user.id)
-            await self.cog_instance.update_loyalty_roles(interaction, new_rating_count)
+            await self.cog_instance.update_loyalty_roles(interaction.guild, interaction.user, new_rating_count)
+
 
             view = AddCommentView(self.product_name, self.user)
             await interaction.followup.send(
@@ -782,7 +783,6 @@ class TopRatersPaginatorView(discord.ui.View):
             color=discord.Color.gold()
         )
         
-        # Ajout de la miniature du premier si elle existe
         if self.current_page == 0 and page_raters:
             first_rater_id = page_raters[0].get('user_id')
             member = self.guild.get_member(first_rater_id)
@@ -790,6 +790,10 @@ class TopRatersPaginatorView(discord.ui.View):
                 embed.set_thumbnail(url=member.display_avatar.url)
 
         medals = ["🥇", "🥈", "🥉"]
+        
+        # On récupère la configuration de fidélité une seule fois
+        loyalty_config = config_manager.get_config("loyalty_roles", {})
+        sorted_roles = sorted(loyalty_config.values(), key=lambda r: r.get('threshold', 0), reverse=True) if loyalty_config else []
 
         for i, rater_data in enumerate(page_raters):
             rank = start_index + i + 1
@@ -803,9 +807,16 @@ class TopRatersPaginatorView(discord.ui.View):
             display_name = member.display_name if member else last_user_name
             mention_text = member.mention if member else f"`{last_user_name} (parti)`"
             
-            # --- Nouvelle Mise en Page ---
             medal_emoji = medals[rank - 1] if rank <= len(medals) else "🔹"
             field_name = f"{medal_emoji} #{rank} - {display_name}"
+            
+            # --- NOUVELLE LOGIQUE POUR LE BADGE ---
+            loyalty_badge_text = ""
+            if sorted_roles:
+                for role_data in sorted_roles:
+                    if rating_count >= role_data.get('threshold', 0):
+                        loyalty_badge_text = f"\n> {role_data.get('emoji', '⭐')} **Badge :** `{role_data.get('name', 'Fidèle')}`"
+                        break
             
             field_value = (
                 f"{mention_text}\n"
@@ -1162,11 +1173,9 @@ class SlashCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         
-    async def update_loyalty_roles(self, interaction: discord.Interaction, rating_count: int):
+    async def update_loyalty_roles(self, guild: discord.Guild, member: discord.Member, rating_count: int):
         """Met à jour les rôles de fidélité d'un membre."""
-        guild = interaction.guild
-        member = interaction.user
-        if not guild or not isinstance(member, discord.Member): return
+        if not guild or not member: return
 
         loyalty_config = config_manager.get_config("loyalty_roles", {})
         if not loyalty_config: return
@@ -1197,11 +1206,11 @@ class SlashCommands(commands.Cog):
         
         try:
             if roles_to_add:
-                await member.add_roles(*roles_to_add, reason="Mise à jour du rôle de fidélité")
+                await member.add_roles(*roles_to_add, reason="Mise à jour automatique du rôle de fidélité")
             if roles_to_remove:
-                await member.remove_roles(*roles_to_remove, reason="Mise à jour du rôle de fidélité")
+                await member.remove_roles(*roles_to_remove, reason="Mise à jour automatique du rôle de fidélité")
         except discord.Forbidden:
-            Logger.error(f"Permissions manquantes pour gérer les rôles de {member.name}.")
+            Logger.error(f"Permissions manquantes pour gérer les rôles de {member.name} sur le serveur {guild.name}.")
         except Exception as e:
             Logger.error(f"Erreur lors de la mise à jour des rôles pour {member.name}: {e}")
 
