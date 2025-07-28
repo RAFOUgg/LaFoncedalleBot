@@ -211,9 +211,7 @@ class RatingsPaginatorView(discord.ui.View):
             embed.set_thumbnail(url=p_details['image'])
         
         embed.add_field(name="Description du Produit", value=p_details.get('detailed_description', 'N/A')[:1024], inline=True)
-        embed.add_field(name="Prix", value=p_details.get('price', 'N/A'), inline=True)
-        embed.add_field(name="\u200b", value="\u200b", inline=False) 
-        
+        embed.add_field(name="Prix", value=p_details.get('price', 'N/A'), inline=True)        
         embed.add_field(name="Note de la Communauté", value=community_score_str, inline=True)
         embed.add_field(name="Votre Note Globale", value=f"**{user_avg:.2f} / 10**", inline=True)
         embed.add_field(name="\u200b", value="\u200b", inline=False)
@@ -1618,17 +1616,36 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, f"a consulté le profil de {target_user.display_name}")
         def _fetch_user_data_sync(user_id):
             conn = sqlite3.connect(DB_FILE); conn.row_factory = sqlite3.Row; c = conn.cursor()
+            
+            # 1. Notes
             c.execute("SELECT * FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC", (user_id,))
             user_ratings = [dict(row) for row in c.fetchall()]
+
+            # 2. Statistiques
             user_stats = {'rank': 'N/C', 'count': 0, 'avg': 0, 'min_note': 0, 'max_note': 0, 'loyalty_badge': None}
             c.execute("""
-                WITH UserAverageNotes AS ( SELECT user_id, (COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0 AS avg_note FROM ratings),
-                AllRanks AS (SELECT user_id, COUNT(user_id) as rating_count, AVG(avg_note) as global_avg, MIN(avg_note) as min_note, MAX(avg_note) as max_note, RANK() OVER (ORDER BY COUNT(user_id) DESC, AVG(avg_note) DESC) as user_rank FROM UserAverageNotes GROUP BY user_id)
+                WITH UserAverageNotes AS (
+                    SELECT user_id, (COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0 AS avg_note
+                    FROM ratings
+                ), AllRanks AS (
+                    SELECT user_id, COUNT(user_id) as rating_count, AVG(avg_note) as global_avg, MIN(avg_note) as min_note, MAX(avg_note) as max_note,
+                        RANK() OVER (ORDER BY COUNT(user_id) DESC, AVG(avg_note) DESC) as user_rank
+                    FROM UserAverageNotes GROUP BY user_id
+                )
                 SELECT user_rank, rating_count, global_avg, min_note, max_note FROM AllRanks WHERE user_id = ?
             """, (user_id,))
             stats_row = c.fetchone()
+            
+            # --- CORRECTION APPLIQUÉE ICI ---
             if stats_row:
-                user_stats.update(dict(stats_row))
+                user_stats['rank'] = stats_row['user_rank']
+                user_stats['count'] = stats_row['rating_count']
+                user_stats['avg'] = stats_row['global_avg']
+                user_stats['min_note'] = stats_row['min_note']
+                user_stats['max_note'] = stats_row['max_note']
+            # --- FIN DE LA CORRECTION ---
+
+            # 3. Badge de fidélité
             loyalty_config = config_manager.get_config("loyalty_roles", {})
             if loyalty_config and user_stats.get('count', 0) > 0:
                 sorted_roles = sorted(loyalty_config.values(), key=lambda r: r.get('threshold', 0), reverse=True)
@@ -1636,10 +1653,14 @@ class SlashCommands(commands.Cog):
                     if user_stats['count'] >= role_data.get('threshold', 0):
                         user_stats['loyalty_badge'] = {"name": role_data.get('name'), "emoji": role_data.get('emoji')}
                         break
+            
+            # 4. Email
             c.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (str(user_id),))
             email_row = c.fetchone()
             user_email = email_row['user_email'] if email_row else None
             conn.close()
+            
+            # 5. Données Shopify
             shopify_data = {}
             if user_email:
                 shopify_data['anonymized_email'] = anonymize_email(user_email)
@@ -1649,6 +1670,7 @@ class SlashCommands(commands.Cog):
                     res = requests.get(api_url, timeout=10)
                     if res.ok: shopify_data.update(res.json())
                 except requests.RequestException: pass
+            
             return user_stats, user_ratings, shopify_data
         try:
             user_stats, user_ratings, shopify_data = await asyncio.to_thread(_fetch_user_data_sync, target_user.id)
