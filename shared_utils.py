@@ -143,13 +143,10 @@ class ConfigManager:
         return await asyncio.to_thread(self._sync_load_json, file_path)
 
     def _sync_save_json(self, data, file_path):
-        """Sauvegarde de manière synchrone les données JSON dans un fichier."""
+        """Sauvegarde de manière synchrone les données JSON dans un fichier (écriture directe)."""
         try:
-            # Sauvegarde atomique pour éviter la corruption de fichier
-            temp_path = f"{file_path}.tmp"
-            with open(temp_path, 'w', encoding='utf-8') as f:
+            with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=4, ensure_ascii=False)
-            os.replace(temp_path, file_path)
             return True
         except Exception as e:
             Logger.error(f"Impossible de sauvegarder le JSON dans '{file_path}': {e}")

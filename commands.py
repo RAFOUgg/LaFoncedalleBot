@@ -1061,25 +1061,6 @@ class ContactButtonsView(discord.ui.View):
             # On ajoute le bouton UNIQUEMENT si une URL est trouvée
             if url: 
                 self.add_item(discord.ui.Button(label=label, style=discord.ButtonStyle.link, url=url, emoji=emoji))
-
-class ContactButtonsView(discord.ui.View):
-    def __init__(self, contact_info: dict):
-        super().__init__(timeout=None) # Pas de timeout pour que les boutons restent cliquables
-
-        # On crée les boutons dynamiquement à partir du config.json
-        # Le format est : (clé_dans_le_json, Label du bouton, Emoji)
-        button_map = [
-            ("site", "Boutique", LFONCEDALLE_EMOJI),
-            ("instagram", "Instagram", INSTAGRAM_EMOJI),
-            ("telegram", "Telegram", TELEGRAM_EMOJI),
-            ("tiktok", "TikTok", TIKTOK_EMOJI)
-        ]
-
-        for key, label, emoji in button_map:
-            url = contact_info.get(key)
-            if url: # On ajoute le bouton uniquement si l'URL existe dans la config
-                self.add_item(discord.ui.Button(label=label, style=discord.ButtonStyle.link, url=url, emoji=emoji))
-
 @app_commands.guild_only()
 class ConfigCog(commands.GroupCog, name="config", description="Gère la configuration du bot LaFoncedalle."):
     def __init__(self, bot: commands.Bot):
