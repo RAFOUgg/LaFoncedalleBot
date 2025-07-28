@@ -998,12 +998,24 @@ class ConfirmResetNotesView(discord.ui.View):
     async def cancel(self, i: discord.Interaction, b: discord.ui.Button): await i.response.edit_message(content="Opération annulée.", view=None)
 
 class ContactButtonsView(discord.ui.View):
-    def __init__(self, contact_info):
-        super().__init__(timeout=120)
-        if contact_info.get("site"): self.add_item(discord.ui.Button(label="Boutique", style=discord.ButtonStyle.link, url=contact_info["site"], emoji=LFONCEDALLE_EMOJI))
-        if contact_info.get("instagram"): self.add_item(discord.ui.Button(label="Instagram", style=discord.ButtonStyle.link, url=contact_info["instagram"], emoji=INSTAGRAM_EMOJI))
-        if contact_info.get("telegram"): self.add_item(discord.ui.Button(label="Telegram", style=discord.ButtonStyle.link, url=contact_info["telegram"], emoji=TELEGRAM_EMOJI))
-        if contact_info.get("tiktok"): self.add_item(discord.ui.Button(label="TikTok", style=discord.ButtonStyle.link, url=contact_info["tiktok"], emoji=TIKTOK_EMOJI))
+    def __init__(self, contact_info: dict):
+        super().__init__(timeout=None) # Pas de timeout pour que les boutons restent cliquables
+
+        # On définit les boutons que l'on veut créer
+        # Format : (clé_dans_le_json, Label du bouton, Emoji)
+        button_map = [
+            ("site", "Boutique", LFONCEDALLE_EMOJI),
+            ("instagram", "Instagram", INSTAGRAM_EMOJI),
+            ("telegram", "Telegram", TELEGRAM_EMOJI),
+            ("tiktok", "TikTok", TIKTOK_EMOJI)
+        ]
+
+        for key, label, emoji in button_map:
+            # On récupère l'URL depuis la configuration
+            url = contact_info.get(key)
+            # On ajoute le bouton UNIQUEMENT si une URL est trouvée
+            if url: 
+                self.add_item(discord.ui.Button(label=label, style=discord.ButtonStyle.link, url=url, emoji=emoji))
 
 class ContactButtonsView(discord.ui.View):
     def __init__(self, contact_info: dict):
@@ -1033,7 +1045,7 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
     set_group = app_commands.Group(name="set", description="Définit un paramètre de configuration.")
 
     # --- COMMANDE D'AFFICHAGE (/config view) ---
-    @app_commands.command(name="view", description="Affiche la configuration actuelle du bot pour ce serveur.")
+    @app_commands.command(name="view", description="[STAFF] Affiche la configuration actuelle du bot pour ce serveur.")
     @app_commands.check(is_staff_or_owner)
     async def view_config(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -1067,7 +1079,7 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # --- COMMANDE /config set role ---
-    @set_group.command(name="role", description="Configure un rôle spécifique (staff, mentions).")
+    @set_group.command(name="role", description="[STAFF] Configure un rôle spécifique (staff, mentions).")
     @app_commands.check(is_staff_or_owner)
     @app_commands.describe(parametre="Le type de rôle à configurer.", valeur="Le rôle à assigner.")
     @app_commands.choices(parametre=[
@@ -1080,7 +1092,7 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
         await interaction.response.send_message(f"✅ Le paramètre **{parametre.name}** est maintenant assigné à {valeur.mention}.", ephemeral=True)
 
     # --- COMMANDE /config set salon ---
-    @set_group.command(name="salon", description="Configure un salon spécifique (menu, sélection).")
+    @set_group.command(name="salon", description="[STAFF] Configure un salon spécifique (menu, sélection).")
     @app_commands.check(is_staff_or_owner)
     @app_commands.describe(parametre="Le type de salon à configurer.", valeur="Le salon à assigner.")
     @app_commands.choices(parametre=[
@@ -1302,8 +1314,6 @@ class SlashCommands(commands.Cog):
         
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
-    # Dans commands.py, à l'intérieur de la classe SlashCommands
-
     @app_commands.command(name="debug", description="[STAFF] Affiche un diagnostic complet du bot et propose des actions.")
     @app_commands.check(is_staff_or_owner)
     async def debug(self, interaction: discord.Interaction):
@@ -1437,7 +1447,7 @@ class SlashCommands(commands.Cog):
             Logger.error(f"Erreur dans /check: {e}"); traceback.print_exc()
             await interaction.followup.send("❌ Oups, une erreur est survenue.", ephemeral=True)
 
-    @app_commands.command(name="graph", description="Voir un graphique radar pour un produit")
+    @app_commands.command(name="graph", description="[STAFF] Voir un graphique radar pour un produit")
     @app_commands.check(is_staff_or_owner)
     async def graph(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -1755,7 +1765,7 @@ class SlashCommands(commands.Cog):
             traceback.print_exc()
             await interaction.followup.send("❌ Impossible de contacter le service de liaison. Merci de réessayer plus tard.", ephemeral=True)
 
-    @app_commands.command(name="selection", description="Publier la sélection de la semaine (staff uniquement)")
+    @app_commands.command(name="selection", description="[STAFF] Publier la sélection de la semaine (staff uniquement)")
     @app_commands.check(is_staff_or_owner)
     async def selection(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
