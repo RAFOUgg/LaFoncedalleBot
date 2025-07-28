@@ -399,7 +399,7 @@ class DebugView(discord.ui.View):
         except Exception as e:
             Logger.error(f"Erreur de connexion à l'API pour l'export clients : {e}")
             await interaction.followup.send("❌ Impossible de contacter le service d'exportation.", ephemeral=True)
-            
+
     @discord.ui.button(label="📁 Exporter la base de donnée", style=discord.ButtonStyle.primary, row=0)
     async def export_db(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
@@ -734,6 +734,79 @@ class AddCommentView(discord.ui.View):
         button.disabled = True
         await interaction.message.edit(view=self)
 
+class NotationProductSelectView(discord.ui.View):
+    def __init__(self, products: list, user: discord.User, cog_instance):
+        super().__init__(timeout=180)
+        self.products = products
+        self.cog_instance = cog_instance
+        if products:
+            self.add_item(self.ProductSelect(products, user, self.cog_instance))
+
+    class ProductSelect(discord.ui.Select):
+        def __init__(self, products: list, user: discord.User, cog_instance):
+            self.user = user
+            self.cog_instance = cog_instance
+            options = [discord.SelectOption(label=p[:100], value=p[:100]) for p in products[:25]]
+            if not options:
+                options = [discord.SelectOption(label="Aucun produit à noter", value="disabled", default=True)]
+            super().__init__(placeholder="Choisissez un produit à noter...", options=options)
+        
+        async def callback(self, interaction: discord.Interaction):
+            try:
+                if not self.values or self.values[0] == "disabled":
+                    await interaction.response.edit_message(content="Aucun produit sélectionné.", view=None)
+                    return
+                
+                selected_value = self.values[0]
+                full_product_name = next((p for p in self.view.products if p.startswith(selected_value)), selected_value)
+                
+                await interaction.response.defer(thinking=True, ephemeral=True)
+
+                def _fetch_existing_rating_sync(user_id, product_name):
+                    conn = sqlite3.connect(DB_FILE)
+                    conn.row_factory = sqlite3.Row
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT * FROM ratings WHERE user_id = ? AND product_name = ?", (user_id, product_name))
+                    row = cursor.fetchone()
+                    conn.close()
+                    return dict(row) if row else None
+
+                existing_rating = await asyncio.to_thread(
+                    _fetch_existing_rating_sync, interaction.user.id, full_product_name
+                )
+                
+                if existing_rating:
+                    Logger.info(f"Note existante trouvée pour '{full_product_name}'. Demande de confirmation.")
+                    scores = [existing_rating.get(s, 0) for s in ['visual_score', 'smell_score', 'touch_score', 'taste_score', 'effects_score']]
+                    avg_score = sum(scores) / len(scores) if scores else 0
+                    
+                    view = ConfirmRatingOverwriteView(full_product_name, self.user, self.cog_instance, existing_rating, avg_score)
+                    await interaction.followup.send(
+                        f"⚠️ Vous avez déjà noté **{full_product_name}** avec une moyenne de **{avg_score:.2f}/10**.\n\n"
+                        "Voulez-vous modifier votre note ?",
+                        view=view,
+                        ephemeral=True
+                    )
+                else:
+                    Logger.info(f"Aucune note existante pour '{full_product_name}'. Affichage du modal de notation.")
+                    modal = RatingModal(full_product_name, self.user, self.cog_instance)
+                    # La réponse a déjà été différée, nous ne pouvons pas utiliser send_modal.
+                    # Nous devons utiliser une astuce pour l'ouvrir.
+                    # On envoie un message placeholder qui sera supprimé.
+                    await interaction.followup.send("Ouverture du formulaire...", ephemeral=True)
+                    await interaction.edit_original_response(content=None, view=None) # Nettoie le message "réfléchit"
+                    await interaction.response.send_modal(modal)
+
+            except Exception as e:
+                Logger.error(f"Échec de l'affichage du modal de notation : {e}"); traceback.print_exc()
+                if not interaction.response.is_done():
+                     await interaction.response.send_message("❌ Oups, une erreur est survenue.", ephemeral=True)
+                else:
+                    try:
+                        await interaction.followup.send("❌ Oups, une erreur est survenue.", ephemeral=True)
+                    except:
+                        pass
+                    
 class RatingModal(discord.ui.Modal):
     def __init__(self, product_name: str, user: discord.User, cog_instance, existing_rating: Optional[dict] = None):
         super().__init__(title="Modifier votre note" if existing_rating else "Noter un produit", timeout=None)
