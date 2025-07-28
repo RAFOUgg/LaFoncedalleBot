@@ -151,13 +151,16 @@ def start_verification():
 
 @app.route('/api/test-email', methods=['POST'])
 def test_email():
+    # --- LOG DE DIAGNOSTIC ---
+    data = request.json
+    recipient_email = data.get('recipient_email')
+    Logger.info(f"Appel de /api/test-email reçu pour le destinataire : {recipient_email}")
+
     auth_header = request.headers.get('Authorization')
     expected_header = f"Bearer {FLASK_SECRET_KEY}"
     if not auth_header or auth_header != expected_header:
         return jsonify({"error": "Accès non autorisé."}), 403
 
-    data = request.json
-    recipient_email = data.get('recipient_email')
     if not recipient_email:
         return jsonify({"error": "E-mail destinataire manquant."}), 400
 
@@ -180,16 +183,14 @@ def test_email():
             auth_bytes_utf8 = auth_string.encode('utf-8')
             auth_bytes_b64 = base64.b64encode(auth_bytes_utf8)
             server.docmd("AUTH", f"PLAIN {auth_bytes_b64.decode('ascii')}")
-            
             server.sendmail(SENDER_EMAIL, recipient_email, message.as_string())
         
-        # La logique a été simplifiée. On retourne directement le succès.
+        Logger.success(f"E-mail de test envoyé avec succès à {recipient_email}.")
         return jsonify({"success": True, "message": f"E-mail de test envoyé à {recipient_email}."}), 200
 
     except Exception as e:
-        error_trace = traceback.format_exc()
-        Logger.error(f"ERREUR LORS DU TEST SMTP: {error_trace}")
-        return jsonify({"error": "Échec de l'envoi de l'e-mail de test.", "details": str(e)}), 500
+        Logger.error(f"ERREUR SMTP CRITIQUE lors du test: {e}"); traceback.print_exc()
+        return jsonify({"error": "Impossible d'envoyer l'e-mail de test.", "details": str(e)}), 500
     
 @app.route('/api/add-comment', methods=['POST'])
 def add_comment():

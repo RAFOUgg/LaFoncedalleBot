@@ -9,6 +9,7 @@ from discord.app_commands import Choice
 from profil_image_generator import create_profile_card
 from shared_utils import *
 import dotenv
+import shopify
 
 FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY')
 
