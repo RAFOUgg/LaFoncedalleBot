@@ -1,4 +1,4 @@
-# Fichier : profil_image_generator.py (Version Restylisée Ultime)
+# Fichier : profil_image_generator.py (Version Finale Corrigée)
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import requests
@@ -12,17 +12,17 @@ ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 
 async def create_profile_card(user_data: dict) -> io.BytesIO:
     def _generate():
-        # --- Palette de couleurs (inchangée) ---
+        # --- Palette de couleurs ---
         COLORS = {
                 "background": "#330D4C",
                 "card": "#A744E8",
                 "primary_text": "#FFFFFF",
-                "accent": "#FFC700", # Jaune utilisé pour le badge
+                "accent": "#FFC700",
                 "inner_card": "#7A1CB8",
                 "value_text": "#FFFFFF",
                 "label_text": "#D6B3ED",
                 "separator_line": "#A744E8",
-                "badge_text": "#3A2B01", # Texte sombre pour le badge
+                "badge_text_color": "#3A2B01",
         }
         fonts = {}
         try:
@@ -49,7 +49,6 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
         draw.rounded_rectangle((40, 280, 590, 560), fill=COLORS["inner_card"], radius=20)
         draw.rounded_rectangle((610, 280, 1160, 560), fill=COLORS["inner_card"], radius=20)
 
-        # ... (le code pour l'avatar, le nom, etc., reste le même) ...
         def draw_stat_line(y, label, value, col_base_x):
             draw.text((col_base_x + 40, y), label.upper(), font=fonts['label'], fill=COLORS["label_text"], anchor="lm")
             draw.text((col_base_x + 510, y), str(value), font=fonts['value'], fill=COLORS["value_text"], anchor="rm")
@@ -74,16 +73,13 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
             bg.paste(corner_logo, (1060, 60), corner_logo)
         except FileNotFoundError: print("WARNING [ImageGen]: 'logo_rond.png' non trouvé.")
 
-        # --- CORRECTION APPLIQUÉE ICI : GESTION DES BADGES DE FIDÉLITÉ ---
+        # --- CORRECTION FINALE : Utilise la nouvelle structure 'loyalty_badge' ---
         badge_data = user_data.get('loyalty_badge')
 
         if badge_data:
             badge_text = badge_data.get('name', 'Badge').upper()
             emoji_text = badge_data.get('emoji', '⭐')
             
-            badge_bg_color = COLORS["accent"]
-            badge_text_color = COLORS["badge_text"]
-
             text_width = draw.textlength(badge_text, font=fonts['badge'])
             emoji_width = draw.textlength(emoji_text, font=fonts['emoji'])
             
@@ -92,16 +88,16 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
             badge_x, badge_y, badge_h = 280, 195, 40
             badge_y_center = badge_y + (badge_h / 2)
             
-            draw.rounded_rectangle((badge_x, badge_y, badge_x + badge_width, badge_y + badge_h), fill=badge_bg_color, radius=8)
+            draw.rounded_rectangle((badge_x, badge_y, badge_x + badge_width, badge_y + badge_h), fill=COLORS["accent"], radius=8)
             
             emoji_x = badge_x + padding
             draw.text((emoji_x, badge_y_center), emoji_text, font=fonts['emoji'], embedded_color=True, anchor="lm")
             
             text_x = emoji_x + emoji_width + spacing
-            draw.text((text_x, badge_y_center), badge_text, font=fonts['badge'], fill=badge_text_color, anchor="lm")
+            draw.text((text_x, badge_y_center), badge_text, font=fonts['badge'], fill=COLORS["badge_text_color"], anchor="lm")
         # --- FIN DE LA CORRECTION ---
 
-        # --- Bloc 1: Activité Boutique (inchangé) ---
+        # Blocs Boutique et Discord (inchangés)
         col1_x, col1_y = 40, 280
         draw.text((col1_x + 40, col1_y + 40), "ACTIVITÉ BOUTIQUE", font=fonts['title'], fill=COLORS["primary_text"], anchor="lt")
         draw.line([(col1_x + 40, col1_y + 85), (col1_x + 510, col1_y + 85)], fill=COLORS["separator_line"], width=2)
@@ -111,7 +107,6 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
         else:
             draw.text((col1_x + 295, col1_y + 160), "AUCUNE ACTIVITÉ", font=fonts['label'], fill=COLORS["label_text"], anchor="mm")
 
-        # --- Bloc 2: Activité Discord (inchangé) ---
         col2_x, col2_y = 610, 280
         draw.text((col2_x + 40, col2_y + 40), "ACTIVITÉ DISCORD", font=fonts['title'], fill=COLORS["primary_text"], anchor="lt")
         draw.line([(col2_x + 40, col2_y + 85), (col2_x + 510, col2_y + 85)], fill=COLORS["separator_line"], width=2)
