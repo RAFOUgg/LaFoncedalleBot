@@ -11,6 +11,7 @@ services:
       - .env
     volumes:
       - ./ratings.db:/app/ratings.db
+      - ./config.json:/app/config.json:ro
       - ./bot_state.json:/app/bot_state.json
       - ./welcome_codes.txt:/app/welcome_codes.txt
       - ./claimed_welcome_codes.json:/app/claimed_welcome_codes.json
@@ -31,6 +32,7 @@ services:
     env_file:
       - .env
     volumes:
+      - ./config.json:/app/config.json:ro
       - ./ratings.db:/app/ratings.db
       - ./bot_state.json:/app/bot_state.json
       - ./welcome_codes.txt:/app/welcome_codes.txt
