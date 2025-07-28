@@ -12,19 +12,17 @@ ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 
 async def create_profile_card(user_data: dict) -> io.BytesIO:
     def _generate():
-        # --- NOUVELLE Palette de couleurs pour le nouveau style ---
+        # --- Palette de couleurs (inchangée) ---
         COLORS = {
-                "background": "#330D4C",      # Fond très sombre
-                "card": "#A744E8",            # Violet principal de la carte
-                "primary_text": "#FFFFFF",      # Texte blanc (pour le nom, titres)
-                "accent": "#FFC700",          # Jaune du badge
-                "inner_card": "#7A1CB8",      # Violet plus foncé pour les boîtes de stats
-                "value_text": "#FFFFFF",      # Texte blanc pour les valeurs (ex: 10.00)
-                "label_text": "#D6B3ED",      # Texte lavande pour les labels (ex: Commandes)
-                "separator_line": "#A744E8",     # Couleur de la ligne de séparation
-                "gold": {"bg": "#FFC700", "text": "#3A2B01"},
-                "silver": {"bg": "#D1D1D1", "text": "#3D3D3D"},
-                "bronze": {"bg": "#E29F6E", "text": "#502E15"},
+                "background": "#330D4C",
+                "card": "#A744E8",
+                "primary_text": "#FFFFFF",
+                "accent": "#FFC700", # Jaune utilisé pour le badge
+                "inner_card": "#7A1CB8",
+                "value_text": "#FFFFFF",
+                "label_text": "#D6B3ED",
+                "separator_line": "#A744E8",
+                "badge_text": "#3A2B01", # Texte sombre pour le badge
         }
         fonts = {}
         try:
@@ -51,6 +49,7 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
         draw.rounded_rectangle((40, 280, 590, 560), fill=COLORS["inner_card"], radius=20)
         draw.rounded_rectangle((610, 280, 1160, 560), fill=COLORS["inner_card"], radius=20)
 
+        # ... (le code pour l'avatar, le nom, etc., reste le même) ...
         def draw_stat_line(y, label, value, col_base_x):
             draw.text((col_base_x + 40, y), label.upper(), font=fonts['label'], fill=COLORS["label_text"], anchor="lm")
             draw.text((col_base_x + 510, y), str(value), font=fonts['value'], fill=COLORS["value_text"], anchor="rm")
@@ -75,34 +74,34 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
             bg.paste(corner_logo, (1060, 60), corner_logo)
         except FileNotFoundError: print("WARNING [ImageGen]: 'logo_rond.png' non trouvé.")
 
-        # --- FIX STARTS HERE: GESTION DES BADGES OR, ARGENT ET BRONZE ---
-        monthly_rank = user_data.get('monthly_rank')
-        
-        # Dictionnaire pour stocker les propriétés de chaque badge
-        badge_info = {
-            1: {"text": "TOP NOTEUR OR", "emoji": "🥇", "colors": COLORS["gold"]},
-            2: {"text": "TOP NOTEUR ARGENT", "emoji": "🥈", "colors": COLORS["silver"]},
-            3: {"text": "TOP NOTEUR BRONZE", "emoji": "🥉", "colors": COLORS["bronze"]},
-        }
-        
-        # On récupère les données du badge si le rang est valide (1, 2 ou 3)
-        badge_data = badge_info.get(monthly_rank)
+        # --- CORRECTION APPLIQUÉE ICI : GESTION DES BADGES DE FIDÉLITÉ ---
+        badge_data = user_data.get('loyalty_badge')
 
         if badge_data:
-            badge_text, emoji_text, badge_colors = badge_data["text"], badge_data["emoji"], badge_data["colors"]
-            text_width, emoji_width = draw.textlength(badge_text, font=fonts['badge']), draw.textlength(emoji_text, font=fonts['emoji'])
+            badge_text = badge_data.get('name', 'Badge').upper()
+            emoji_text = badge_data.get('emoji', '⭐')
+            
+            badge_bg_color = COLORS["accent"]
+            badge_text_color = COLORS["badge_text"]
+
+            text_width = draw.textlength(badge_text, font=fonts['badge'])
+            emoji_width = draw.textlength(emoji_text, font=fonts['emoji'])
+            
             padding, spacing = 20, 10
             badge_width = emoji_width + spacing + text_width + (padding * 2)
             badge_x, badge_y, badge_h = 280, 195, 40
             badge_y_center = badge_y + (badge_h / 2)
             
-            draw.rounded_rectangle((badge_x, badge_y, badge_x + badge_width, badge_y + badge_h), fill=badge_colors["bg"], radius=8)
+            draw.rounded_rectangle((badge_x, badge_y, badge_x + badge_width, badge_y + badge_h), fill=badge_bg_color, radius=8)
+            
             emoji_x = badge_x + padding
             draw.text((emoji_x, badge_y_center), emoji_text, font=fonts['emoji'], embedded_color=True, anchor="lm")
+            
             text_x = emoji_x + emoji_width + spacing
-            draw.text((text_x, badge_y_center), badge_text, font=fonts['badge'], fill=badge_colors["text"], anchor="lm")
+            draw.text((text_x, badge_y_center), badge_text, font=fonts['badge'], fill=badge_text_color, anchor="lm")
+        # --- FIN DE LA CORRECTION ---
 
-        # --- Bloc 1: Activité Boutique ---
+        # --- Bloc 1: Activité Boutique (inchangé) ---
         col1_x, col1_y = 40, 280
         draw.text((col1_x + 40, col1_y + 40), "ACTIVITÉ BOUTIQUE", font=fonts['title'], fill=COLORS["primary_text"], anchor="lt")
         draw.line([(col1_x + 40, col1_y + 85), (col1_x + 510, col1_y + 85)], fill=COLORS["separator_line"], width=2)
@@ -112,7 +111,7 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
         else:
             draw.text((col1_x + 295, col1_y + 160), "AUCUNE ACTIVITÉ", font=fonts['label'], fill=COLORS["label_text"], anchor="mm")
 
-        # --- Bloc 2: Activité Discord ---
+        # --- Bloc 2: Activité Discord (inchangé) ---
         col2_x, col2_y = 610, 280
         draw.text((col2_x + 40, col2_y + 40), "ACTIVITÉ DISCORD", font=fonts['title'], fill=COLORS["primary_text"], anchor="lt")
         draw.line([(col2_x + 40, col2_y + 85), (col2_x + 510, col2_y + 85)], fill=COLORS["separator_line"], width=2)
