@@ -4,8 +4,8 @@ from discord import app_commands
 import json, time, sqlite3, traceback, asyncio, os
 from typing import List, Optional
 from datetime import datetime, timedelta
-from typing import List, Optional, Union # <-- Assurez-vous que Union est là
-from discord.app_commands import Choice # <-- AJOUTEZ CETTE LIGNE
+from typing import List, Optional, Union
+from discord.app_commands import Choice
 from profil_image_generator import create_profile_card
 from shared_utils import *
 import dotenv
@@ -327,7 +327,32 @@ class DebugView(discord.ui.View):
             await interaction.followup.send("✅ **Succès !** La tâche de publication forcée du menu a été lancée.", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ **Échec de la publication :**\n```py\n{e}\n```", ephemeral=True)
-            
+    
+    @discord.ui.button(label="📤 Forcer la Sélection Semaine", style=discord.ButtonStyle.primary, row=0)
+    async def force_selection(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        if not interaction.guild:
+            await interaction.followup.send("❌ Cette action ne peut être effectuée qu'au sein d'un serveur.", ephemeral=True)
+            return
+        try:
+            await self.bot.post_weekly_selection(self.bot, interaction.guild.id)
+            await interaction.followup.send("✅ **Succès !** La publication de la sélection de la semaine a été lancée.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ **Échec de la publication de la sélection :**\n```py\n{e}\n```", ephemeral=True)
+    
+    @discord.ui.button(label="📁 Exporter la base de donnée", style=discord.ButtonStyle.primary, row=0)
+    async def export_db(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            if not os.path.exists(DB_FILE):
+                await interaction.followup.send("Fichier de base de données introuvable.", ephemeral=True)
+                return
+            file = discord.File(DB_FILE, filename=os.path.basename(DB_FILE))
+            await interaction.followup.send("Voici la base de données des notes utilisateur :", file=file, ephemeral=True)
+        except Exception as e:
+            Logger.error(f"Erreur lors de l'envoi du fichier DB : {e}")
+            await interaction.followup.send("Erreur lors de l'envoi du fichier de base de données.", ephemeral=True)
+
     @discord.ui.button(label="🗑️ Vider le Cache Produits", style=discord.ButtonStyle.secondary, row=1)
     async def clear_cache(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.bot.product_cache = {}
@@ -1380,21 +1405,6 @@ class SlashCommands(commands.Cog):
             traceback.print_exc()
             await interaction.followup.send("❌ Erreur lors de la récupération du classement.", ephemeral=True)
 
-    # --- Reste des commandes (inchangé) ---
-    @app_commands.command(name="export_db", description="Télécharger la base de données des notes utilisateur (staff uniquement)")
-    @app_commands.check(is_staff_or_owner)
-    async def export_db(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        try:
-            if not os.path.exists(DB_FILE):
-                await interaction.followup.send("Fichier de base de données introuvable.", ephemeral=True)
-                return
-            file = discord.File(DB_FILE, filename=os.path.basename(DB_FILE))
-            await interaction.followup.send("Voici la base de données des notes utilisateur :", file=file, ephemeral=True)
-        except Exception as e:
-            Logger.error(f"Erreur lors de l'envoi du fichier DB : {e}")
-            await interaction.followup.send("Erreur lors de l'envoi du fichier de base de données.", ephemeral=True)
-
     @app_commands.command(name="contacts", description="Affiche tous les liens utiles de LaFoncedalle.")
     async def contacts(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -1863,13 +1873,6 @@ class SlashCommands(commands.Cog):
             Logger.error(f"Erreur API /unlink : {e}")
             traceback.print_exc()
             await interaction.followup.send("❌ Impossible de contacter le service de liaison. Merci de réessayer plus tard.", ephemeral=True)
-
-    @app_commands.command(name="selection", description="[STAFF] Publier la sélection de la semaine (staff uniquement)")
-    @app_commands.check(is_staff_or_owner)
-    async def selection(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        await self.bot.post_weekly_selection(self.bot, interaction.guild.id)
-        await interaction.followup.send("La sélection de la semaine a été publiée.", ephemeral=True)
     
     @app_commands.command(name="promos", description="Affiche toutes les promotions en cours.")
     async def promos(self, interaction: discord.Interaction):
