@@ -84,39 +84,61 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
 
         if badge_data:
             badge_text = badge_data.get('name', 'Badge').upper()
-            emoji_text = badge_data.get('emoji', '⭐')
             
-            print(f"DEBUG [ImageGen]: Données du badge trouvées -> {badge_data}")
-            print(f"DEBUG [ImageGen]: Texte de l'émoji à dessiner -> '{emoji_text}'")
+            # [NOUVEAU] Dictionnaire qui mappe un caractère émoji à un nom de fichier image.
+            # Ajoutez simplement de nouvelles lignes ici pour de nouveaux badges.
+            EMOJI_TO_IMAGE_MAP = {
+                '💚': 'emoji-coeur-vert.png',
+                '🧘': 'emoji-yoga.png',
+                '🙋': 'emoji-leve-main.png',
+                # '⭐': 'etoile.png',  <-- Exemple si vous ajoutiez une étoile
+            }
 
-            # --- CORRECTION FINALE : Utiliser textbbox pour une mesure précise ---
-            emoji_bbox = draw.textbbox((0, 0), emoji_text, font=fonts['emoji'])
-            text_bbox = draw.textbbox((0, 0), badge_text, font=fonts['badge'])
+            # On récupère le caractère émoji depuis les données utilisateur
+            emoji_char = badge_data.get('emoji') 
             
-            emoji_width = emoji_bbox[2] - emoji_bbox[0]
+            icon_img = None
+            icon_width = 0
+            
+            # On cherche si cet émoji a une image correspondante dans notre map
+            icon_filename = EMOJI_TO_IMAGE_MAP.get(emoji_char)
+
+            if icon_filename:
+                try:
+                    # On charge l'image si elle est trouvée
+                    icon_path = os.path.join(ASSETS_DIR, icon_filename)
+                    icon_img = Image.open(icon_path).convert("RGBA")
+                    # On redimensionne l'icône pour qu'elle s'adapte à la hauteur du badge
+                    icon_img.thumbnail((32, 32), Image.Resampling.LANCZOS)
+                    icon_width = icon_img.width
+                except FileNotFoundError:
+                    print(f"AVERTISSEMENT [ImageGen]: Le fichier icône '{icon_filename}' configuré pour l'émoji '{emoji_char}' est introuvable.")
+                    pass # On continue sans icône si le fichier n'existe pas
+            
+            # Mesure du texte
+            text_bbox = draw.textbbox((0, 0), badge_text, font=fonts['badge'])
             text_width = text_bbox[2] - text_bbox[0]
             
-            # [MODIFICATION DE DEBUG] - AFFICHER LES VALEURS CALCULÉES
-            print(f"DEBUG [ImageGen]: Bounding Box de l'émoji calculée -> {emoji_bbox}")
-            print(f"DEBUG [ImageGen]: Largeur de l'émoji calculée -> {emoji_width}")
-            
+            # Calcul de la largeur totale du badge
             padding, spacing = 20, 10
-            badge_width = emoji_width + spacing + text_width + (padding * 2)
+            badge_width = (icon_width + spacing if icon_img else 0) + text_width + (padding * 2)
             badge_x, badge_y, badge_h = 280, 195, 40
             badge_y_center = badge_y + (badge_h / 2)
             
+            # Dessin du fond du badge
             draw.rounded_rectangle((badge_x, badge_y, badge_x + badge_width, badge_y + badge_h), fill=COLORS["accent"], radius=8)
             
-            emoji_x = badge_x + padding
-            try:
-                draw.text((emoji_x, badge_y_center), emoji_text, font=fonts['emoji'], embedded_color=True, anchor="lm")
-                print("DEBUG [ImageGen]: Le dessin de l'émoji a été exécuté.")
-            except Exception as e:
-                print(f"ERREUR CRITIQUE [ImageGen]: Impossible de dessiner l'émoji '{emoji_text}'. Erreur: {e}")
-                traceback.print_exc()
+            current_x = badge_x + padding
             
-            text_x = emoji_x + emoji_width + spacing
-            draw.text((text_x, badge_y_center), badge_text, font=fonts['badge'], fill=COLORS["badge_text_color"], anchor="lm")
+            # [MODIFIÉ] On colle l'image de l'icône si elle a été chargée
+            if icon_img:
+                # On calcule la position Y pour centrer l'icône verticalement dans le badge
+                paste_y = int(badge_y_center - (icon_img.height / 2))
+                bg.paste(icon_img, (current_x, paste_y), icon_img)
+                current_x += icon_width + spacing
+
+            # On dessine le texte à côté de l'icône (ou au début si pas d'icône)
+            draw.text((current_x, badge_y_center), badge_text, font=fonts['badge'], fill=COLORS["badge_text_color"], anchor="lm")
 
         # ... (Blocs Boutique et Discord inchangés) ...
         col1_x, col1_y = 40, 280
