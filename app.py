@@ -437,7 +437,7 @@ def force_link():
 
 @app.route('/api/get_purchased_products/<discord_id>')
 def get_purchased_products(discord_id):
-    conn = sqlite3.connect(DB_FILE) # [CORRECTION] Utilise la DB partagée
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (discord_id,))
     result = cursor.fetchone()
@@ -452,11 +452,24 @@ def get_purchased_products(discord_id):
     
     try:
         orders = shopify.Order.find(email=user_email, status='any', limit=250)
-        purchased_products = {item.title for order in orders for item in order.line_items}
+        
+        # --- NOUVELLE LOGIQUE DE FILTRAGE ---
+        purchased_products = set()
+        # Mots-clés à exclure (insensible à la casse)
+        exclude_keywords = ["telegram", "instagram", "tiktok", "briquet", "feuille"]
+
+        for order in orders:
+            for item in order.line_items:
+                title_lower = item.title.lower()
+                # On ajoute le produit UNIQUEMENT s'il ne contient aucun mot-clé d'exclusion
+                if not any(keyword in title_lower for keyword in exclude_keywords):
+                    purchased_products.add(item.title)
+        
         purchase_count = len(orders)
         total_spent = sum(float(order.total_price) for order in orders)
+
     except Exception as e:
-        print(f"Erreur API Shopify: {e}")
+        Logger.error(f"Erreur API Shopify dans get_purchased_products: {e}")
         return jsonify({"error": "Erreur lors de la récupération des commandes."}), 500
     finally:
         shopify.ShopifyResource.clear_session()
@@ -466,6 +479,7 @@ def get_purchased_products(discord_id):
         "purchase_count": purchase_count,
         "total_spent": total_spent
     })
+
 @app.route('/api/submit-rating', methods=['POST'])
 def submit_rating():
     data = request.json
