@@ -29,7 +29,6 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
 
    
 # --- VUES ET MODALES ---
-
 class EmailTestModal(discord.ui.Modal, title="Tester l'envoi d'e-mail"):
     email_input = discord.ui.TextInput(
         label="Adresse e-mail de destination",
@@ -58,9 +57,6 @@ class EmailTestModal(discord.ui.Modal, title="Tester l'envoi d'e-mail"):
                         await interaction.followup.send(f"❌ **Échec :** `{data.get('error')}`\n\n**Détails:**\n```{error_details}```", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ **Erreur Critique :** Impossible de contacter l'API Flask. `{e}`", ephemeral=True)
-
-
-class DebugView(discord.ui.View):
 
 class ConfirmOverwriteView(discord.ui.View):
     def __init__(self, api_url: str, payload: dict, headers: Optional[dict]):
