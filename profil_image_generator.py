@@ -1,4 +1,4 @@
-# Fichier : profil_image_generator.py (Version Finale Corrigée)
+# Fichier : profil_image_generator.py (Version Finale avec Correction de Mesure)
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import requests
@@ -12,7 +12,7 @@ ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 
 async def create_profile_card(user_data: dict) -> io.BytesIO:
     def _generate():
-        # --- Palette de couleurs ---
+        # ... (Palette de couleurs et chargement des polices inchangés) ...
         COLORS = {
                 "background": "#330D4C",
                 "card": "#A744E8",
@@ -45,6 +45,7 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
         bg = Image.new("RGBA", (1200, 600), COLORS["background"])
         draw = ImageDraw.Draw(bg)
         
+        # ... (Dessin de la carte, avatar, nom, etc. inchangé) ...
         draw.rounded_rectangle((20, 20, 1180, 580), fill=COLORS["card"], radius=30)
         draw.rounded_rectangle((40, 280, 590, 560), fill=COLORS["inner_card"], radius=20)
         draw.rounded_rectangle((610, 280, 1160, 560), fill=COLORS["inner_card"], radius=20)
@@ -72,16 +73,20 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
             corner_logo.thumbnail((100, 100), Image.Resampling.LANCZOS)
             bg.paste(corner_logo, (1060, 60), corner_logo)
         except FileNotFoundError: print("WARNING [ImageGen]: 'logo_rond.png' non trouvé.")
-
-        # --- CORRECTION FINALE : Utilise la nouvelle structure 'loyalty_badge' ---
+        
         badge_data = user_data.get('loyalty_badge')
 
         if badge_data:
             badge_text = badge_data.get('name', 'Badge').upper()
             emoji_text = badge_data.get('emoji', '⭐')
             
-            text_width = draw.textlength(badge_text, font=fonts['badge'])
-            emoji_width = draw.textlength(emoji_text, font=fonts['emoji'])
+            # --- CORRECTION FINALE : Utiliser textbbox pour une mesure précise ---
+            emoji_bbox = draw.textbbox((0, 0), emoji_text, font=fonts['emoji'])
+            text_bbox = draw.textbbox((0, 0), badge_text, font=fonts['badge'])
+            
+            emoji_width = emoji_bbox[2] - emoji_bbox[0]
+            text_width = text_bbox[2] - text_bbox[0]
+            # --- FIN DE LA CORRECTION ---
             
             padding, spacing = 20, 10
             badge_width = emoji_width + spacing + text_width + (padding * 2)
@@ -95,9 +100,8 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
             
             text_x = emoji_x + emoji_width + spacing
             draw.text((text_x, badge_y_center), badge_text, font=fonts['badge'], fill=COLORS["badge_text_color"], anchor="lm")
-        # --- FIN DE LA CORRECTION ---
 
-        # Blocs Boutique et Discord (inchangés)
+        # ... (Blocs Boutique et Discord inchangés) ...
         col1_x, col1_y = 40, 280
         draw.text((col1_x + 40, col1_y + 40), "ACTIVITÉ BOUTIQUE", font=fonts['title'], fill=COLORS["primary_text"], anchor="lt")
         draw.line([(col1_x + 40, col1_y + 85), (col1_x + 510, col1_y + 85)], fill=COLORS["separator_line"], width=2)
