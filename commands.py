@@ -368,37 +368,6 @@ class DebugView(discord.ui.View):
             await interaction.followup.send("✅ **Succès !** La publication de la sélection de la semaine a été lancée.", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ **Échec de la publication de la sélection :**\n```py\n{e}\n```", ephemeral=True)
-    
-    @discord.ui.button(label="📧 Exporter Clients", style=discord.ButtonStyle.danger, row=1)
-    async def export_clients_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Sécurité supplémentaire : vérifie si l'utilisateur est le propriétaire du bot
-        if not await self.bot.is_owner(interaction.user):
-            await interaction.response.send_message("🚫 Cette action est réservée au propriétaire du bot.", ephemeral=True)
-            return
-            
-        await interaction.response.defer(thinking=True, ephemeral=True)
-        
-        admin_email = os.getenv('ADMIN_EMAIL')
-        if not admin_email:
-            await interaction.followup.send("❌ L'adresse e-mail de l'administrateur n'est pas configurée côté serveur.", ephemeral=True)
-            return
-
-        api_url = f"{APP_URL}/api/export-customers"
-        headers = {"Authorization": f"Bearer {FLASK_SECRET_KEY}"}
-
-        try:
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
-                async with session.post(api_url, headers=headers, timeout=60) as response:
-                    data = await response.json()
-                    if response.ok:
-                        count = data.get('customer_count', 0)
-                        await interaction.followup.send(f"✅ **Succès !** Un e-mail contenant l'export de **{count} client(s)** a été envoyé à `{anonymize_email(admin_email)}`.", ephemeral=True)
-                    else:
-                        await interaction.followup.send(f"❌ **Échec de l'export :** `{data.get('error', 'Erreur inconnue')}`", ephemeral=True)
-        except Exception as e:
-            Logger.error(f"Erreur de connexion à l'API pour l'export clients : {e}")
-            await interaction.followup.send("❌ Impossible de contacter le service d'exportation.", ephemeral=True)
 
     @discord.ui.button(label="📁 Exporter la base de donnée", style=discord.ButtonStyle.primary, row=0)
     async def export_db(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1496,7 +1465,7 @@ class SlashCommands(commands.Cog):
             # Cas 2: Le compte est lié, mais aucun produit n'est disponible à la notation
             purchased_products = result.get("products", [])
             if not purchased_products:
-                message = "🤔 **Aucun produit à noter pour le moment.**\nIl se peut que tu n'aies pas encore de commande enregistrée ou que tu aies déjà noté tous tes produits achetés."
+                message = "🤔 **Aucun produit à noter pour le moment.**\nIl se peut que tu n'aies pas encore de commande enregistrée."
                 await interaction.followup.send(message, ephemeral=True)
                 return
 
