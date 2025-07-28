@@ -50,12 +50,16 @@ class HelpView(discord.ui.View):
 
     @discord.ui.button(label="Tu es nouveau ?", style=discord.ButtonStyle.success, emoji="🚀", row=0)
     async def new_user_guide(self, interaction: discord.Interaction, button: discord.ui.Button):
-        config = config_manager.get_config("help_command", {})
-        channels = config.get("channels_to_mention", {})
+        # On récupère les IDs des salons pour CE serveur spécifique
+        guild_id = interaction.guild.id
+        menu_id = await config_manager.get_state(guild_id, 'menu_channel_id')
+        selection_id = await config_manager.get_state(guild_id, 'selection_channel_id')
         
-        menu_ch = f"<#{channels.get('menu')}>" if channels.get('menu') else "#menu"
-        selection_ch = f"<#{channels.get('selection')}>" if channels.get('selection') else "#sélection"
-        nouveautes_ch = f"<#{channels.get('nouveautes')}>" if channels.get('nouveautes') else "#nouveautés"
+        # On formate les mentions. Si l'ID n'est pas configuré, on met un texte par défaut.
+        menu_ch = f"<#{menu_id}>" if menu_id else "#menu (non configuré)"
+        selection_ch = f"<#{selection_id}>" if selection_id else "#sélection (non configuré)"
+        # Pour "Nouveautés", on suppose que c'est le même que le salon menu.
+        nouveautes_ch = menu_ch 
 
         embed = create_styled_embed(
             title="🚀 Guide du Nouveau Membre",
@@ -100,11 +104,6 @@ class HelpView(discord.ui.View):
                     inline=True
                 )
         await interaction.response.edit_message(embed=embed, view=HelpNavigateView(self))
-
-    @discord.ui.button(label="Liens Utiles", style=discord.ButtonStyle.secondary, emoji="🔗", row=1)
-    async def useful_links(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(embed=None, view=HelpLinksView(self, interaction.guild_id))
-
 class HelpNavigateView(discord.ui.View):
     def __init__(self, main_view: HelpView):
         super().__init__(timeout=None)
@@ -114,27 +113,6 @@ class HelpNavigateView(discord.ui.View):
     async def go_back(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(embed=self.main_view.main_embed, view=self.main_view)
 
-class HelpLinksView(discord.ui.View):
-    def __init__(self, main_view: HelpView, guild_id: int):
-        super().__init__(timeout=None)
-        self.main_view = main_view
-        
-        config = config_manager.get_config("help_command", {})
-        faq_id = config.get("faq_channel_id")
-        video_url = config.get("video_url")
-
-        if faq_id:
-            self.add_item(discord.ui.Button(label="Consulter la FAQ", emoji="❓", url=f"https://discord.com/channels/{guild_id}/{faq_id}"))
-        if video_url:
-            self.add_item(discord.ui.Button(label="Voir la Vidéo Explicative", emoji="🎬", url=video_url))
-
-        # Le bouton retour est un bouton normal qui a une logique
-        back_button = discord.ui.Button(label="⬅️ Retour", style=discord.ButtonStyle.secondary)
-        back_button.callback = self.go_back_callback
-        self.add_item(back_button)
-
-    async def go_back_callback(self, interaction: discord.Interaction):
-        await interaction.response.edit_message(embed=self.main_view.main_embed, view=self.main_view)
 
 class EmailTestModal(discord.ui.Modal, title="Tester l'envoi d'e-mail"):
     email_input = discord.ui.TextInput(
@@ -2202,7 +2180,7 @@ class SlashCommands(commands.Cog):
     async def help(self, interaction: discord.Interaction):
         view = HelpView(self)
         await interaction.response.send_message(embed=view.main_embed, view=view, ephemeral=True)
-        
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(SlashCommands(bot))
     await bot.add_cog(ConfigCog(bot))
