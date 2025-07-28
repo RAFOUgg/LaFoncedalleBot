@@ -6,31 +6,7 @@ services:
     build: .
     container_name: lafoncedalleapi
     restart: always
-    command: ["python", "app.py"]
-    env_file:
-      - .env
-    volumes:
-      - ./config.json:/app/config.json           # Lien pour le fichier de configuration principal
-      - ./bot_state.json:/app/bot_state.json     # Lien pour l'état du bot (ex: dernier message)
-      - ./ratings.db:/app/ratings.db             # Lien pour la base de données
-      - ./scrape_cache.json:/app/scrape_cache.json # Lien pour le cache des produits
-      - ./user_actions.log:/app/user_actions.log # Lien pour les logs d'actions
-      - ./claimed_nitro_codes.json:/app/claimed_nitro_codes.json
-      - ./claimed_welcome_codes.json:/app/claimed_welcome_codes.json
-      - ./nitro_codes.txt:/app/nitro_codes.txt
-      - ./welcome_codes.txt:/app/welcome_codes.txt
-    depends_on:
-      - lafoncedalleapi
-    networks:
-      - lafoncedallenet
-
-  # Service du Bot Discord
-  lafoncedallebot:
-    build: .
-    container_name: lafoncedallebot
-    restart: always
-    depends_on:
-      - lafoncedalleapi
+    command: ["python", "app.py"] # <--- L'API lance app.py
     env_file:
       - .env
     volumes:
@@ -44,7 +20,30 @@ services:
       - ./nitro_codes.txt:/app/nitro_codes.txt
       - ./welcome_codes.txt:/app/welcome_codes.txt
     ports:
-      - "5000:5000"
+      - "5000:5000" # <--- CORRECTION : Le port est sur l'API, pas le bot
+    networks:
+      - lafoncedallenet
+
+  # Service du Bot Discord
+  lafoncedallebot:
+    build: .
+    container_name: lafoncedallebot
+    restart: always
+    command: ["python", "bot_runner.py"] # <--- CORRECTION : Le bot lance bot_runner.py
+    depends_on:
+      - lafoncedalleapi # Le bot attend que l'API soit prête
+    env_file:
+      - .env
+    volumes:
+      - ./config.json:/app/config.json           # Lien pour le fichier de configuration principal
+      - ./bot_state.json:/app/bot_state.json     # Lien pour l'état du bot (ex: dernier message)
+      - ./ratings.db:/app/ratings.db             # Lien pour la base de données
+      - ./scrape_cache.json:/app/scrape_cache.json # Lien pour le cache des produits
+      - ./user_actions.log:/app/user_actions.log # Lien pour les logs d'actions
+      - ./claimed_nitro_codes.json:/app/claimed_nitro_codes.json
+      - ./claimed_welcome_codes.json:/app/claimed_welcome_codes.json
+      - ./nitro_codes.txt:/app/nitro_codes.txt
+      - ./welcome_codes.txt:/app/welcome_codes.txt
     networks:
       - lafoncedallenet
 
