@@ -86,7 +86,6 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
             badge_text = badge_data.get('name', 'Badge').upper()
             emoji_text = badge_data.get('emoji', '⭐')
             
-            # DEBUG 
             print(f"DEBUG [ImageGen]: Données du badge trouvées -> {badge_data}")
             print(f"DEBUG [ImageGen]: Texte de l'émoji à dessiner -> '{emoji_text}'")
 
@@ -96,7 +95,10 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
             
             emoji_width = emoji_bbox[2] - emoji_bbox[0]
             text_width = text_bbox[2] - text_bbox[0]
-            # --- FIN DE LA CORRECTION ---
+            
+            # [MODIFICATION DE DEBUG] - AFFICHER LES VALEURS CALCULÉES
+            print(f"DEBUG [ImageGen]: Bounding Box de l'émoji calculée -> {emoji_bbox}")
+            print(f"DEBUG [ImageGen]: Largeur de l'émoji calculée -> {emoji_width}")
             
             padding, spacing = 20, 10
             badge_width = emoji_width + spacing + text_width + (padding * 2)
