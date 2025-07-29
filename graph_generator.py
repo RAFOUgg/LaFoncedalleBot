@@ -15,11 +15,10 @@ FONT_PATH = os.path.join(os.path.dirname(__file__), 'assets', 'Gobold Bold.otf')
 
 def create_radar_chart(product_name: str) -> str | None:
     """
-    [MODIFIÉ] Génère un graphique en toile d'araignée en utilisant une police personnalisée
+    [CORRIGÉ] Génère un graphique en toile d'araignée en utilisant une police personnalisée
     et un style adapté à Discord.
     Retourne le chemin vers le fichier image généré ou None en cas d'échec.
     """
-    # [NOUVEAU] Vérifier si le fichier de police existe avant de continuer
     if not os.path.exists(FONT_PATH):
         Logger.error(f"CRITIQUE: Fichier de police introuvable à l'emplacement '{FONT_PATH}'. Impossible de générer des graphiques.")
         return None
@@ -44,7 +43,6 @@ def create_radar_chart(product_name: str) -> str | None:
             return None
 
         all_ratings_np = np.array(all_ratings, dtype=float)
-        # Gérer les valeurs None/NULL en les remplaçant par NaN avant de calculer la moyenne
         mean_scores = np.nanmean(np.where(all_ratings_np == None, np.nan, all_ratings_np), axis=0)
 
         categories = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
@@ -54,25 +52,23 @@ def create_radar_chart(product_name: str) -> str | None:
         angles = np.linspace(0, 2 * np.pi, num_categories, endpoint=False).tolist()
         angles += angles[:1]
 
-        # [MODIFIÉ] Création du graphique avec un style plus adapté à Discord
         fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
-        fig.patch.set_facecolor('#2f3136') # Couleur de fond Discord
+        fig.patch.set_facecolor('#2f3136')
         ax.set_facecolor('#2f3136')
 
-        # Ligne et remplissage
-        ax.plot(angles, scores_for_plot, color='#5865F2', linewidth=2) # Ligne de couleur "Discord Blurple"
+        ax.plot(angles, scores_for_plot, color='#5865F2', linewidth=2)
         ax.fill(angles, scores_for_plot, color='#5865F2', alpha=0.25)
 
-        # Grille et étiquettes
         ax.set_ylim(0, 10)
-        ax.set_rgrids([2, 4, 6, 8], angle=90, color="gray", linestyle='--', linewidth=0.5)
+        # --- LA LIGNE CORRIGÉE EST ICI ---
+        ax.set_rgrids([2, 4, 6, 8], angle=90, color="gray", linewidth=0.5)
+        # ----------------------------------
         ax.set_thetagrids(np.degrees(angles[:-1]), categories)
 
-        # Style des étiquettes de la grille
         for label in ax.get_xticklabels():
             label.set_fontproperties(font_props)
             label.set_color('white')
-            label.set_y(label.get_position()[1] * 1.1) # Éloigner un peu les étiquettes
+            label.set_y(label.get_position()[1] * 1.1)
 
         for label in ax.get_yticklabels():
             label.set_fontproperties(FontProperties(fname=FONT_PATH, size=10))
@@ -80,15 +76,12 @@ def create_radar_chart(product_name: str) -> str | None:
         
         ax.spines['polar'].set_color('gray')
         
-        # [MODIFIÉ] Titre avec la police personnalisée
         ax.set_title(f'Profil de saveur : {product_name}\n', fontproperties=font_props_title, color='white')
 
-        # Sauvegarde du graphique
         output_dir = "charts"
         os.makedirs(output_dir, exist_ok=True)
         filename = f"{output_dir}/{product_name.replace(' ', '_').replace('/', '')}_radar_chart.png"
         
-        # [MODIFIÉ] Sauvegarde avec fond transparent
         plt.savefig(filename, bbox_inches='tight', dpi=120, transparent=True)
         plt.close(fig)
 
@@ -97,7 +90,7 @@ def create_radar_chart(product_name: str) -> str | None:
 
     except Exception as e:
         Logger.error(f"Erreur inattendue lors de la génération du graphique pour '{product_name}': {e}")
-        traceback.print_exc() # Donne le traceback complet pour le débogage
+        traceback.print_exc()
         return None
     finally:
         if conn:
