@@ -1,14 +1,13 @@
-# graph_generator.py
 import matplotlib
-matplotlib.use('Agg') # [NOUVEAU] Spécifier un backend non-interactif, essentiel pour les serveurs
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
 import numpy as np
 import os
 import sqlite3
+import traceback
 from typing import Dict, Any, List
 from shared_utils import Logger, DB_FILE
-import traceback
 
 # [NOUVEAU] Définir le chemin vers la police personnalisée
 FONT_PATH = os.path.join(os.path.dirname(__file__), 'assets', 'Gobold Bold.otf')
@@ -59,12 +58,18 @@ def create_radar_chart(product_name: str) -> str | None:
         ax.plot(angles, scores_for_plot, color='#5865F2', linewidth=2)
         ax.fill(angles, scores_for_plot, color='#5865F2', alpha=0.25)
 
+        # Grille et étiquettes
         ax.set_ylim(0, 10)
-        # --- LA LIGNE CORRIGÉE EST ICI ---
-        ax.set_rgrids([2, 4, 6, 8], angle=90, color="gray", linewidth=0.5)
-        # ----------------------------------
+        
+        # [CORRECTION FINALE] On sépare la définition des positions de la grille et son style.
+        # 1. On définit où placer les cercles de la grille et leurs étiquettes.
+        ax.set_rgrids([2, 4, 6, 8], angle=90)
+        # 2. On stylise les lignes de la grille (radiales ET angulaires) avec ax.grid()
+        ax.grid(color="gray", linestyle='--', linewidth=0.5)
+
         ax.set_thetagrids(np.degrees(angles[:-1]), categories)
 
+        # Style des étiquettes texte de la grille
         for label in ax.get_xticklabels():
             label.set_fontproperties(font_props)
             label.set_color('white')

@@ -1669,6 +1669,8 @@ class SlashCommands(commands.Cog):
             f"**Moyenne/noteur :** `{avg_notes:.2f}`\n"
             f"**CA (7j) :** `{shop_stats.get('weekly_revenue', 'N/A'):.2f} €`\n"
             f"**Commandes (7j) :** `{shop_stats.get('weekly_order_count', 'N/A')}`"
+            f"**CA (31j) :** `{shop_stats.get('monthly_revenue', 'N/A'):.2f} €`\n"
+            f"**Commandes (7j) :** `{shop_stats.get('monthly_order_count', 'N/A')}`"
         )
         embed.add_field(name="🌐 Global & Boutique", value=global_text, inline=False)
 
