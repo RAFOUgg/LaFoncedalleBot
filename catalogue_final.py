@@ -623,6 +623,56 @@ async def sync_all_loyalty_roles(bot_instance: commands.Bot):
         Logger.error(f"Erreur critique lors de la synchronisation des rôles : {e}")
         traceback.print_exc()
 
+@tasks.loop(weeks=3) # S'exécute toutes les 3 semaines
+async def scheduled_db_export(bot_instance: commands.Bot):
+    """
+    Parcourt tous les serveurs, et si un salon de sauvegarde est configuré,
+    envoie le fichier de la base de données.
+    """
+    await bot_instance.wait_until_ready() # Sécurité pour s'assurer que le bot est connecté
+    Logger.info("Lancement de la tâche de sauvegarde (tri-hebdomadaire) de la base de données...")
+    
+    if not os.path.exists(DB_FILE):
+        Logger.error(f"Sauvegarde annulée : le fichier {DB_FILE} n'a pas été trouvé.")
+        return
+
+    # On récupère tous les serveurs où le bot est présent
+    for guild in bot_instance.guilds:
+        try:
+            # On utilise votre config_manager pour récupérer l'ID du salon pour ce serveur
+            db_export_channel_id_str = await config_manager.get_state(guild.id, 'db_export_channel_id')
+            if not db_export_channel_id_str:
+                # Pas de salon configuré pour ce serveur, on passe au suivant.
+                continue
+
+            channel_id = int(db_export_channel_id_str)
+            channel = bot_instance.get_channel(channel_id)
+
+            if not channel or not isinstance(channel, discord.TextChannel):
+                Logger.warning(f"Salon de sauvegarde introuvable ou invalide pour le serveur '{guild.name}' (ID: {channel_id}).")
+                continue
+            
+            # Préparation du fichier Discord
+            filename = f"backup_periodic_{datetime.now().strftime('%Y-%m-%d')}.db"
+            discord_file = discord.File(DB_FILE, filename=filename)
+
+            # Préparation de l'embed avec votre fonction `create_styled_embed`
+            embed = create_styled_embed(
+                title="⚙️ Sauvegarde Automatique",
+                description="Voici la sauvegarde périodique de la base de données (`ratings.db`).",
+                color=discord.Color.blue()
+            )
+            embed.set_footer(text=f"Sauvegarde du {datetime.now(paris_tz).strftime('%d/%m/%Y à %H:%M')}")
+
+            await channel.send(embed=embed, file=discord_file)
+            Logger.success(f"Sauvegarde de la DB envoyée avec succès sur le serveur '{guild.name}' dans le salon '{channel.name}'.")
+
+        except discord.Forbidden:
+            Logger.error(f"Permissions manquantes pour envoyer la sauvegarde sur le serveur '{guild.name}'.")
+        except Exception as e:
+            Logger.error(f"Erreur inattendue lors de la sauvegarde pour le serveur '{guild.name}': {e}")
+            traceback.print_exc()
+            
 bot.sync_all_loyalty_roles = sync_all_loyalty_roles
 bot.check_for_updates = check_for_updates
 bot.post_weekly_selection = post_weekly_selection
@@ -677,6 +727,7 @@ async def on_ready():
     if not post_weekly_ranking.is_running(): post_weekly_ranking.start()
     if not scheduled_selection.is_running(): scheduled_selection.start()
     if not daily_role_sync.is_running(): daily_role_sync.start()
+    if not scheduled_db_export.is_running(): scheduled_db_export.start(bot) # [AJOUT] Démarrage de la nouvelle tâche
     Logger.success("Toutes les tâches programmées ont démarré.")
 
 

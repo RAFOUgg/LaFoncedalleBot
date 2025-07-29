@@ -1373,6 +1373,7 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
     @app_commands.choices(parametre=[
         Choice(name="Menu Principal", value="menu_channel_id"),
         Choice(name="Sélection de la Semaine", value="selection_channel_id"),
+        Choice(name="Sauvegardes Base de Données", value="db_export_channel_id"),
     ])
     async def set_salon(self, interaction: discord.Interaction, parametre: Choice[str], valeur: discord.TextChannel):
         await config_manager.update_state(interaction.guild.id, parametre.value, valeur.id)
@@ -1743,13 +1744,14 @@ class SlashCommands(commands.Cog):
         # --- 2. Tâches Programmées (NOUVELLE SECTION) ---
         tasks_text = ""
         # Accéder aux tâches enregistrées dans le fichier principal du bot
-        from catalogue_final import scheduled_check, post_weekly_ranking, scheduled_selection, daily_role_sync
+        from catalogue_final import scheduled_check, post_weekly_ranking, scheduled_selection, daily_role_sync, scheduled_db_export
 
         tasks_to_check = {
             "Vérification Menu": scheduled_check,
             "Classement Hebdo": post_weekly_ranking,
             "Sélection Semaine": scheduled_selection,
-            "Synchro Rôles": daily_role_sync
+            "Synchro Rôles": daily_role_sync,
+            "Sauvegarde DB": scheduled_db_export,
         }
 
         for name, task in tasks_to_check.items():
@@ -1784,7 +1786,11 @@ class SlashCommands(commands.Cog):
 
         selection_channel_id = await config_manager.get_state(guild.id, 'selection_channel_id')
         config_text += f"**Salon Sélection :** {format_setting(selection_channel_id, guild.get_channel)}\n"
-        
+
+        # [AJOUT] Vérification de la configuration du salon de sauvegarde
+        db_export_channel_id = await config_manager.get_state(guild.id, 'db_export_channel_id')
+        config_text += f"**Salon Sauvegardes :** {format_setting(db_export_channel_id, guild.get_channel)}\n"
+
         embed.add_field(name="🔧 Configuration Locale", value=config_text, inline=False)
         
         # --- 4. & 5. Cache et Base de Données ---
