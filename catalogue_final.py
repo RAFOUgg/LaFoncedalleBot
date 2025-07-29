@@ -64,7 +64,7 @@ query getFiles($ids: [ID!]!) {
 def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve: set) -> dict:
     """
     Extrait, nettoie et formate les données d'un seul objet produit Shopify.
-    [VERSION AMÉLIORÉE] Gère spécifiquement le contenu des box.
+    [VERSION FINALE] Gère le contenu des box et filtre les caractéristiques.
     """
     product_data = {}
     
@@ -76,19 +76,7 @@ def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve:
     product_data['category'] = category_map_display.get(category, category)
 
     desc_html = prod.body_html
-    if desc_html:
-        soup = BeautifulSoup(desc_html, 'html.parser')
-        # On extrait la description marketing avant de chercher le contenu de la box
-        # C'est une heuristique : on s'arrête au premier titre qui ressemble à "composition" ou "contenu"
-        composition_marker = soup.find(['strong', 'h2', 'h3'], string=re.compile(r'composition|contenu', re.IGNORECASE))
-        if composition_marker:
-            # On ne prend que le texte AVANT le marqueur de composition
-            desc_text = soup.get_text(separator='\n', strip=True).split(composition_marker.get_text())[0]
-            product_data['detailed_description'] = desc_text.strip()
-        else:
-            product_data['detailed_description'] = soup.get_text(separator='\n', strip=True)
-    else:
-        product_data['detailed_description'] = "Pas de description."
+    product_data['detailed_description'] = BeautifulSoup(desc_html, 'html.parser').get_text(separator='\n', strip=True) if desc_html else "Pas de description."
     
     # --- Gestion des Variants (inchangée) ---
     available_variants = [v for v in prod.variants if v.inventory_quantity > 0 or v.inventory_policy == 'continue']
@@ -102,32 +90,39 @@ def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve:
         price_prefix = "à partir de " if len(available_variants) > 1 and price > 0 else ""
         product_data['price'] = f"{price_prefix}{price:.2f} €".replace('.', ',') if price > 0 else "Cadeau !"
     else:
-        product_data['price'] = "N/A"
-        product_data['is_promo'] = False
-        product_data['original_price'] = None
+        product_data['price'] = "N/A"; product_data['is_promo'] = False; product_data['original_price'] = None
 
-    # --- [LOGIQUE AMÉLIORÉE] Extraction des Metafields ET du contenu des box ---
+    # --- [LOGIQUE CORRIGÉE] Extraction sélective des Metafields ---
     product_data['stats'] = {}
-    product_data['box_contents'] = [] # On initialise une liste vide pour le contenu de la box
+    product_data['box_contents'] = [] # Champ dédié pour le contenu des box
     time.sleep(0.5) 
     
+    # Liste blanche des caractéristiques que nous voulons afficher
+    WHITELISTED_STATS = ['effet', 'gout', 'goût', 'cbd', 'thc']
+
     for meta in prod.metafields():
-        key = meta.key.replace('_', ' ').capitalize()
+        key_lower = meta.key.lower()
         value = meta.value
         
-        # Si c'est une box et qu'on trouve un champ "composition" ou "contenu", on le traite spécialement
-        if category == 'box' and ('contenu' in key.lower() or 'composition' in key.lower()):
+        # Cas 1: C'est une box et on a trouvé le méta-champ du contenu
+        if category == 'box' and ('composition' in key_lower or 'contenu' in key_lower):
             soup_meta = BeautifulSoup(value, 'html.parser')
-            # On cherche les list items (<li>) ou les paragraphes (<p>)
+            # Extraire les items de listes (<li>) ou les lignes de texte
             items = [li.get_text(strip=True) for li in soup_meta.find_all('li')]
-            if not items: # Fallback pour du texte simple
-                items = [line.strip() for line in soup_meta.get_text(separator='\n').split('\n') if line.strip()]
+            if not items:
+                items = [line.strip().lstrip('-•* ') for line in soup_meta.get_text(separator='\n').split('\n') if line.strip()]
             product_data['box_contents'] = items
-        else:
-            # Sinon, on traite comme une caractéristique normale
-            product_data['stats'][key] = value
-            if isinstance(value, str) and value.startswith("gid://shopify/"):
-                gids_to_resolve.add(value)
+        
+        # Cas 2: C'est une caractéristique autorisée pour un produit normal
+        elif key_lower in WHITELISTED_STATS:
+            key_formatted = meta.key.replace('_', ' ').capitalize()
+            product_data['stats'][key_formatted] = value
+        
+        # Cas 3: C'est un fichier à résoudre (PDF, etc.), on l'ajoute toujours
+        if isinstance(value, str) and value.startswith("gid://shopify/"):
+            gids_to_resolve.add(value)
+            # On ajoute aussi le lien aux stats pour le bouton de téléchargement
+            product_data['stats'][meta.key.replace('_', ' ').capitalize()] = value
             
     return product_data
 

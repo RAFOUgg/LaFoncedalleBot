@@ -805,27 +805,17 @@ class ProductView(discord.ui.View):
         if not product.get('is_sold_out') and product.get('stats', {}).get('Stock'):
             embed.add_field(name="Stock", value=f"{product['stats']['Stock']}", inline=True)
         
-        # [LOGIQUE AMÉLIORÉE] Affichage conditionnel pour les box vs autres produits
+        # [LOGIQUE CORRIGÉE] Affichage intelligent
         if product.get('category') == 'box' and product.get('box_contents'):
             content_list = "\n".join([f"• `{item}`" for item in product['box_contents']])
-            if len(content_list) > 1024: # Limite de Discord
-                content_list = content_list[:1000] + "..."
+            if len(content_list) > 1024: content_list = content_list[:1000] + "..."
             embed.add_field(name="📦 Contenu de la Box", value=content_list, inline=False)
         else:
             stats = product.get('stats', {})
             char_lines = []
-            ignore_keys = ["pdf", "lab", "terpen", "stock", "description", "contenu", "composition"]
-            ignore_values = ["livraison", "offert", "derniers", "grammes", "lots"]
             for k, v in stats.items():
-                k_lower, v_str = k.lower(), str(v)
-                v_lower = v_str.lower()
-                if (any(key in k_lower for key in ignore_keys) or v_str.startswith(("http", "gid://")) or any(val in v_lower for val in ignore_values)):
-                    continue
-                if "effet" in k_lower: char_lines.append(f"**Effet :** {v_str}")
-                elif "gout" in k_lower: char_lines.append(f"**Goût :** {v_str}")
-                elif "cbd" in k_lower: char_lines.append(f"**CBD :** {v_str}")
-                elif "thc" in k_lower: char_lines.append(f"**THC :** {v_str}")
-                else: char_lines.append(f"**{k.strip().capitalize()} :** {v_str}")
+                if k.lower() in ['effet', 'gout', 'goût', 'cbd', 'thc']:
+                    char_lines.append(f"**{k.strip().capitalize()} :** {v}")
             if char_lines:
                 embed.add_field(name="Caractéristiques", value="\n".join(char_lines), inline=False)
 
@@ -2490,34 +2480,23 @@ class SlashCommands(commands.Cog):
                 note_text = f"⭐ **Note :** **{p_rating['avg']:.2f}/10** ({p_rating['count']} avis)"
             
             char_lines = []
-            # [LOGIQUE AMÉLIORÉE] On utilise la nouvelle clé 'box_contents'
             if p_data.get('category') == 'box' and p_data.get('box_contents'):
-                content = "\n".join([f"• `{item}`" for item in p_data['box_contents'][:5]]) # On limite à 5
+                content = "\n".join([f"• `{item}`" for item in p_data['box_contents'][:5]])
                 if len(p_data['box_contents']) > 5:
                     content += f"\n• `...et {len(p_data['box_contents']) - 5} autre(s)`"
                 char_lines.append(f"📦 **Contenu :**\n{content}")
             else:
                 stats = p_data.get('stats', {})
-                if stats.get('Gout'): char_lines.append(f"👅 **Goût :** `{stats.get('Gout')}`")
-                if stats.get('Effet'): char_lines.append(f"🧠 **Effet :** `{stats.get('Effet')}`")
-                if stats.get('Cbd'): char_lines.append(f"🌿 **CBD :** `{stats.get('Cbd')}`")
+                # On itère sur les clés de la whitelist pour un ordre constant
+                for key_name in ['Gout', 'Goût', 'Effet', 'Cbd', 'Thc']:
+                    if key_name in stats:
+                        emoji = {'gout': '👅', 'goût': '👅', 'effet': '🧠', 'cbd': '🌿'}.get(key_name.lower(), '')
+                        char_lines.append(f"{emoji} **{key_name} :** `{stats[key_name]}`")
 
             final_value = f"{price_text}\n{note_text}"
             if char_lines:
                 final_value += "\n\n" + "\n".join(char_lines)
             return final_value
-
-        embed.add_field(name=f"__**{p1_data['name']}**__", value=format_product_field(p1_data, p1_rating), inline=True)
-        embed.add_field(name=f"__**{p2_data['name']}**__", value=format_product_field(p2_data, p2_rating), inline=True)
-
-        if p1_data.get('image'): embed.set_thumbnail(url=p1_data['image'])
-        if p2_data.get('image'): embed.set_image(url=p2_data['image'])
-            
-        send_kwargs = {"embed": embed, "ephemeral": True}
-        if p1_data.get('category') != 'box' and p2_data.get('category') != 'box':
-            send_kwargs["view"] = CompareView(produit1, produit2)
-        
-        await interaction.followup.send(**send_kwargs)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SlashCommands(bot))
