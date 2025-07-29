@@ -505,6 +505,7 @@ def get_shop_stats():
     shopify.ShopifyResource.activate_session(session)
     
     try:
+        now = datetime.utcnow()
         # Calculer la date d'il y a 7 jours
         seven_days_ago_iso = (datetime.utcnow() - timedelta(days=7)).isoformat()
 
@@ -514,6 +515,15 @@ def get_shop_stats():
         weekly_revenue = sum(float(order.total_price) for order in orders)
         weekly_order_count = len(orders)
 
+        first_day_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        first_day_of_month_iso = first_day_of_month.isoformat()
+        
+        # Récupérer les commandes depuis le début du mois
+        monthly_orders = shopify.Order.find(created_at_min=first_day_of_month_iso, status='any', limit=250)
+        
+        monthly_revenue = sum(float(order.total_price) for order in monthly_orders)
+        monthly_order_count = len(monthly_orders)
+
     except Exception as e:
         print(f"Erreur API Shopify dans get_shop_stats: {e}")
         return jsonify({"error": "Erreur lors de la récupération des statistiques de la boutique."}), 500
@@ -522,7 +532,9 @@ def get_shop_stats():
 
     return jsonify({
         "weekly_revenue": weekly_revenue,
-        "weekly_order_count": weekly_order_count
+        "weekly_order_count": weekly_order_count,
+        "monthly_revenue": monthly_revenue,
+        "monthly_order_count": monthly_order_count
     })
 
 if __name__ == '__main__':

@@ -10,7 +10,7 @@ from profil_image_generator import create_profile_card
 from shared_utils import *
 import dotenv
 import shopify
-from graph_generator import create_radar_chart
+from graph_generator import create_radar_chart, create_comparison_radar_chart
 import re
 
 FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY')
@@ -42,39 +42,37 @@ class CompareView(discord.ui.View):
     async def compare_graphs(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
         
-        # Désactiver le bouton pour éviter les clics multiples
         button.disabled = True
         await interaction.message.edit(view=self)
 
-        chart_path1, chart_path2 = None, None # Initialiser les variables pour le bloc finally
-
+        chart_path = None
         try:
-            # [CORRECTION] La génération est maintenant DANS le bloc try
-            chart_path1, chart_path2 = await asyncio.gather(
-                asyncio.to_thread(create_radar_chart, self.product1_name),
-                asyncio.to_thread(create_radar_chart, self.product2_name)
+            # On appelle notre nouvelle fonction de comparaison
+            chart_path = await asyncio.to_thread(
+                create_comparison_radar_chart, 
+                self.product1_name, 
+                self.product2_name
             )
 
-            files_to_send = []
-            if chart_path1: files_to_send.append(discord.File(chart_path1))
-            if chart_path2: files_to_send.append(discord.File(chart_path2))
-
-            if files_to_send:
-                await interaction.followup.send(content="Voici les graphiques radar comparatifs :", files=files_to_send, ephemeral=True)
+            if chart_path:
+                file = discord.File(chart_path, filename="comparison_chart.png")
+                embed = create_styled_embed(
+                    title="📊 Comparaison Graphique",
+                    description=f"Voici les profils de **{self.product1_name}** et **{self.product2_name}** superposés."
+                ).set_image(url="attachment://comparison_chart.png")
+                
+                await interaction.followup.send(embed=embed, file=file, ephemeral=True)
             else:
-                await interaction.followup.send("😕 Impossible de générer les graphiques, il n'y a probablement pas assez de notes pour ces produits.", ephemeral=True)
+                await interaction.followup.send("😕 Impossible de générer le graphique de comparaison, il n'y a probablement pas assez de notes pour l'un des produits.", ephemeral=True)
 
         except Exception as e:
-            # [CORRECTION] Gérer l'erreur et informer l'utilisateur
-            Logger.error(f"Échec de la génération des graphiques pour la comparaison : {e}")
-            traceback.print_exc() # Log complet pour le débogage
-            await interaction.followup.send("❌ Oups ! Une erreur est survenue lors de la création des graphiques. Le staff a été notifié.", ephemeral=True)
+            Logger.error(f"Échec critique dans la vue de comparaison de graphiques : {e}")
+            traceback.print_exc()
+            await interaction.followup.send("❌ Oups ! Une erreur majeure est survenue. Le staff a été notifié.", ephemeral=True)
             
         finally:
-            # [CORRECTION] S'assurer que le nettoyage se fait toujours
-            # Nettoyer les fichiers générés, même en cas d'erreur
-            if chart_path1 and os.path.exists(chart_path1): os.remove(chart_path1)
-            if chart_path2 and os.path.exists(chart_path2): os.remove(chart_path2)
+            if chart_path and os.path.exists(chart_path):
+                os.remove(chart_path)
 
 class HelpView(discord.ui.View):
     def __init__(self, cog_instance):
@@ -1574,109 +1572,111 @@ class SlashCommands(commands.Cog):
         ]
     
     async def generate_dashboard_embed(self, guild: discord.Guild) -> discord.Embed:
-        """
-        Récupère les statistiques et génère l'embed du dashboard amélioré pour un serveur.
-        """
-        one_week_ago_dt = datetime.utcnow() - timedelta(days=7)
-        one_week_ago_iso = one_week_ago_dt.isoformat()
+    """
+    [MODIFIÉ] Récupère les statistiques et génère l'embed du dashboard amélioré pour un serveur.
+    """
+    one_week_ago_dt = datetime.utcnow() - timedelta(days=7)
+    one_week_ago_iso = one_week_ago_dt.isoformat()
 
-        # 1. Requêtes à la base de données
-        def _fetch_stats_sync():
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            
-            # Stats globales
-            total_ratings = cursor.execute("SELECT COUNT(id) FROM ratings").fetchone()[0]
-            total_linked_accounts = cursor.execute("SELECT COUNT(discord_id) FROM user_links").fetchone()[0]
-            total_raters = cursor.execute("SELECT COUNT(DISTINCT user_id) FROM ratings").fetchone()[0]
-
-            # Stats de la semaine
-            weekly_ratings = cursor.execute("SELECT COUNT(id) FROM ratings WHERE rating_timestamp >= ?", (one_week_ago_iso,)).fetchone()[0]
-            
-            # Top Noteur de la semaine
-            cursor.execute("SELECT user_id, COUNT(id) as count FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY count DESC LIMIT 1", (one_week_ago_iso,))
-            top_rater_row = cursor.fetchone()
-
-            # Produit Star de la semaine (meilleure note)
-            cursor.execute("SELECT product_name, AVG((visual_score+smell_score+touch_score+taste_score+effects_score)/5.0) as avg_score FROM ratings WHERE rating_timestamp >= ? GROUP BY product_name ORDER BY avg_score DESC LIMIT 1", (one_week_ago_iso,))
-            top_product_row = cursor.fetchone()
-            
-            # Produit à surveiller (pire note)
-            cursor.execute("SELECT product_name, AVG((visual_score+smell_score+touch_score+taste_score+effects_score)/5.0) as avg_score FROM ratings WHERE rating_timestamp >= ? GROUP BY product_name ORDER BY avg_score ASC LIMIT 1", (one_week_ago_iso,))
-            worst_product_row = cursor.fetchone()
-
-            conn.close()
-            return {
-                "total_ratings": total_ratings, "total_linked": total_linked_accounts,
-                "total_raters": total_raters, "weekly_ratings": weekly_ratings,
-                "top_rater": top_rater_row, "top_product": top_product_row,
-                "worst_product": worst_product_row
-            }
-
-        db_stats = await asyncio.to_thread(_fetch_stats_sync)
-
-        # 2. Appel à l'API Flask pour les stats de la boutique
-        shop_stats = {}
-        try:
-            import aiohttp
-            api_url = f"{APP_URL}/api/get_shop_stats"
-            headers = {"Authorization": f"Bearer {FLASK_SECRET_KEY}"}
-            async with aiohttp.ClientSession() as session:
-                async with session.get(api_url, headers=headers, timeout=15) as response:
-                    if response.ok:
-                        shop_stats = await response.json()
-        except Exception:
-            # En cas d'erreur, les stats de la boutique seront simplement "N/A"
-            pass
-
-        # 3. Création de l'embed
-        embed = create_styled_embed(
-            title=f"📊 Tableau de Bord - {guild.name}",
-            description=f"Aperçu de l'activité des 7 derniers jours.",
-            color=discord.Color.blue()
-        )
-
-        # Section 1 : Activité Communautaire
-        top_rater_text = "Aucun"
-        if db_stats['top_rater']:
-            user_id, count = db_stats['top_rater']
-            member = guild.get_member(user_id)
-            top_rater_text = f"{member.mention if member else f'ID: {user_id}'} (`{count}` notes)"
-
-        community_text = (
-            f"**Nouvelles Notes :** `{db_stats['weekly_ratings']}`\n"
-            f"**Top Noteur :** {top_rater_text}"
-        )
-        embed.add_field(name="📈 Activité Communautaire (7j)", value=community_text, inline=False)
-
-        # Section 2 : Performance Produits
-        product_text = ""
-        if db_stats['top_product']:
-            product_name, score = db_stats['top_product']
-            product_text += f"⭐ **Produit Star :** *{product_name}* (`{score:.2f}/10`)\n"
-        if db_stats['worst_product']:
-            product_name, score = db_stats['worst_product']
-            product_text += f"⚠️ **À surveiller :** *{product_name}* (`{score:.2f}/10`)"
+    # 1. Requêtes à la base de données (inchangé)
+    def _fetch_stats_sync():
+        conn = get_db_connection()
+        cursor = conn.cursor()
         
-        if not product_text: product_text = "Pas de nouvelles notes cette semaine."
-        embed.add_field(name="🌿 Performance Produits (7j)", value=product_text, inline=False)
+        total_ratings = cursor.execute("SELECT COUNT(id) FROM ratings").fetchone()[0]
+        total_linked_accounts = cursor.execute("SELECT COUNT(discord_id) FROM user_links").fetchone()[0]
+        total_raters = cursor.execute("SELECT COUNT(DISTINCT user_id) FROM ratings").fetchone()[0]
 
-        # Section 3 : Statistiques Globales & Boutique
-        avg_notes = (db_stats['total_ratings'] / db_stats['total_raters']) if db_stats['total_raters'] > 0 else 0
-        global_text = (
-            f"**Notes Totales :** `{db_stats['total_ratings']}`\n"
-            f"**Comptes Liés :** `{db_stats['total_linked']}`\n"
-            f"**Moyenne/noteur :** `{avg_notes:.2f}`\n"
-            f"**CA (7j) :** `{shop_stats.get('weekly_revenue', 'N/A'):.2f} €`\n"
-            f"**Commandes (7j) :** `{shop_stats.get('weekly_order_count', 'N/A')}`"
-            f"**CA (31j) :** `{shop_stats.get('monthly_revenue', 'N/A'):.2f} €`\n"
-            f"**Commandes (7j) :** `{shop_stats.get('monthly_order_count', 'N/A')}`"
-        )
-        embed.add_field(name="🌐 Global & Boutique", value=global_text, inline=False)
-
-        embed.set_footer(text=f"Rapport généré le {datetime.now(paris_tz).strftime('%d/%m/%Y à %H:%M')}")
+        weekly_ratings = cursor.execute("SELECT COUNT(id) FROM ratings WHERE rating_timestamp >= ?", (one_week_ago_iso,)).fetchone()[0]
         
-        return embed
+        cursor.execute("SELECT user_id, COUNT(id) as count FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY count DESC LIMIT 1", (one_week_ago_iso,))
+        top_rater_row = cursor.fetchone()
+
+        cursor.execute("SELECT product_name, AVG((visual_score+smell_score+touch_score+taste_score+effects_score)/5.0) as avg_score FROM ratings WHERE rating_timestamp >= ? GROUP BY product_name ORDER BY avg_score DESC LIMIT 1", (one_week_ago_iso,))
+        top_product_row = cursor.fetchone()
+        
+        cursor.execute("SELECT product_name, AVG((visual_score+smell_score+touch_score+taste_score+effects_score)/5.0) as avg_score FROM ratings WHERE rating_timestamp >= ? GROUP BY product_name ORDER BY avg_score ASC LIMIT 1", (one_week_ago_iso,))
+        worst_product_row = cursor.fetchone()
+
+        conn.close()
+        return {
+            "total_ratings": total_ratings, "total_linked": total_linked_accounts,
+            "total_raters": total_raters, "weekly_ratings": weekly_ratings,
+            "top_rater": top_rater_row, "top_product": top_product_row,
+            "worst_product": worst_product_row
+        }
+
+    db_stats = await asyncio.to_thread(_fetch_stats_sync)
+
+    # 2. Appel à l'API Flask (inchangé)
+    shop_stats = {}
+    try:
+        import aiohttp
+        api_url = f"{APP_URL}/api/get_shop_stats"
+        headers = {"Authorization": f"Bearer {FLASK_SECRET_KEY}"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(api_url, headers=headers, timeout=20) as response:
+                if response.ok:
+                    shop_stats = await response.json()
+    except Exception:
+        pass
+
+    # 3. [MODIFIÉ] Création de l'embed
+    embed = create_styled_embed(
+        title=f"📊 Tableau de Bord - {guild.name}",
+        description=f"Statistiques globales et activité récente.",
+        color=discord.Color.blue()
+    )
+
+    # --- Section 1 : Boutique ---
+    shop_text_weekly = (
+        f"**CA (7j) :** `{shop_stats.get('weekly_revenue', 0.0):.2f} €`\n"
+        f"**Commandes (7j) :** `{shop_stats.get('weekly_order_count', 'N/A')}`"
+    )
+    shop_text_monthly = (
+        f"**CA (Mois) :** `{shop_stats.get('monthly_revenue', 0.0):.2f} €`\n"
+        f"**Commandes (Mois) :** `{shop_stats.get('monthly_order_count', 'N/A')}`"
+    )
+    embed.add_field(name="<:shopify:1234567890> Activité de la Boutique", value=shop_text_weekly, inline=True)
+    embed.add_field(name="\u200b", value=shop_text_monthly, inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=False) # Ligne de séparation
+
+    # --- Section 2 : Communauté ---
+    top_rater_text = "*Aucun*"
+    if db_stats['top_rater']:
+        user_id, count = db_stats['top_rater']
+        member = guild.get_member(user_id)
+        top_rater_text = f"{member.mention if member else f'ID: {user_id}'} (`{count}`)"
+
+    community_text_weekly = (
+        f"**Notes (7j) :** `{db_stats['weekly_ratings']}`\n"
+        f"**Top Noteur (7j) :** {top_rater_text}"
+    )
+    avg_notes = (db_stats['total_ratings'] / db_stats['total_raters']) if db_stats['total_raters'] > 0 else 0
+    community_text_global = (
+        f"**Notes totales :** `{db_stats['total_ratings']}`\n"
+        f"**Comptes Liés :** `{db_stats['total_linked']}`"
+    )
+    
+    embed.add_field(name="👥 Activité Communautaire", value=community_text_weekly, inline=True)
+    embed.add_field(name="\u200b", value=community_text_global, inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=False) # Ligne de séparation
+
+    # --- Section 3 : Performance Produits ---
+    product_text = ""
+    if db_stats['top_product']:
+        product_name, score = db_stats['top_product']
+        product_text += f"⭐ **Produit Star (7j) :** *{product_name}* (`{score:.2f}/10`)\n"
+    if db_stats['worst_product']:
+        product_name, score = db_stats['worst_product']
+        product_text += f"⚠️ **À surveiller (7j) :** *{product_name}* (`{score:.2f}/10`)"
+    
+    if not product_text: product_text = "*Pas de nouvelles notes cette semaine.*"
+    embed.add_field(name="🌿 Performance Produits", value=product_text, inline=False)
+
+    embed.set_footer(text=f"Rapport généré le {datetime.now(paris_tz).strftime('%d/%m/%Y à %H:%M')}")
+    
+    return embed
 
     async def _update_all_user_roles(self, guild: discord.Guild, member: discord.Member):
         """
