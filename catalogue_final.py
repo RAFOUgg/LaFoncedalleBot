@@ -91,6 +91,7 @@ def get_site_data_from_graphql():
     """
     Récupère toutes les données du site (produits, collections, méta-champs)
     en une seule requête GraphQL pour éviter le rate limiting.
+    [VERSION 2.1 - CORRECTION INDEXERROR]
     """
     Logger.info("Démarrage de la récupération via GraphQL Shopify...")
     
@@ -112,33 +113,33 @@ def get_site_data_from_graphql():
         
         shopify.ShopifyResource.clear_session()
 
-        # --- On traite la réponse GraphQL pour la transformer dans notre format habituel ---
         final_products = []
         WHITELISTED_STATS = ['effet', 'gout', 'goût', 'cbd', 'thc']
         
         for product_edge in result.get('data', {}).get('products', {}).get('edges', []):
             prod = product_edge['node']
             
-            # Déterminer la catégorie
-            category = "accessoire" # Par défaut
+            category = "accessoire"
             collection_titles = [c['node']['title'].lower() for c in prod.get('collections', {}).get('edges', [])]
             if any("box" in title for title in collection_titles): category = "box"
             elif any("weed" in title for title in collection_titles): category = "weed"
             elif any("hash" in title for title in collection_titles): category = "hash"
             
-            # Créer la structure de base du produit
+            # [CORRECTION] Accès sécurisé à l'image
+            images_edges = prod.get('images', {}).get('edges', [])
+            image_url = images_edges[0].get('node', {}).get('url') if images_edges else None
+
             category_map_display = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
             product_data = {
                 'name': prod.get('title'),
                 'product_url': f"https://la-foncedalle.fr/products/{prod.get('handle')}",
-                'image': prod.get('images', {}).get('edges', [{}])[0].get('node', {}).get('url'),
+                'image': image_url, # Utilisation de la variable sécurisée
                 'category': category_map_display.get(category),
                 'detailed_description': BeautifulSoup(prod.get('bodyHtml', ''), 'html.parser').get_text(separator='\n', strip=True),
                 'stats': {},
                 'box_contents': []
             }
 
-            # Gestion des variants (prix, promo, stock)
             variants = [v['node'] for v in prod.get('variants', {}).get('edges', [])]
             available_variants = [v for v in variants if v.get('inventoryQuantity', 0) > 0 or v.get('inventoryPolicy') == 'CONTINUE']
             product_data['is_sold_out'] = not available_variants
@@ -153,7 +154,6 @@ def get_site_data_from_graphql():
             else:
                 product_data.update({'price': "N/A", 'is_promo': False, 'original_price': None})
 
-            # Gestion des méta-champs
             metafields = [m['node'] for m in prod.get('metafields', {}).get('edges', [])]
             for meta in metafields:
                 key_lower = meta.get('key', '').lower()
@@ -168,10 +168,13 @@ def get_site_data_from_graphql():
 
                 if key_lower in WHITELISTED_STATS:
                     product_data['stats'][meta.get('key').replace('_', ' ').capitalize()] = value
+
+                if isinstance(value, str) and value.startswith("gid://shopify/"):
+                    product_data['stats'][meta.get('key').replace('_', ' ').capitalize()] = value
             
             final_products.append(product_data)
             
-        general_promos = get_smart_promotions_from_api() # On garde l'ancienne méthode pour les promos
+        general_promos = get_smart_promotions_from_api()
 
         Logger.success(f"Récupération GraphQL terminée. {len(final_products)} produits valides trouvés.")
         return {"timestamp": time.time(), "products": final_products, "general_promos": general_promos}
