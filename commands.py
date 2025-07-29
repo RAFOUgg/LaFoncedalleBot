@@ -58,7 +58,7 @@ class CompareView(discord.ui.View):
             files_to_send = []
             if chart_path1: files_to_send.append(discord.File(chart_path1))
             if chart_path2: files_to_send.append(discord.File(chart_path2))
-
+/
             if files_to_send:
                 await interaction.followup.send(content="Voici les graphiques radar comparatifs :", files=files_to_send, ephemeral=True)
             else:
@@ -746,7 +746,9 @@ class ProductView(discord.ui.View):
         self.add_item(self.PrevButton())
         self.add_item(self.NextButton())
         self.add_item(self.ShowReviewsButton())
-        
+        # [NOUVEAU] Ajout du bouton pour le graphique
+        self.add_item(self.ShowGraphButton())
+
         # On met à jour l'état de tous les boutons
         self.update_ui_elements()
 
@@ -786,6 +788,11 @@ class ProductView(discord.ui.View):
             review_count = self.review_counts.get(product.get('name'), 0)
             reviews_button.label = f"💬 Avis Clients ({review_count})"
             reviews_button.disabled = (review_count == 0)
+        
+        graph_button = discord.utils.get(self.children, custom_id="show_graph_button")
+        if graph_button:
+            total_rating_count = counts_for_product.get('total', 0)
+            graph_button.disabled = (total_rating_count == 0)
 
     def get_category_emoji(self):
         if self.category == "weed": return "🍃"
@@ -870,7 +877,41 @@ class ProductView(discord.ui.View):
                 return
             paginator = ProductReviewsPaginatorView(reviews, product_name, product_image)
             await interaction.followup.send(embed=paginator.create_embed(), view=paginator, ephemeral=True)
+    class ShowGraphButton(discord.ui.Button):
+        def __init__(self):
+            super().__init__(label="📊 Afficher le Graphique", style=discord.ButtonStyle.primary, row=1, custom_id="show_graph_button")
+            
+        async def callback(self, interaction: discord.Interaction):
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            
+            product = self.view.products[self.view.current_index]
+            product_name = product.get('name')
+            chart_path = None
 
+            try:
+                chart_path = await asyncio.to_thread(create_radar_chart, product_name)
+                if chart_path:
+                    file = discord.File(chart_path, filename="radar_chart.png")
+                    embed = discord.Embed(
+                        title=f"Graphique Radar pour {product_name}",
+                        description="Moyenne des notes de la communauté.",
+                        color=discord.Color.green()
+                    ).set_image(url="attachment://radar_chart.png")
+                    await interaction.followup.send(embed=embed, file=file, ephemeral=True)
+                else:
+                    await interaction.followup.send("Impossible de générer le graphique (pas assez de données ?).", ephemeral=True)
+            except Exception as e:
+                Logger.error(f"Échec de la génération du graphique pour '{product_name}': {e}")
+                traceback.print_exc()
+                await interaction.followup.send("❌ Oups ! Une erreur est survenue lors de la création du graphique.", ephemeral=True)
+            finally:
+                if chart_path and os.path.exists(chart_path):
+                    os.remove(chart_path)
+
+    class DownloadButton(discord.ui.Button):
+        def __init__(self, label, url, emoji=None):
+            super().__init__(label=label, style=discord.ButtonStyle.link, url=url, emoji=emoji)
+            self.is_download_button = True
     class DownloadButton(discord.ui.Button):
         def __init__(self, label, url, emoji=None):
             super().__init__(label=label, style=discord.ButtonStyle.link, url=url, emoji=emoji)
@@ -1280,30 +1321,6 @@ class RankingPaginatorView(discord.ui.View):
         async def callback(self, interaction: discord.Interaction):
             if self.view.current_page < self.view.total_pages: self.view.current_page += 1
             await self.view.update_message(interaction)
-
-class ProductSelectViewForGraph(discord.ui.View):
-    def __init__(self, products, bot):
-        super().__init__(timeout=60)
-        self.add_item(ProductSelectForGraph(products, bot))
-
-class ProductSelectForGraph(discord.ui.Select):
-    def __init__(self, products, bot):
-        self.bot = bot
-        options = [discord.SelectOption(label=p, value=p) for p in products]
-        super().__init__(placeholder="Choisissez un produit pour voir son graphique...", options=options)
-
-    async def callback(self, interaction: discord.Interaction):
-        import graph_generator
-        product_name = self.values[0]
-        await interaction.response.send_message(f"Génération du graphique pour **{product_name}**...", ephemeral=True, delete_after=10)
-        chart_path = await asyncio.to_thread(graph_generator.create_radar_chart, product_name)
-        if chart_path:
-            file = discord.File(chart_path, filename="radar_chart.png")
-            embed = discord.Embed(title=f"Graphique Radar pour {product_name}", description="Moyenne des notes de la communauté.", color=discord.Color.green()).set_image(url="attachment://radar_chart.png")
-            await interaction.followup.send(embed=embed, file=file, ephemeral=True)
-            os.remove(chart_path)
-        else:
-            await interaction.followup.send("Impossible de générer le graphique (pas assez de données ?).", ephemeral=True)
 
 class ProfilePaginatorView(discord.ui.View):
     def __init__(self, target_user, user_stats, user_ratings, shopify_data, can_reset, bot, initial_image_file, items_per_page=3):
@@ -2088,24 +2105,6 @@ class SlashCommands(commands.Cog):
         except Exception as e:
             Logger.error(f"Erreur dans /check: {e}"); traceback.print_exc()
             await interaction.followup.send("❌ Oups, une erreur est survenue.", ephemeral=True)
-
-    @app_commands.command(name="graph", description="[STAFF] Voir un graphique radar pour un produit")
-    @app_commands.check(is_staff_or_owner)
-    async def graph(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        await log_user_action(interaction, "a demandé un graphique.")
-        def fetch_products():
-            conn = get_db_connection(); c = conn.cursor()
-            c.execute("SELECT DISTINCT product_name FROM ratings")
-            products = [row[0] for row in c.fetchall()]
-            conn.close()
-            return products
-        products = await asyncio.to_thread(fetch_products)
-        if not products:
-            await interaction.followup.send("Aucun produit n'a encore été noté.", ephemeral=True)
-            return
-        view = ProductSelectViewForGraph(products, self.bot)
-        await interaction.followup.send("Sélectionnez un produit :", view=view, ephemeral=True)
 
     @app_commands.command(name="nitro_gift", description="Réclame ton code de réduction pour avoir boosté le serveur !")
     @app_commands.guild_only()
