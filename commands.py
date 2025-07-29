@@ -10,6 +10,7 @@ from profil_image_generator import create_profile_card
 from shared_utils import *
 import dotenv
 import shopify
+from graph_generator import create_radar_chart
 
 FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY')
 
@@ -30,6 +31,40 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
    
 # --- VUES ET MODALES ---
 
+class CompareView(discord.ui.View):
+    def __init__(self, product1_name: str, product2_name: str):
+        super().__init__(timeout=300)
+        self.product1_name = product1_name
+        self.product2_name = product2_name
+
+    @discord.ui.button(label="📊 Comparer les Graphiques", style=discord.ButtonStyle.secondary)
+    async def compare_graphs(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        
+        # Désactiver le bouton pour éviter les clics multiples
+        button.disabled = True
+        await interaction.message.edit(view=self)
+
+        # Générer les deux graphiques en parallèle
+        chart_path1, chart_path2 = await asyncio.gather(
+            asyncio.to_thread(create_radar_chart, self.product1_name),
+            asyncio.to_thread(create_radar_chart, self.product2_name)
+        )
+
+        files_to_send = []
+        if chart_path1: files_to_send.append(discord.File(chart_path1))
+        if chart_path2: files_to_send.append(discord.File(chart_path2))
+
+        try:
+            if files_to_send:
+                await interaction.followup.send(content="Voici les graphiques radar comparatifs :", files=files_to_send, ephemeral=True)
+            else:
+                await interaction.followup.send("😕 Impossible de générer les graphiques, il n'y a probablement pas assez de notes pour ces produits.", ephemeral=True)
+        finally:
+            # Nettoyer les fichiers générés
+            if chart_path1 and os.path.exists(chart_path1): os.remove(chart_path1)
+            if chart_path2 and os.path.exists(chart_path2): os.remove(chart_path2)
+            
 class HelpView(discord.ui.View):
     def __init__(self, cog_instance):
         super().__init__(timeout=None)
@@ -2381,107 +2416,101 @@ class SlashCommands(commands.Cog):
         view = HelpView(self)
         await interaction.response.send_message(embed=view.main_embed, view=view, ephemeral=True)
 
-    # Dans commands.py, remplacez la commande /comparer dans la classe SlashCommands
-
     @app_commands.command(name="comparer", description="Compare deux produits côte à côte.")
     @app_commands.autocomplete(produit1=product_autocomplete, produit2=product_autocomplete)
-    @app_commands.describe(
-        produit1="Le premier produit à comparer.",
-        produit2="Le second produit à comparer."
-    )
+    @app_commands.describe(produit1="Le premier produit à comparer.", produit2="Le second produit à comparer.")
     async def comparer(self, interaction: discord.Interaction, produit1: str, produit2: str):
         await interaction.response.defer(ephemeral=True)
 
         if produit1.lower() == produit2.lower():
-            await interaction.followup.send("❌ Veuillez choisir deux produits différents à comparer.", ephemeral=True)
-            return
+            return await interaction.followup.send("❌ Veuillez choisir deux produits différents.", ephemeral=True)
 
         product_map = {p['name'].lower(): p for p in self.bot.product_cache.get('products', [])}
-        
         p1_data = product_map.get(produit1.lower())
         p2_data = product_map.get(produit2.lower())
 
         if not p1_data or not p2_data:
-            missing = []
-            if not p1_data: missing.append(f"'{produit1}'")
-            if not p2_data: missing.append(f"'{produit2}'")
-            await interaction.followup.send(f"😕 Impossible de trouver les informations pour : {', '.join(missing)}.", ephemeral=True)
-            return
-            
-        def _get_avg_ratings(p1_name, p2_name):
+            missing = f"'{produit1 if not p1_data else produit2}'"
+            return await interaction.followup.send(f"😕 Impossible de trouver les informations pour {missing}.", ephemeral=True)
+
+        def _get_avg_ratings(p1, p2):
             conn = sqlite3.connect(DB_FILE)
             cursor = conn.cursor()
-            query = """
-                SELECT 
-                    product_name, 
-                    AVG((COALESCE(visual_score,0) + COALESCE(smell_score,0) + COALESCE(touch_score,0) + COALESCE(taste_score,0) + COALESCE(effects_score,0)) / 5.0) as avg_score,
-                    COUNT(id) as rating_count
-                FROM ratings 
-                WHERE product_name IN (?, ?)
-                GROUP BY product_name
-            """
-            cursor.execute(query, (p1_name, p2_name))
-            results = {row[0].lower(): {"avg": row[1], "count": row[2]} for row in cursor.fetchall()}
-            conn.close()
-            return results
-
+            query = "SELECT product_name, AVG((...)/5.0), COUNT(id) FROM ratings WHERE product_name IN (?, ?) GROUP BY product_name"
+            # (version abrégée pour la lisibilité, le code est le même que le vôtre)
+            cursor.execute("SELECT product_name, AVG((COALESCE(visual_score,0)+COALESCE(smell_score,0)+COALESCE(touch_score,0)+COALESCE(taste_score,0)+COALESCE(effects_score,0))/5.0), COUNT(id) FROM ratings WHERE product_name IN (?,?) GROUP BY product_name", (p1, p2))
+            return {row[0].lower(): {"avg": row[1], "count": row[2]} for row in cursor.fetchall()}
+        
         avg_ratings = await asyncio.to_thread(_get_avg_ratings, produit1, produit2)
         p1_rating = avg_ratings.get(produit1.lower())
         p2_rating = avg_ratings.get(produit2.lower())
-        
-        embed = create_styled_embed(
-            title=f"⚔️ Comparaison : {produit1} vs {produit2}",
-            description="Voici un résumé des caractéristiques et des notes de la communauté.",
-            color=discord.Color.orange()
-        )
-        
-        # [MODIFICATION MAJEURE] La fonction d'aide est maintenant plus intelligente
+
+        # --- Section 1: Synthèse "En Bref" ---
+        summary_lines = []
+        # Comparaison des prix
+        try:
+            price1 = float(p1_data.get('price').split(' ')[0].replace(',', '.'))
+            price2 = float(p2_data.get('price').split(' ')[0].replace(',', '.'))
+            if price1 < price2: summary_lines.append(f"💰 **Moins cher :** {produit1}")
+            elif price2 < price1: summary_lines.append(f"💰 **Moins cher :** {produit2}")
+        except (ValueError, AttributeError): pass # Ignore si le prix n'est pas parsable
+
+        # Comparaison des notes (si les deux sont notés et ne sont pas des box)
+        if p1_rating and p2_rating and p1_data.get('category') != 'box' and p2_data.get('category') != 'box':
+            if p1_rating['avg'] > p2_rating['avg']: summary_lines.append(f"⭐ **Mieux noté :** {produit1}")
+            elif p2_rating['avg'] > p1_rating['avg']: summary_lines.append(f"⭐ **Mieux noté :** {produit2}")
+
+        summary_text = "\n".join(summary_lines)
+        description_text = f"Voici un résumé des caractéristiques et des notes.\n\n**En bref :**\n{summary_text}" if summary_lines else "Voici un résumé des caractéristiques et des notes."
+
+        embed = create_styled_embed(title=f"⚔️ Comparaison : {produit1} vs {produit2}", description=description_text, color=discord.Color.orange())
+
+        # --- Section 2: Formatage des colonnes ---
         def format_product_field(p_data, p_rating):
             # Prix
-            price_text = ""
-            if p_data.get('is_sold_out'):
-                price_text = "❌ **Épuisé**"
-            elif p_data.get('is_promo'):
-                price_text = f"🏷️ **{p_data.get('price')}** ~~{p_data.get('original_price')}~~"
-            else:
-                price_text = f"💰 **{p_data.get('price', 'N/A')}**"
+            price_text = f"💰 **Prix :** "
+            if p_data.get('is_sold_out'): price_text += "❌ Épuisé"
+            elif p_data.get('is_promo'): price_text += f"🏷️ **{p_data.get('price')}** ~~{p_data.get('original_price')}~~"
+            else: price_text += f"**{p_data.get('price', 'N/A')}**"
 
-            # Note (non applicable pour les box)
-            note_text = "N/A"
+            # Note
+            note_text = "⭐ **Note :** N/A"
             if p_data.get('category') != 'box' and p_rating:
-                note_text = f"⭐ **{p_rating['avg']:.2f}/10** ({p_rating['count']} avis)"
+                note_text = f"⭐ **Note :** **{p_rating['avg']:.2f}/10** ({p_rating['count']} avis)"
             
+            # Caractéristiques
             char_lines = []
-            # Cas spécial pour les BOX
             if p_data.get('category') == 'box':
                 stats = p_data.get('stats', {})
-                # On cherche une clé comme "Contenu" dans les stats (metafields Shopify)
                 for key, value in stats.items():
-                    if 'contenu' in key.lower():
-                        # On formate le contenu pour qu'il soit plus lisible
+                    if 'contenu' in key.lower() or 'composition' in key.lower():
                         items = value.replace(' / ', ',').replace(' - ', ',').split(',')
-                        formatted_content = "\n".join([f"• `{item.strip()}`" for item in items if item.strip()])
-                        if formatted_content:
-                             char_lines.append(f"**Contenu :**\n{formatted_content}")
-                        break # On a trouvé le contenu, pas besoin de chercher plus loin
+                        content = "\n".join([f"• `{item.strip()}`" for item in items if item.strip()])
+                        if content: char_lines.append(f"📦 **Contenu :**\n{content}")
+                        break
             else:
-            # Logique normale pour les autres produits
                 stats = p_data.get('stats', {})
-                if stats.get('Gout'): char_lines.append(f"**Goût :** `{stats.get('Gout')}`")
-                if stats.get('Effet'): char_lines.append(f"**Effet :** `{stats.get('Effet')}`")
-                if stats.get('Cbd'): char_lines.append(f"**CBD :** `{stats.get('Cbd')}`")
+                if stats.get('Gout'): char_lines.append(f"👅 **Goût :** `{stats.get('Gout')}`")
+                if stats.get('Effet'): char_lines.append(f"🧠 **Effet :** `{stats.get('Effet')}`")
+                if stats.get('Cbd'): char_lines.append(f"🌿 **CBD :** `{stats.get('Cbd')}`")
 
-            # On assemble le tout
             final_value = f"{price_text}\n{note_text}"
-            if char_lines:
-                final_value += "\n\n" + "\n".join(char_lines)
-            
+            if char_lines: final_value += "\n\n" + "\n".join(char_lines)
             return final_value
 
         embed.add_field(name=f"__**{p1_data['name']}**__", value=format_product_field(p1_data, p1_rating), inline=True)
         embed.add_field(name=f"__**{p2_data['name']}**__", value=format_product_field(p2_data, p2_rating), inline=True)
 
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        # --- Section 3: Visuels et Interactivité ---
+        if p1_data.get('image'): embed.set_thumbnail(url=p1_data['image'])
+        if p2_data.get('image'): embed.set_image(url=p2_data['image'])
+            
+        # On n'affiche le bouton que si les produits ne sont pas des box
+        view = None
+        if p1_data.get('category') != 'box' and p2_data.get('category') != 'box':
+            view = CompareView(produit1, produit2)
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SlashCommands(bot))
