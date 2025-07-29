@@ -46,23 +46,33 @@ class CompareView(discord.ui.View):
         button.disabled = True
         await interaction.message.edit(view=self)
 
-        # Générer les deux graphiques en parallèle
-        chart_path1, chart_path2 = await asyncio.gather(
-            asyncio.to_thread(create_radar_chart, self.product1_name),
-            asyncio.to_thread(create_radar_chart, self.product2_name)
-        )
-
-        files_to_send = []
-        if chart_path1: files_to_send.append(discord.File(chart_path1))
-        if chart_path2: files_to_send.append(discord.File(chart_path2))
+        chart_path1, chart_path2 = None, None # Initialiser les variables pour le bloc finally
 
         try:
+            # Générer les deux graphiques en parallèle
+            chart_path1, chart_path2 = await asyncio.gather(
+                asyncio.to_thread(create_radar_chart, self.product1_name),
+                asyncio.to_thread(create_radar_chart, self.product2_name)
+            )
+
+            files_to_send = []
+            if chart_path1: files_to_send.append(discord.File(chart_path1))
+            if chart_path2: files_to_send.append(discord.File(chart_path2))
+
             if files_to_send:
                 await interaction.followup.send(content="Voici les graphiques radar comparatifs :", files=files_to_send, ephemeral=True)
             else:
                 await interaction.followup.send("😕 Impossible de générer les graphiques, il n'y a probablement pas assez de notes pour ces produits.", ephemeral=True)
+
+        except Exception as e:
+            # [CORRECTION] Gérer l'erreur et informer l'utilisateur
+            Logger.error(f"Échec de la génération des graphiques pour la comparaison : {e}")
+            traceback.print_exc() # Log complet pour le débogage
+            await interaction.followup.send("❌ Oups ! Une erreur est survenue lors de la création des graphiques. Le staff a été notifié.", ephemeral=True)
+            
         finally:
-            # Nettoyer les fichiers générés
+            # [CORRECTION] S'assurer que le nettoyage se fait toujours
+            # Nettoyer les fichiers générés, même en cas d'erreur
             if chart_path1 and os.path.exists(chart_path1): os.remove(chart_path1)
             if chart_path2 and os.path.exists(chart_path2): os.remove(chart_path2)
 
