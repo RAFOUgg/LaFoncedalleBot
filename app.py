@@ -21,7 +21,7 @@ import shopify
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
 import json
-from shared_utils import Logger, DB_FILE, anonymize_email
+from shared_utils import Logger, DB_FILE, anonymize_email, get_db_connection
 # [CORRECTION] Import des variables depuis config.py et catalogue_final pour le bot
 
 
@@ -50,7 +50,7 @@ WELCOME_CODES_FILE = os.path.join(BASE_DIR, "welcome_codes.txt")
 def initialize_db():
     """Initialise les tables pour la liaison de comptes dans la DB partagée."""
     print(f"INFO: Initialisation des tables de liaison dans la base de données: {DB_FILE}")
-    conn = sqlite3.connect(DB_FILE) # [CORRECTION] Utilise la DB partagée
+    conn = get_db_connection() # [CORRECTION] Utilise la DB partagée
     cursor = conn.cursor()
     # Ces tables seront ajoutées à ratings.db si elles n'existent pas
     cursor.execute("CREATE TABLE IF NOT EXISTS user_links (discord_id TEXT PRIMARY KEY, user_email TEXT NOT NULL UNIQUE);")
@@ -110,7 +110,7 @@ def start_verification():
 
     if not all([discord_id, email]): return jsonify({"error": "Données manquantes."}), 400
 
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     if not force:
@@ -206,7 +206,7 @@ def add_comment():
         return jsonify({"error": "Données manquantes pour ajouter le commentaire."}), 400
 
     try:
-        conn = sqlite3.connect(DB_FILE)
+        conn = get_db_connection()
         c = conn.cursor()
         c.execute("""
             UPDATE ratings 
@@ -234,7 +234,7 @@ def confirm_verification():
     discord_id = data.get('discord_id')
     code = data.get('code')
 
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT user_email, expires_at FROM verification_codes WHERE discord_id = ? AND code = ?", (discord_id, code))
     result = cursor.fetchone()
@@ -314,7 +314,7 @@ def unlink_account():
     discord_id = data.get('discord_id')
     if not discord_id: return jsonify({"error": "ID Discord manquant."}), 400
 
-    conn = sqlite3.connect(DB_FILE) # [CORRECTION] Utilise la DB partagée
+    conn = get_db_connection() # [CORRECTION] Utilise la DB partagée
     cursor = conn.cursor()
     cursor.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (discord_id,))
     result = cursor.fetchone()
@@ -340,7 +340,7 @@ def force_link():
     discord_id, email = data.get('discord_id'), data.get('email')
     if not all([discord_id, email]): return jsonify({"error": "ID Discord ou e-mail manquant."}), 400
 
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     if not force:
@@ -359,7 +359,7 @@ def force_link():
 
 @app.route('/api/get_purchased_products/<discord_id>')
 def get_purchased_products(discord_id):
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (discord_id,))
     result = cursor.fetchone()
@@ -417,7 +417,7 @@ def submit_rating():
     comment_text = data.get('comment')  # .get() pour gérer le cas où le commentaire est optionnel
 
     try:
-        conn = sqlite3.connect(DB_FILE)
+        conn = get_db_connection()
         c = conn.cursor()
         c.execute("""
             INSERT OR REPLACE INTO ratings 
@@ -443,7 +443,7 @@ def submit_rating():
 def get_user_stats(discord_id):
     try:
         user_id_int = int(discord_id)
-        conn = sqlite3.connect(DB_FILE)
+        conn = get_db_connection()
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
 

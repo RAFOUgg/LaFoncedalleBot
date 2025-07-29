@@ -417,7 +417,7 @@ class ProfileView(discord.ui.View):
         
         # Fonction pour récupérer toutes les notes moyennes de la communauté en une seule requête
         def _fetch_community_ratings_sync():
-            conn = sqlite3.connect(DB_FILE)
+            conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT 
@@ -743,7 +743,7 @@ class ProductView(discord.ui.View):
         product_names = [p['name'] for p in self.products]
         if not product_names: return {}
         
-        conn = sqlite3.connect(DB_FILE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         placeholders = ','.join('?' for _ in product_names)
         cursor.execute(f"SELECT product_name, COUNT(id) FROM ratings WHERE product_name IN ({placeholders}) AND comment IS NOT NULL AND TRIM(comment) != '' GROUP BY product_name", product_names)
@@ -846,7 +846,7 @@ class ProductView(discord.ui.View):
             product = self.view.products[self.view.current_index]
             product_name, product_image = product.get('name'), product.get('image')
             def _fetch_reviews_sync(p_name):
-                conn = sqlite3.connect(DB_FILE)
+                conn = get_db_connection()
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 cursor.execute("SELECT * FROM ratings WHERE product_name = ? AND comment IS NOT NULL AND TRIM(comment) != '' ORDER BY rating_timestamp DESC", (p_name,))
@@ -947,7 +947,7 @@ class NotationProductSelectView(discord.ui.View):
                 # await interaction.response.defer(thinking=True, ephemeral=True)
 
                 def _fetch_existing_rating_sync(user_id, product_name):
-                    conn = sqlite3.connect(DB_FILE)
+                    conn = get_db_connection()
                     conn.row_factory = sqlite3.Row
                     cursor = conn.cursor()
                     cursor.execute("SELECT * FROM ratings WHERE user_id = ? AND product_name = ?", (user_id, product_name))
@@ -1061,7 +1061,7 @@ async def callback(self, interaction: discord.Interaction):
                 await interaction.response.defer(thinking=True, ephemeral=True)
 
                 def _fetch_existing_rating_sync(user_id, product_name):
-                    conn = sqlite3.connect(DB_FILE)
+                    conn = get_db_connection()
                     conn.row_factory = sqlite3.Row
                     cursor = conn.cursor()
                     cursor.execute("SELECT * FROM ratings WHERE user_id = ? AND product_name = ?", (user_id, product_name))
@@ -1402,7 +1402,7 @@ class ConfirmResetNotesView(discord.ui.View):
     @discord.ui.button(label="Confirmer", style=discord.ButtonStyle.danger)
     async def confirm(self, i: discord.Interaction, b: discord.ui.Button):
         def _del(uid):
-            conn = sqlite3.connect(DB_FILE); c=conn.cursor(); c.execute("DELETE FROM ratings WHERE user_id=?",(uid,)); conn.commit(); conn.close()
+            conn = get_db_connection(); c=conn.cursor(); c.execute("DELETE FROM ratings WHERE user_id=?",(uid,)); conn.commit(); conn.close()
         await asyncio.to_thread(_del, self.user.id)
         await i.response.edit_message(content=f"✅ Notes de {self.user.mention} supprimées.", view=None)
     @discord.ui.button(label="Annuler", style=discord.ButtonStyle.secondary)
@@ -1534,7 +1534,7 @@ class SlashCommands(commands.Cog):
 
         # 1. Requêtes à la base de données
         def _fetch_stats_sync():
-            conn = sqlite3.connect(DB_FILE)
+            conn = get_db_connection()
             cursor = conn.cursor()
             
             # Stats globales
@@ -1642,7 +1642,7 @@ class SlashCommands(commands.Cog):
 
         # 1. Récupérer les données de l'utilisateur une seule fois
         def _get_user_ratings_summary(user_id):
-            conn = sqlite3.connect(DB_FILE)
+            conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute("SELECT product_name FROM ratings WHERE user_id = ?", (user_id,))
             all_rated_products = [row[0] for row in cursor.fetchall()]
@@ -1809,7 +1809,7 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, "a demandé le classement des top noteurs.")
         
         def _fetch_top_raters_sync():
-            conn = sqlite3.connect(DB_FILE)
+            conn = get_db_connection()
             conn.row_factory = sqlite3.Row # Important pour accéder aux colonnes par leur nom
             cursor = conn.cursor()
             
@@ -1876,7 +1876,7 @@ class SlashCommands(commands.Cog):
         await log_user_action(interaction, "a demandé le classement général des produits.")
         try:
             def _fetch_all_ratings_sync():
-                conn = sqlite3.connect(DB_FILE)
+                conn = get_db_connection()
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT product_name, AVG((COALESCE(visual_score, 0) + COALESCE(smell_score, 0) + COALESCE(touch_score, 0) + COALESCE(taste_score, 0) + COALESCE(effects_score, 0)) / 5.0), COUNT(id)
@@ -2023,7 +2023,7 @@ class SlashCommands(commands.Cog):
             embed.add_field(name="🗃️ Cache de Produits", value="❌ `Vide`", inline=True)
             
         try:
-            conn = sqlite3.connect(DB_FILE)
+            conn = get_db_connection()
             c = conn.cursor()
             ratings_count = c.execute("SELECT COUNT(*) FROM ratings").fetchone()[0]
             links_count = c.execute("SELECT COUNT(*) FROM user_links").fetchone()[0]
@@ -2084,7 +2084,7 @@ class SlashCommands(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         await log_user_action(interaction, "a demandé un graphique.")
         def fetch_products():
-            conn = sqlite3.connect(DB_FILE); c = conn.cursor()
+            conn = get_db_connection(); c = conn.cursor()
             c.execute("SELECT DISTINCT product_name FROM ratings")
             products = [row[0] for row in c.fetchall()]
             conn.close()
@@ -2151,7 +2151,7 @@ class SlashCommands(commands.Cog):
         target_user = membre or interaction.user
         await log_user_action(interaction, f"a consulté le profil de {target_user.display_name}")
         def _fetch_user_data_sync(user_id):
-            conn = sqlite3.connect(DB_FILE); conn.row_factory = sqlite3.Row; c = conn.cursor()
+            conn = get_db_connection(); conn.row_factory = sqlite3.Row; c = conn.cursor()
             
             # 1. Notes
             c.execute("SELECT * FROM ratings WHERE user_id = ? ORDER BY rating_timestamp DESC", (user_id,))
@@ -2440,7 +2440,7 @@ class SlashCommands(commands.Cog):
             return await interaction.followup.send(f"😕 Impossible de trouver les informations pour {missing}.", ephemeral=True)
 
         def _get_avg_ratings(p1, p2):
-            conn = sqlite3.connect(DB_FILE)
+            conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute("SELECT product_name, AVG((COALESCE(visual_score,0)+COALESCE(smell_score,0)+COALESCE(touch_score,0)+COALESCE(taste_score,0)+COALESCE(effects_score,0))/5.0), COUNT(id) FROM ratings WHERE product_name IN (?,?) GROUP BY product_name", (p1, p2))
             return {row[0].lower(): {"avg": row[1], "count": row[2]} for row in cursor.fetchall()}

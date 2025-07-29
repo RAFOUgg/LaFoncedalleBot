@@ -284,3 +284,10 @@ def get_general_promos():
     promos = config_manager.get_config("general.general_promos", [])
     # Nettoie les éventuels '\n' ou chaînes vides
     return [p.strip() for p in promos if p.strip()]
+
+def get_db_connection():
+    """Crée et retourne une connexion à la base de données avec le mode WAL activé."""
+    conn = sqlite3.connect(DB_FILE, timeout=10) # On augmente un peu le timeout par sécurité
+    conn.row_factory = sqlite3.Row # Permet d'accéder aux colonnes par leur nom
+    conn.execute("PRAGMA journal_mode=WAL;") # La ligne la plus importante !
+    return conn
