@@ -43,75 +43,143 @@ ranking_time = dt_time(hour=16, minute=0, tzinfo=paris_tz)
 selection_time = dt_time(hour=12, minute=0, tzinfo=paris_tz)
 role_sync_time = dt_time(hour=8, minute=5, tzinfo=paris_tz)
 
-# --- NOUVEAU : Requête GraphQL pour résoudre les URLs des fichiers ---
-RESOLVE_FILES_QUERY = """
-query getFiles($ids: [ID!]!) {
-  nodes(ids: $ids) {
-    ... on GenericFile {
-      id
-      url
-    }
-    ... on MediaImage {
-      id
-      image {
-        url
+PRODUCTS_WITH_METAFIELDS_QUERY = """
+query getProductsWithMetafields {
+  products(first: 100, query: "published_status:published") {
+    edges {
+      node {
+        id
+        title
+        handle
+        bodyHtml
+        images(first: 1) {
+          edges {
+            node { url }
+          }
+        }
+        variants(first: 10) {
+          edges {
+            node {
+              price
+              compareAtPrice
+              inventoryPolicy
+              inventoryQuantity
+            }
+          }
+        }
+        collections(first: 5) {
+          edges {
+            node { title }
+          }
+        }
+        metafields(first: 20) {
+          edges {
+            node {
+              namespace
+              key
+              value
+            }
+          }
+        }
       }
     }
   }
 }
 """
 
-def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve: set) -> dict:
+def get_site_data_from_graphql():
     """
-    [VERSION DE DÉBOGAGE] Affiche tous les méta-champs d'une box pour trouver le bon.
+    Récupère toutes les données du site (produits, collections, méta-champs)
+    en une seule requête GraphQL pour éviter le rate limiting.
     """
-    product_data = {}
-    product_data['name'] = prod.title
-    product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
-    product_data['image'] = prod.image.src if prod.image else None
+    Logger.info("Démarrage de la récupération via GraphQL Shopify...")
     
-    category_map_display = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
-    product_data['category'] = category_map_display.get(category, category)
+    try:
+        shop_url = os.getenv('SHOPIFY_SHOP_URL')
+        api_version = os.getenv('SHOPIFY_API_VERSION')
+        access_token = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
 
-    desc_html = prod.body_html
-    product_data['detailed_description'] = BeautifulSoup(desc_html, 'html.parser').get_text(separator='\n', strip=True) if desc_html else "Pas de description."
-    
-    # --- Gestion des Variants (inchangée) ---
-    # ... (le code pour le prix, etc., ne change pas)
-    available_variants = [v for v in prod.variants if v.inventory_quantity > 0 or v.inventory_policy == 'continue']
-    product_data['is_sold_out'] = not available_variants
-    if available_variants:
-        min_price_variant = min(available_variants, key=lambda v: float(v.price))
-        price = float(min_price_variant.price)
-        compare_price = float(min_price_variant.compare_at_price) if min_price_variant.compare_at_price else 0.0
-        product_data['is_promo'] = compare_price > price
-        product_data['original_price'] = f"{compare_price:.2f} €".replace('.', ',') if product_data['is_promo'] else None
-        price_prefix = "à partir de " if len(available_variants) > 1 and price > 0 else ""
-        product_data['price'] = f"{price_prefix}{price:.2f} €".replace('.', ',') if price > 0 else "Cadeau !"
-    else:
-        product_data['price'] = "N/A"; product_data['is_promo'] = False; product_data['original_price'] = None
+        if not all([shop_url, api_version, access_token]): 
+            Logger.error("Identifiants Shopify manquants.")
+            return None
 
-    product_data['stats'] = {}
-    product_data['box_contents'] = []
-    time.sleep(0.5)
+        session = shopify.Session(shop_url, api_version, access_token)
+        shopify.ShopifyResource.activate_session(session)
+        
+        client = shopify.GraphQL()
+        result_json = client.execute(PRODUCTS_WITH_METAFIELDS_QUERY)
+        result = json.loads(result_json)
+        
+        shopify.ShopifyResource.clear_session()
 
-    # --- [MODIFICATION POUR DÉBOGAGE] ---
-    # Si le produit est une des box, on affiche tous ses méta-champs
-    if "box" in prod.title.lower():
-        print(f"\n--- [DEBUG] METAFIELDS POUR : {prod.title} ---")
-        for meta in prod.metafields():
-            print(f"  -> Namespace: {meta.namespace}")
-            print(f"  -> Key:       {meta.key}")
-            print(f"  -> Value:     {meta.value[:300]}...") # On tronque la valeur pour la lisibilité
-            print("-" * 20)
-        print("--- FIN DEBUG ---\n")
-    # --- FIN DE LA MODIFICATION DE DÉBOGAGE ---
-
-    # L'ancienne logique reste pour que le bot ne crashe pas
-    for meta in prod.metafields():
-        product_data['stats'][meta.key] = meta.value
+        # --- On traite la réponse GraphQL pour la transformer dans notre format habituel ---
+        final_products = []
+        WHITELISTED_STATS = ['effet', 'gout', 'goût', 'cbd', 'thc']
+        
+        for product_edge in result.get('data', {}).get('products', {}).get('edges', []):
+            prod = product_edge['node']
             
-    return product_data
+            # Déterminer la catégorie
+            category = "accessoire" # Par défaut
+            collection_titles = [c['node']['title'].lower() for c in prod.get('collections', {}).get('edges', [])]
+            if any("box" in title for title in collection_titles): category = "box"
+            elif any("weed" in title for title in collection_titles): category = "weed"
+            elif any("hash" in title for title in collection_titles): category = "hash"
+            
+            # Créer la structure de base du produit
+            category_map_display = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
+            product_data = {
+                'name': prod.get('title'),
+                'product_url': f"https://la-foncedalle.fr/products/{prod.get('handle')}",
+                'image': prod.get('images', {}).get('edges', [{}])[0].get('node', {}).get('url'),
+                'category': category_map_display.get(category),
+                'detailed_description': BeautifulSoup(prod.get('bodyHtml', ''), 'html.parser').get_text(separator='\n', strip=True),
+                'stats': {},
+                'box_contents': []
+            }
+
+            # Gestion des variants (prix, promo, stock)
+            variants = [v['node'] for v in prod.get('variants', {}).get('edges', [])]
+            available_variants = [v for v in variants if v.get('inventoryQuantity', 0) > 0 or v.get('inventoryPolicy') == 'CONTINUE']
+            product_data['is_sold_out'] = not available_variants
+            if available_variants:
+                min_price_variant = min(available_variants, key=lambda v: float(v['price']))
+                price = float(min_price_variant.get('price', 0))
+                compare_price = float(min_price_variant.get('compareAtPrice', 0) or 0)
+                product_data['is_promo'] = compare_price > price
+                product_data['original_price'] = f"{compare_price:.2f} €".replace('.', ',') if product_data['is_promo'] else None
+                price_prefix = "à partir de " if len(available_variants) > 1 and price > 0 else ""
+                product_data['price'] = f"{price_prefix}{price:.2f} €".replace('.', ',') if price > 0 else "Cadeau !"
+            else:
+                product_data.update({'price': "N/A", 'is_promo': False, 'original_price': None})
+
+            # Gestion des méta-champs
+            metafields = [m['node'] for m in prod.get('metafields', {}).get('edges', [])]
+            for meta in metafields:
+                key_lower = meta.get('key', '').lower()
+                value = meta.get('value', '')
+
+                if category == 'box' and ('composition' in key_lower or 'contenu' in key_lower):
+                    soup_meta = BeautifulSoup(value, 'html.parser')
+                    all_lines = soup_meta.get_text(separator='\n').split('\n')
+                    content_items = [line.strip().lstrip('-•* ').replace('*', '') for line in all_lines if line.strip() and not line.lower().startswith(('les hash', 'les fleurs', ':', 'les '))]
+                    if content_items: product_data['box_contents'] = content_items
+                    continue
+
+                if key_lower in WHITELISTED_STATS:
+                    product_data['stats'][meta.get('key').replace('_', ' ').capitalize()] = value
+            
+            final_products.append(product_data)
+            
+        general_promos = get_smart_promotions_from_api() # On garde l'ancienne méthode pour les promos
+
+        Logger.success(f"Récupération GraphQL terminée. {len(final_products)} produits valides trouvés.")
+        return {"timestamp": time.time(), "products": final_products, "general_promos": general_promos}
+
+    except Exception as e:
+        Logger.error(f"CRITIQUE lors de la récupération via GraphQL Shopify : {e}")
+        traceback.print_exc()
+        return None
 
 
 # [MODIFIÉ]
@@ -490,9 +558,9 @@ async def publish_menu(bot_instance: commands.Bot, site_data: dict, guild_id: in
 
 async def check_for_updates(bot_instance: commands.Bot, force_publish: bool = False):
     Logger.info(f"Vérification du menu... (Forcé: {force_publish})")
-    
+
     site_data = await bot_instance.loop.run_in_executor(
-        executor, get_site_data_from_api
+        executor, get_site_data_from_graphql # <--- Changement ici
     )
     
     if not site_data or 'products' not in site_data:
