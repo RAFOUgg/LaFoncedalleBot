@@ -49,7 +49,7 @@ class CompareView(discord.ui.View):
         chart_path1, chart_path2 = None, None # Initialiser les variables pour le bloc finally
 
         try:
-            # Générer les deux graphiques en parallèle
+            # [CORRECTION] La génération est maintenant DANS le bloc try
             chart_path1, chart_path2 = await asyncio.gather(
                 asyncio.to_thread(create_radar_chart, self.product1_name),
                 asyncio.to_thread(create_radar_chart, self.product2_name)
