@@ -623,7 +623,7 @@ async def sync_all_loyalty_roles(bot_instance: commands.Bot):
         Logger.error(f"Erreur critique lors de la synchronisation des rôles : {e}")
         traceback.print_exc()
 
-@tasks.loop(weeks=3) # S'exécute toutes les 3 semaines
+@tasks.loop(hours=504) # S'exécute toutes les 3 semaines
 async def scheduled_db_export(bot_instance: commands.Bot):
     """
     Parcourt tous les serveurs, et si un salon de sauvegarde est configuré,
@@ -672,7 +672,7 @@ async def scheduled_db_export(bot_instance: commands.Bot):
         except Exception as e:
             Logger.error(f"Erreur inattendue lors de la sauvegarde pour le serveur '{guild.name}': {e}")
             traceback.print_exc()
-            
+
 bot.sync_all_loyalty_roles = sync_all_loyalty_roles
 bot.check_for_updates = check_for_updates
 bot.post_weekly_selection = post_weekly_selection
