@@ -882,9 +882,9 @@ class ProductView(discord.ui.View):
         else:
             stats = product.get('stats', {})
             char_lines = []
-            if 'Effet' in stats: char_lines.append(f"🧠 **Effet :** '{stats['Effet']}'")
-            if 'Goût' in stats: char_lines.append(f"👅 **Goût :** '{stats['Goût']}'")
-            if 'Cbd' in stats: char_lines.append(f"🌿 **CBD :** '{stats['Cbd']}'")
+            if 'Effet' in stats: char_lines.append(f"🧠 **Effet :** `{stats['Effet']}`")
+            if 'Goût' in stats: char_lines.append(f"👅 **Goût :** `{stats['Goût']}`")
+            if 'Cbd' in stats: char_lines.append(f"🌿 **CBD :** `{stats['Cbd']}`")
             if char_lines:
                 embed.add_field(name="Caractéristiques", value="\n".join(char_lines), inline=False)
 
