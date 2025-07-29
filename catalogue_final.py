@@ -615,8 +615,8 @@ async def sync_all_loyalty_roles(bot_instance: commands.Bot):
             for user_id, rating_count in all_raters:
                 member = guild.get_member(user_id)
                 if member:
-                    await slash_commands_cog.update_loyalty_roles(guild, member, rating_count)
-                    await asyncio.sleep(0.2) # Pour ne pas surcharger l'API Discord
+                    await slash_commands_cog._update_all_user_roles(guild, member)
+                    await asyncio.sleep(0.2)
 
         Logger.success("Synchronisation quotidienne des rôles de fidélité terminée.")
     except Exception as e:

@@ -911,17 +911,12 @@ class RatingModal(discord.ui.Modal):
             response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=10)
             response.raise_for_status()
             avg_score = sum(scores.values()) / len(scores)
-
-            def _get_count(user_id):
-                conn = sqlite3.connect(DB_FILE)
-                c = conn.cursor()
-                c.execute("SELECT COUNT(id) FROM ratings WHERE user_id = ?", (user_id,))
-                count = c.fetchone()[0]
-                conn.close()
-                return count
-            
-            new_rating_count = await asyncio.to_thread(_get_count, interaction.user.id)
-            await self.cog_instance.update_loyalty_roles(interaction.guild, interaction.user, new_rating_count)
+            await self.cog_instance._update_all_user_roles(interaction.guild, interaction.user)
+            view = AddCommentView(self.product_name, self.user)
+            await interaction.followup.send(
+                f"✅ Merci ! Votre note de **{avg_score:.2f}/10** pour **{self.product_name}** a été enregistrée.",
+                view=view, ephemeral=True
+            )
 
 
             view = AddCommentView(self.product_name, self.user)
@@ -1331,6 +1326,8 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
         mention_role_id = await config_manager.get_state(guild.id, 'mention_role_id')
         menu_channel_id = await config_manager.get_state(guild.id, 'menu_channel_id')
         selection_channel_id = await config_manager.get_state(guild.id, 'selection_channel_id')
+        explorer_role_id = await config_manager.get_state(guild.id, 'explorer_role_id')
+        specialist_role_id = await config_manager.get_state(guild.id, 'specialist_role_id')
 
         def format_setting(item_id, item_type, is_critical=False):
             if not item_id: return f"{'❌' if is_critical else '⚠️'} `Non défini`"
@@ -1342,14 +1339,28 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
         mention_role_text = format_setting(mention_role_id, 'role')
         menu_channel_text = format_setting(menu_channel_id, 'channel', is_critical=True)
         selection_channel_text = format_setting(selection_channel_id, 'channel')
-
+        explorer_role_text = format_setting(explorer_role_id, 'role')
+        specialist_role_text = format_setting(specialist_role_id, 'role')
+        
         embed = discord.Embed(
             title=f"Configuration de {self.bot.user.name}",
             description=f"Voici les paramètres actuels pour le serveur **{guild.name}**.",
             color=discord.Color.blue(), timestamp=datetime.now(paris_tz)
         )
-        embed.add_field(name="📌 Rôles", value=f"**Staff :** {staff_role_text}\n**Mention Nouveautés :** {mention_role_text}", inline=False)
-        embed.add_field(name="📺 Salons", value=f"**Menu Principal :** {menu_channel_text}\n**Sélection de la Semaine :** {selection_channel_text}", inline=False)
+        roles_text = (
+            f"**Staff :** {staff_role_text}\n"
+            f"**Mention Nouveautés :** {mention_role_text}\n"
+            f"**Succès 'Explorateur' :** {explorer_role_text}\n"
+            f"**Succès 'Spécialiste' :** {specialist_role_text}"
+        )
+        embed.add_field(name="📌 Rôles", value=roles_text, inline=False)
+        
+        salons_text = (
+            f"**Menu Principal :** {menu_channel_text}\n"
+            f"**Sélection de la Semaine :** {selection_channel_text}\n"
+            f"**Sauvegardes DB :** {db_export_channel_text}"
+        )
+        embed.add_field(name="📺 Salons", value=salons_text, inline=False)
         embed.set_footer(text="Utilisez /config set <role|salon> ou /config loyalty pour gérer les rôles.")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -1383,96 +1394,160 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
     
     loyalty_group = app_commands.Group(name="loyalty", description="Gère les rôles de fidélité.")
     
-    @loyalty_group.command(name="view", description="[STAFF] Affiche la configuration des rôles de fidélité.")
+    @loyalty_group.command(name="view", description="[STAFF] Affiche la configuration des rôles de fidélité et succès.")
     @app_commands.check(is_staff_or_owner)
     async def view_loyalty(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         loyalty_config = config_manager.get_config("loyalty_roles", {})
         
-        embed = create_styled_embed("Configuration des Rôles de Fidélité", "Voici les paliers actuellement configurés.", color=discord.Color.gold())
+        embed = create_styled_embed("🏆 Configuration Fidélité & Succès", "Voici les rôles actuellement configurés.", color=discord.Color.gold())
         
         if not loyalty_config:
-            embed.description = "Aucun rôle de fidélité n'est configuré.\nUtilisez `/config loyalty set` pour en ajouter un."
+            embed.description = "Aucun rôle n'est configuré.\nUtilisez `/config loyalty set` pour en ajouter un."
         else:
-            sorted_roles = sorted(loyalty_config.items(), key=lambda item: item[1].get('threshold', 0))
-            for name, data in sorted_roles:
+            # On trie pour un affichage cohérent
+            sorted_roles = sorted(loyalty_config.values(), key=lambda item: item.get('threshold', 9999))
+            
+            for data in sorted_roles:
                 role_id = data.get('id')
                 role = interaction.guild.get_role(int(role_id)) if role_id else None
                 role_mention = role.mention if role else f"⚠️ Rôle introuvable (ID: {role_id})"
-                threshold = data.get('threshold', 'N/A')
                 emoji = data.get('emoji', '')
-                embed.add_field(
-                    name=f"{emoji} {data.get('name', name.capitalize())}",
-                    value=f"**Rôle :** {role_mention}\n**Seuil :** `{threshold} notes`",
-                    inline=False
-                )
+                name = data.get('name', 'N/A')
+                role_type = data.get('type')
+                
+                value_str = f"**Rôle :** {role_mention}\n"
+                if role_type == 'threshold':
+                    value_str += f"**Condition :** Atteindre `{data.get('threshold', 'N/A')} notes`"
+                elif role_type == 'explorer':
+                    value_str += "**Condition :** Noter 1 produit de chaque catégorie (fleur, résine, accessoire)"
+                elif role_type == 'specialist':
+                    value_str += "**Condition :** Noter 5 produits dans une même catégorie"
+                
+                embed.add_field(name=f"{emoji} {name}", value=value_str, inline=False)
+
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @loyalty_group.command(name="set", description="[STAFF] Ajoute ou modifie un palier de rôle de fidélité.")
+    @loyalty_group.command(name="set", description="[STAFF] Ajoute ou modifie un rôle de fidélité ou de succès.")
     @app_commands.check(is_staff_or_owner)
     @app_commands.describe(
-        tier_name="Le nom du palier (ex: 'Fidèle', 'Adepte').",
-        role="Le rôle Discord à assigner pour ce palier.",
-        threshold="Le nombre de notes requis pour atteindre ce palier.",
-        emoji="L'émoji à afficher pour ce badge (ex: 💚)."
+        role="Le rôle Discord à assigner.",
+        name="Le nom du palier ou du succès (ex: Fidèle, Explorateur).",
+        emoji="L'émoji à afficher pour ce badge (ex: 💚).",
+        type="Le type de condition pour débloquer le rôle.",
+        threshold="[Pour Paliers] Le nombre de notes requis."
     )
-    async def set_loyalty(self, interaction: discord.Interaction, tier_name: str, role: discord.Role, threshold: app_commands.Range[int, 1, 1000], emoji: str):
+    @app_commands.choices(type=[
+        Choice(name="Palier par Nombre de Notes", value="threshold"),
+        Choice(name="Succès - Explorateur", value="explorer"),
+        Choice(name="Succès - Spécialiste", value="specialist"),
+    ])
+    async def set_loyalty(self, interaction: discord.Interaction, role: discord.Role, name: str, emoji: str, type: Choice[str], threshold: Optional[app_commands.Range[int, 1, 1000]] = None):
         await interaction.response.defer(ephemeral=True)
-        
-        tier_key = tier_name.lower().strip().replace(" ", "_")
-        
+
+        # Validation : un 'threshold' est requis si le type est 'threshold'
+        if type.value == 'threshold' and threshold is None:
+            await interaction.followup.send("❌ Pour un rôle de type 'Palier', vous devez spécifier un `threshold` (nombre de notes).", ephemeral=True)
+            return
+            
         loyalty_config = config_manager.get_config("loyalty_roles", {})
-        loyalty_config[tier_key] = {
-            "id": str(role.id),
-            "threshold": threshold,
-            "name": tier_name,
-            "emoji": emoji
+        
+        # On utilise l'ID du rôle comme clé unique pour faciliter les mises à jour
+        role_id_str = str(role.id)
+        
+        loyalty_config[role_id_str] = {
+            "id": role_id_str,
+            "name": name,
+            "emoji": emoji,
+            "type": type.value
         }
+        # On ajoute le seuil uniquement si c'est pertinent
+        if type.value == 'threshold':
+            loyalty_config[role_id_str]['threshold'] = threshold
         
         await config_manager.update_config("loyalty_roles", loyalty_config)
-        await interaction.followup.send(f"✅ Le palier de fidélité **{tier_name}** a été configuré avec le rôle {role.mention} à partir de **{threshold}** notes.", ephemeral=True)
+        await interaction.followup.send(f"✅ Le rôle **{name}** a été configuré avec succès pour {role.mention}.", ephemeral=True)
 
 # -- COMMANDES --
 class SlashCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         
-    async def update_loyalty_roles(self, guild: discord.Guild, member: discord.Member, rating_count: int):
-        """Met à jour les rôles de fidélité d'un membre."""
-        if not guild or not member: return
+    async def _update_all_user_roles(self, guild: discord.Guild, member: discord.Member):
+        """
+        Vérifie et synchronise TOUS les rôles de fidélité et de succès pour un membre.
+        Gère les paliers (exclusifs) et les succès (additifs).
+        """
+        if not guild or not member:
+            return
 
         loyalty_config = config_manager.get_config("loyalty_roles", {})
-        if not loyalty_config: return
+        if not loyalty_config:
+            return
 
-        sorted_roles = sorted(loyalty_config.values(), key=lambda r: r.get('threshold', 0), reverse=True)
+        # 1. Récupérer les données de l'utilisateur une seule fois
+        def _get_user_ratings_summary(user_id):
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute("SELECT product_name FROM ratings WHERE user_id = ?", (user_id,))
+            all_rated_products = [row[0] for row in cursor.fetchall()]
+            conn.close()
+            return all_rated_products
         
-        target_role_id_str = None
-        for role_data in sorted_roles:
-            if rating_count >= role_data.get('threshold', 0):
-                target_role_id_str = role_data.get('id')
-                break
+        rated_products = await asyncio.to_thread(_get_user_ratings_summary, member.id)
+        total_rating_count = len(rated_products)
         
-        target_role_id = int(target_role_id_str) if target_role_id_str else None
-        all_loyalty_role_ids = {int(r['id']) for r in loyalty_config.values() if r.get('id')}
-        
-        roles_to_add, roles_to_remove = [], []
+        # 2. Déterminer les rôles que le membre DEVRAIT avoir
+        roles_member_should_have = set()
 
-        if target_role_id:
-            target_role = guild.get_role(target_role_id)
-            if target_role and target_role not in member.roles:
-                roles_to_add.append(target_role)
+        # a) Gérer les rôles de type "palier" (mutuellement exclusifs)
+        tiered_roles = [data for data in loyalty_config.values() if data.get('type') == 'threshold']
+        if tiered_roles:
+            # Trier par seuil décroissant pour trouver le plus haut palier atteint
+            sorted_tiered_roles = sorted(tiered_roles, key=lambda r: r.get('threshold', 0), reverse=True)
+            for role_data in sorted_tiered_roles:
+                if total_rating_count >= role_data.get('threshold', 9999):
+                    roles_member_should_have.add(int(role_data['id']))
+                    break # On a trouvé le plus haut palier, on arrête
 
-        for role_id in all_loyalty_role_ids:
-            if role_id != target_role_id:
-                role_to_check = guild.get_role(role_id)
-                if role_to_check and role_to_check in member.roles:
-                    roles_to_remove.append(role_to_check)
+        # b) Gérer les rôles de type "succès" (additifs)
+        # Catégoriser les produits notés
+        product_categories = {"weed": set(), "hash": set(), "accessoire": set()}
+        for p_name in rated_products:
+            name_lower = p_name.lower()
+            # Note: Cette logique est simple et peut être améliorée si vous avez des catégories plus complexes
+            if "weed" in name_lower or "fleur" in name_lower:
+                product_categories["weed"].add(p_name)
+            elif "hash" in name_lower or "résine" in name_lower:
+                product_categories["hash"].add(p_name)
+            elif any(kw in name_lower for kw in ["briquet", "feuille", "grinder", "accessoire"]):
+                product_categories["accessoire"].add(p_name)
         
+        has_explorer = all(len(products) > 0 for products in product_categories.values())
+        has_specialist = any(len(products) >= 5 for products in product_categories.values())
+
+        for role_data in loyalty_config.values():
+            if role_data.get('type') == 'explorer' and has_explorer:
+                roles_member_should_have.add(int(role_data['id']))
+            elif role_data.get('type') == 'specialist' and has_specialist:
+                roles_member_should_have.add(int(role_data['id']))
+
+        # 3. Synchroniser les rôles
+        all_loyalty_role_ids = {int(r['id']) for r in loyalty_config.values()}
+        member_role_ids = {role.id for role in member.roles}
+        
+        roles_to_add_ids = roles_member_should_have - member_role_ids
+        roles_to_remove_ids = (all_loyalty_role_ids & member_role_ids) - roles_member_should_have
+
+        # Convertir les IDs en objets Role
+        roles_to_add = [guild.get_role(role_id) for role_id in roles_to_add_ids if guild.get_role(role_id)]
+        roles_to_remove = [guild.get_role(role_id) for role_id in roles_to_remove_ids if guild.get_role(role_id)]
+
         try:
             if roles_to_add:
-                await member.add_roles(*roles_to_add, reason="Mise à jour automatique du rôle de fidélité")
+                await member.add_roles(*roles_to_add, reason="Mise à jour automatique des rôles de fidélité/succès")
             if roles_to_remove:
-                await member.remove_roles(*roles_to_remove, reason="Mise à jour automatique du rôle de fidélité")
+                await member.remove_roles(*roles_to_remove, reason="Mise à jour automatique des rôles de fidélité/succès")
         except discord.Forbidden:
             Logger.error(f"Permissions manquantes pour gérer les rôles de {member.name} sur le serveur {guild.name}.")
         except Exception as e:
