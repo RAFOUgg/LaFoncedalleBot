@@ -2504,27 +2504,29 @@ class SlashCommands(commands.Cog):
     async def inspect_product(self, interaction: discord.Interaction, produit: str):
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        # 1. Retrouver le "handle" du produit depuis le cache (nécessaire pour GraphQL)
+        # 1. Retrouver l'ID du produit depuis le cache
         product_map = {p['name'].lower(): p for p in self.bot.product_cache.get('products', [])}
         p_data = product_map.get(produit.lower())
 
-        if not p_data or 'product_url' not in p_data:
-            return await interaction.followup.send(f"😕 Impossible de trouver le produit '{produit}' dans le cache.", ephemeral=True)
+        if not p_data or 'id' not in p_data or not p_data['id']:
+            return await interaction.followup.send(f"😕 Impossible de trouver l'ID du produit '{produit}' dans le cache. Essayez de vider le cache et de forcer la mise à jour.", ephemeral=True)
         
-        product_handle = p_data['product_url'].split('/')[-1]
+        product_gid = p_data['id']
 
-        # 2. Définir une requête GraphQL pour obtenir TOUS les méta-champs
+        # 2. [CORRECTION] Définir la requête GraphQL pour chercher par ID
         METAFIELD_INSPECTOR_QUERY = """
-        query getProductMetafields($handle: String!) {
-          product(handle: $handle) {
-            title
-            metafields(first: 50) {
-              edges {
-                node {
-                  namespace
-                  key
-                  value
-                  type
+        query getProductMetafields($id: ID!) {
+          node(id: $id) {
+            ... on Product {
+              title
+              metafields(first: 50) {
+                edges {
+                  node {
+                    namespace
+                    key
+                    value
+                    type
+                  }
                 }
               }
             }
@@ -2537,40 +2539,27 @@ class SlashCommands(commands.Cog):
             session = shopify.Session(os.getenv('SHOPIFY_SHOP_URL'), os.getenv('SHOPIFY_API_VERSION'), os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN'))
             shopify.ShopifyResource.activate_session(session)
             client = shopify.GraphQL()
-            result_json = client.execute(METAFIELD_INSPECTOR_QUERY, variables={"handle": product_handle})
+            # [CORRECTION] Utiliser la variable "id" au lieu de "handle"
+            result_json = client.execute(METAFIELD_INSPECTOR_QUERY, variables={"id": product_gid})
             result = json.loads(result_json)
             shopify.ShopifyResource.clear_session()
 
-            product_info = result.get('data', {}).get('product')
-            if not product_info:
-                return await interaction.followup.send("❌ Le produit n'a pas été trouvé via l'API GraphQL.", ephemeral=True)
+            product_info = result.get('data', {}).get('node')
+            if not product_info or not product_info.get('title'):
+                return await interaction.followup.send("❌ Le produit n'a pas été trouvé via l'API GraphQL avec son ID.", ephemeral=True)
 
             metafields = [edge['node'] for edge in product_info.get('metafields', {}).get('edges', [])]
 
             # 4. Créer l'embed de résultat
-            embed = create_styled_embed(
-                f"🔍 Inspection de : {product_info.get('title')}",
-                f"Voici tous les méta-champs trouvés pour ce produit. Identifiez le champ contenant le contenu de la box."
-            )
+            embed = create_styled_embed(f"🔍 Inspection de : {product_info.get('title')}", "Voici tous les méta-champs trouvés pour ce produit.")
 
             if not metafields:
                 embed.description += "\n\nAucun méta-champ trouvé."
             
             for meta in metafields:
-                namespace = meta.get('namespace')
-                key = meta.get('key')
-                value = str(meta.get('value', ''))
-                meta_type = meta.get('type')
-                
-                # On tronque les valeurs trop longues pour la lisibilité
-                if len(value) > 200:
-                    value = value[:200] + "..."
-                
-                embed.add_field(
-                    name=f"Champ : `{namespace}.{key}` (Type: `{meta_type}`)",
-                    value=f"```{value}```",
-                    inline=False
-                )
+                namespace, key, value, meta_type = meta.get('namespace'), meta.get('key'), str(meta.get('value', '')), meta.get('type')
+                if len(value) > 200: value = value[:200] + "..."
+                embed.add_field(name=f"`{namespace}.{key}` (Type: `{meta_type}`)", value=f"```{value}```", inline=False)
 
             await interaction.followup.send(embed=embed, ephemeral=True)
 

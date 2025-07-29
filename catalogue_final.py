@@ -325,7 +325,7 @@ def get_smart_promotions_from_api():
                 continue
 
             # --- VÉRIFICATION N°2 : Convention de nommage pour les tests ---
-            title_lower = rule.title.lower()
+            title_lower = rule.title.lower() if rule.title else ""
             if title_lower.startswith(('test', '_', 'z-')):
                 continue
 
