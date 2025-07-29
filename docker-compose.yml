@@ -7,7 +7,6 @@ services:
     command: gunicorn --bind 0.0.0.0:5000 --workers 4 app:app
     container_name: lafoncedalleapi
     restart: always
-    command: ["python", "app.py"] # <--- L'API lance app.py
     env_file:
       - .env
     volumes:
