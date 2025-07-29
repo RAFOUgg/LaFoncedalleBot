@@ -804,9 +804,12 @@ class ProductView(discord.ui.View):
         
         # [AFFICHAGE FINAL]
         if product.get('category') == 'box' and product.get('box_contents'):
-            content_list = "\n".join([f"• {item}" for item in product['box_contents']])
-            if len(content_list) > 1024: content_list = content_list[:1000] + "..."
-            embed.add_field(name="📦 Contenu de la Box", value=content_list, inline=False)
+            content_str = ""
+            for section, items in product['box_contents'].items():
+                if items:
+                    if section != "Général": content_str += f"**{section}**\n"
+                    content_str += "\n".join([f"• {item}" for item in items]) + "\n\n"
+            embed.add_field(name="📦 Contenu de la Box", value=content_str.strip(), inline=False)
         else:
             stats = product.get('stats', {})
             char_lines = []
@@ -816,7 +819,7 @@ class ProductView(discord.ui.View):
             if char_lines:
                 embed.add_field(name="Caractéristiques", value="\n".join(char_lines), inline=False)
 
-        embed.add_field(name="\u200b", value=f"**[Voir la fiche produit sur le site]({product.get('product_url', CATALOG_URL)})**", inline=False)
+        embed.add_field(name="\u200b", value=f"**🌐 [Voir la fiche produit sur le site]({product.get('product_url', CATALOG_URL)})**", inline=False)
         embed.set_footer(text=f"Produit {self.current_index + 1} sur {len(self.products)}")
         return embed
         
@@ -2478,10 +2481,14 @@ class SlashCommands(commands.Cog):
             
             char_lines = []
             if p_data.get('category') == 'box' and p_data.get('box_contents'):
-                content = "\n".join([f"• `{item}`" for item in p_data['box_contents'][:5]])
-                if len(p_data['box_contents']) > 5:
-                    content += f"\n• `...et {len(p_data['box_contents']) - 5} autre(s)`"
-                char_lines.append(f"📦 **Contenu :**\n{content}")
+                content_str = ""
+                for section, items in p_data['box_contents'].items():
+                    if items:
+                        if section != "Général": content_str += f"**{section}**\n"
+                        content_str += "\n".join([f"• {item}" for item in items[:3]]) # On limite à 3 par section
+                        if len(items) > 3: content_str += f"\n• `...et {len(items) - 3} autre(s)`"
+                        content_str += "\n"
+                char_lines.append(f"📦 **Contenu :**\n{content_str.strip()}")
             else:
                 stats = p_data.get('stats', {})
                 for key_name in ['Gout', 'Goût', 'Effet', 'Cbd', 'Thc']:

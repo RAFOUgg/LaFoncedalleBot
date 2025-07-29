@@ -92,15 +92,12 @@ query getProductsWithMetafields {
 def get_site_data_from_graphql():
     """
     Récupère toutes les données du site en une seule requête GraphQL.
-    [VERSION FINALE 3.0 - Utilise les clés de méta-champs exactes]
+    [VERSION FINALE 3.1 - Utilise les clés de méta-champs exactes]
     """
     Logger.info("Démarrage de la récupération via GraphQL Shopify...")
-    
     try:
-        # ... (le code de connexion à l'API reste le même)
-        shop_url = os.getenv('SHOPIFY_SHOP_URL')
-        api_version = os.getenv('SHOPIFY_API_VERSION')
-        access_token = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
+        # ... (connexion à l'API) ...
+        shop_url, api_version, access_token = os.getenv('SHOPIFY_SHOP_URL'), os.getenv('SHOPIFY_API_VERSION'), os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
         if not all([shop_url, api_version, access_token]): 
             Logger.error("Identifiants Shopify manquants."); return None
         session = shopify.Session(shop_url, api_version, access_token)
@@ -115,25 +112,25 @@ def get_site_data_from_graphql():
         for product_edge in result.get('data', {}).get('products', {}).get('edges', []):
             prod = product_edge['node']
             
+            # ... (logique de catégorie et d'image) ...
             category = "accessoire"
             collection_titles = [c['node']['title'].lower() for c in prod.get('collections', {}).get('edges', [])]
             if any("box" in title for title in collection_titles): category = "box"
             elif any("weed" in title for title in collection_titles): category = "weed"
             elif any("hash" in title for title in collection_titles): category = "hash"
-            
             images_edges = prod.get('images', {}).get('edges', [])
             image_url = images_edges[0].get('node', {}).get('url') if images_edges else None
-            product_gid = prod.get('id')
-
+            
             category_map_display = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
             product_data = {
-                'id': product_gid, 'name': prod.get('title'),
+                'id': prod.get('id'), 'name': prod.get('title'),
                 'product_url': f"https://la-foncedalle.fr/products/{prod.get('handle')}",
                 'image': image_url, 'category': category_map_display.get(category),
                 'detailed_description': BeautifulSoup(prod.get('bodyHtml', ''), 'html.parser').get_text(separator='\n', strip=True),
-                'stats': {}, 'box_contents': []
+                'stats': {}, 'box_contents': {} # [MODIFICATION] On initialise un dictionnaire
             }
 
+            # ... (logique de variants/prix) ...
             variants = [v['node'] for v in prod.get('variants', {}).get('edges', [])]
             available_variants = [v for v in variants if v.get('inventoryQuantity', 0) > 0 or v.get('inventoryPolicy') == 'CONTINUE']
             product_data['is_sold_out'] = not available_variants
@@ -156,26 +153,28 @@ def get_site_data_from_graphql():
 
                 # Cas 1: C'est le champ du contenu de la box
                 if category == 'box' and full_key == 'custom.box_description':
-                    lines = [line.strip() for line in value.split('\n') if line.strip()]
-                    if len(lines) > 1:
-                        product_data['box_contents'] = lines[1:] # On ignore la première ligne "Cette box contient..."
+                    all_lines = [line.strip() for line in value.split('\n') if line.strip()]
+                    current_section = "Général"
+                    for line in all_lines[1:]: # On ignore la première ligne
+                        if line.lower().startswith("les hash"): current_section = "Les Hash 🍫"
+                        elif line.lower().startswith("les fleurs"): current_section = "Les Fleurs 🍃"
+                        
+                        if current_section not in product_data['box_contents']:
+                            product_data['box_contents'][current_section] = []
+                        
+                        product_data['box_contents'][current_section].append(line.lstrip('•* ').replace('*', ''))
                     continue
-
-                # Cas 2: C'est une caractéristique pour un produit simple
+                
+                # Cas 2: Caractéristiques pour un produit simple
                 if category != 'box':
                     if full_key == 'custom.effet_tag': product_data['stats']['Effet'] = value
                     elif full_key == 'custom.gout_tag': product_data['stats']['Goût'] = value
-                
-                # Cas 3: C'est un PDF (pour tous les produits)
-                if 'pdf' in full_key:
-                    product_data['stats'][meta.get('key').replace('_', ' ').capitalize()] = value
 
             final_products.append(product_data)
             
         general_promos = get_smart_promotions_from_api()
         Logger.success(f"Récupération GraphQL terminée. {len(final_products)} produits valides trouvés.")
         return {"timestamp": time.time(), "products": final_products, "general_promos": general_promos}
-
     except Exception as e:
         Logger.error(f"CRITIQUE lors de la récupération via GraphQL Shopify : {e}")
         traceback.print_exc()
@@ -305,24 +304,25 @@ async def post_weekly_selection(bot_instance: commands.Bot, guild_id_to_run: Opt
         for guild_id in configured_guilds:
             await run_for_guild(guild_id)
 
+# Dans catalogue_final.py
+
 def get_smart_promotions_from_api():
     """
-    Interroge l'API Shopify pour trouver toutes les promotions VRAIMENT disponibles
-    (actives, non épuisées, publiques et non-destinées aux tests).
-    [MODIFIÉ] : Ne montre que les codes se terminant par "10".
+    Interroge l'API Shopify pour trouver toutes les promotions disponibles.
+    [CORRECTION] Gère les titres de promotion vides.
     """
     Logger.info("Recherche des promotions intelligentes et disponibles via l'API...")
     promo_texts = []
     try:
+        session = shopify.Session(os.getenv('SHOPIFY_SHOP_URL'), os.getenv('SHOPIFY_API_VERSION'), os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN'))
+        shopify.ShopifyResource.activate_session(session)
         price_rules = shopify.PriceRule.find()
 
         for rule in price_rules:
-            # --- VÉRIFICATION N°1 : Période de validité ---
             now = datetime.utcnow().isoformat()
             if rule.starts_at > now or (rule.ends_at and rule.ends_at < now):
                 continue
-
-            # --- VÉRIFICATION N°2 : Convention de nommage pour les tests ---
+            
             title_lower = rule.title.lower() if rule.title else ""
             if title_lower.startswith(('test', '_', 'z-')):
                 continue
@@ -330,51 +330,34 @@ def get_smart_promotions_from_api():
             discount_codes = shopify.DiscountCode.find(price_rule_id=rule.id)
             is_shipping_offer = "livraison" in title_lower
 
-            # --- VÉRIFICATION N°3 : Ne garder que les offres publiques ---
             if not discount_codes and not is_shipping_offer:
                 continue
-
-            # --- VÉRIFICATION N°4 : Limite d'utilisation ---
-            if discount_codes and rule.usage_limit is not None:
-                code = discount_codes[0]
-                if code.usage_count >= rule.usage_limit:
-                    continue
+            if discount_codes and rule.usage_limit is not None and discount_codes[0].usage_count >= rule.usage_limit:
+                continue
             
-            # --- NOUVELLE VÉRIFICATION : Filtrer les codes de réduction ---
-            # Une promotion est valide si c'est une offre de livraison (pas de code)
-            # OU si elle a un code qui se termine par "10".
-            is_valid_promo = False
-            if is_shipping_offer:
-                is_valid_promo = True
-            elif discount_codes and discount_codes[0].code.endswith('10'):
-                is_valid_promo = True
-
-            # Si la promotion n'est pas valide selon nos nouveaux critères, on passe à la suivante.
+            is_valid_promo = is_shipping_offer or (discount_codes and discount_codes[0].code.endswith('10'))
             if not is_valid_promo:
                 continue
 
-            # Si la promotion est valide, on peut formater le texte.
             code_text = f" (avec le code `{discount_codes[0].code}`)" if discount_codes else ""
-            
             value = float(rule.value)
-            value_type = rule.value_type
-
+            
             if is_shipping_offer:
                  promo_texts.append(f"🚚 {rule.title}")
-            elif value_type == 'percentage':
+            elif rule.value_type == 'percentage':
                 promo_texts.append(f"💰 {abs(value):.0f}% de réduction sur {rule.title}{code_text}")
-            elif value_type == 'fixed_amount':
+            elif rule.value_type == 'fixed_amount':
                 promo_texts.append(f"💰 {abs(value):.2f}€ de réduction sur {rule.title}{code_text}")
                 
-        if not promo_texts:
-            Logger.info("Aucune promotion publique et active (terminant par 10) trouvée.")
-            return ["Aucune promotion spéciale en ce moment."]
-            
-        Logger.success(f"{len(promo_texts)} promotions disponibles (terminant par 10) trouvées.")
+        shopify.ShopifyResource.clear_session()
+        
+        if not promo_texts: return ["Aucune promotion spéciale en ce moment."]
+        Logger.success(f"{len(promo_texts)} promotions disponibles trouvées.")
         return promo_texts
-
     except Exception as e:
         Logger.error(f"Erreur lors de la récupération des PriceRule : {e}")
+        if 'shopify' in locals() and shopify.ShopifyResource.get_session():
+            shopify.ShopifyResource.clear_session()
         return ["Impossible de charger les promotions."]
     
 async def publish_menu(bot_instance: commands.Bot, site_data: dict, guild_id: int, mention: bool = False):
