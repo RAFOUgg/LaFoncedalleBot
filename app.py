@@ -537,5 +537,50 @@ def get_shop_stats():
         "monthly_order_count": monthly_order_count
     })
 
+# Ajoutez cette fonction à la fin de app.py
+
+@app.route('/api/get_comparison_notes', methods=['POST'])
+def get_comparison_notes():
+    data = request.json
+    p1 = data.get('product1_name')
+    p2 = data.get('product2_name')
+
+    if not p1 or not p2:
+        return jsonify({"error": "Noms de produits manquants."}), 400
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        query = """
+            SELECT product_name, 
+                   AVG(visual_score), AVG(smell_score), AVG(touch_score), 
+                   AVG(taste_score), AVG(effects_score)
+            FROM ratings
+            WHERE product_name LIKE ? OR product_name LIKE ?
+            GROUP BY product_name
+        """
+        cursor.execute(query, (f'%{p1}%', f'%{p2}%'))
+        results = cursor.fetchall()
+        conn.close()
+
+        # Convertir les résultats en une liste de dictionnaires pour le JSON
+        notes_data = []
+        for row in results:
+            notes_data.append({
+                "product_name": row[0],
+                "visual_score": row[1],
+                "smell_score": row[2],
+                "touch_score": row[3],
+                "taste_score": row[4],
+                "effects_score": row[5]
+            })
+
+        return jsonify({"notes": notes_data}), 200
+
+    except Exception as e:
+        Logger.error(f"Erreur API dans get_comparison_notes: {e}")
+        traceback.print_exc()
+        return jsonify({"error": "Erreur interne du serveur lors de la récupération des notes."}), 500
+    
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

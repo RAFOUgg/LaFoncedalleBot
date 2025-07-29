@@ -38,7 +38,7 @@ class CompareView(discord.ui.View):
         self.product1_name = product1_name
         self.product2_name = product2_name
 
-    @discord.ui.button(label="📊 Comparer les Notes", style=discord.ButtonStyle.secondary) # Changement de label
+    @discord.ui.button(label="📊 Comparer les Notes", style=discord.ButtonStyle.secondary)
     async def compare_notes(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
         
@@ -46,31 +46,37 @@ class CompareView(discord.ui.View):
         await interaction.message.edit(view=self)
 
         try:
-            # Récupérer les données des deux produits en une seule fois
-            def _fetch_comparison_data_sync(p1, p2):
-                conn = get_db_connection()
-                cursor = conn.cursor()
-                query = """
-                    SELECT product_name, 
-                           AVG(visual_score), AVG(smell_score), AVG(touch_score), 
-                           AVG(taste_score), AVG(effects_score)
-                    FROM ratings
-                    WHERE product_name LIKE ? OR product_name LIKE ?
-                    GROUP BY product_name
-                """
-                cursor.execute(query, (f'%{p1}%', f'%{p2}%'))
-                return cursor.fetchall()
+            # [CORRECTION] On appelle l'API au lieu de la base de données
+            import aiohttp
+            api_url = f"{APP_URL}/api/get_comparison_notes"
+            payload = {
+                "product1_name": self.product1_name,
+                "product2_name": self.product2_name
+            }
 
-            results = await asyncio.to_thread(_fetch_comparison_data_sync, self.product1_name, self.product2_name)
+            async with aiohttp.ClientSession() as session:
+                # On utilise le port 10000 car c'est celui exposé par Nginx/Docker
+                # Note: Assurez-vous que APP_URL est bien http://VOTRE_IP:10000
+                async with session.post(api_url, json=payload, timeout=20) as response:
+                    if not response.ok:
+                        error_text = await response.text()
+                        raise Exception(f"L'API a retourné une erreur {response.status}: {error_text}")
+                    data = await response.json()
+                    results = data.get("notes", [])
 
+            if len(results) < 2:
+                await interaction.followup.send("😕 Impossible de comparer, il manque des notes pour l'un des produits.", ephemeral=True)
+                return
+
+            # Logique pour trier les résultats (ne change pas)
             scores1, scores2 = None, None
             db_name1, db_name2 = self.product1_name, self.product2_name
 
-            for row in results:
-                db_name = row[0]
+            for item in results:
+                db_name = item["product_name"]
                 scores = {
-                    'Visuel': row[1], 'Odeur': row[2], 'Toucher': row[3],
-                    'Goût': row[4], 'Effets': row[5]
+                    'Visuel': item["visual_score"], 'Odeur': item["smell_score"], 'Toucher': item["touch_score"],
+                    'Goût': item["taste_score"], 'Effets': item["effects_score"]
                 }
                 if self.product1_name in db_name and scores1 is None:
                     scores1 = scores
@@ -78,12 +84,8 @@ class CompareView(discord.ui.View):
                 elif self.product2_name in db_name and scores2 is None:
                     scores2 = scores
                     db_name2 = db_name
-
-            if scores1 is None or scores2 is None:
-                await interaction.followup.send("😕 Impossible de comparer, il manque des notes pour l'un des produits.", ephemeral=True)
-                return
             
-            # Création de l'embed de comparaison textuel
+            # Création de l'embed (ne change pas)
             embed = create_styled_embed(
                 title=f"📊 Comparaison des Notes",
                 description="Voici les notes moyennes détaillées pour chaque produit.",
