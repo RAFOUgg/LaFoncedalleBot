@@ -2416,6 +2416,8 @@ class SlashCommands(commands.Cog):
         view = HelpView(self)
         await interaction.response.send_message(embed=view.main_embed, view=view, ephemeral=True)
 
+    # Dans commands.py, remplacez la méthode comparer de la classe SlashCommands
+
     @app_commands.command(name="comparer", description="Compare deux produits côte à côte.")
     @app_commands.autocomplete(produit1=product_autocomplete, produit2=product_autocomplete)
     @app_commands.describe(
@@ -2446,14 +2448,16 @@ class SlashCommands(commands.Cog):
         p1_rating = avg_ratings.get(produit1.lower())
         p2_rating = avg_ratings.get(produit2.lower())
 
-        # --- Section 1: Synthèse "En Bref" ---
         summary_lines = []
         try:
-            price1 = float(p1_data.get('price').split(' ')[0].replace(',', '.'))
-            price2 = float(p2_data.get('price').split(' ')[0].replace(',', '.'))
-            if price1 < price2: summary_lines.append(f"💰 **Moins cher :** {produit1}")
-            elif price2 < price1: summary_lines.append(f"💰 **Moins cher :** {produit2}")
-        except (ValueError, AttributeError): pass
+            price1_str = p1_data.get('price', '0').split(' ')[0].replace(',', '.')
+            price2_str = p2_data.get('price', '0').split(' ')[0].replace(',', '.')
+            if price1_str.isdigit() and price2_str.isdigit():
+                price1 = float(price1_str)
+                price2 = float(price2_str)
+                if price1 < price2: summary_lines.append(f"💰 **Moins cher :** {produit1}")
+                elif price2 < price1: summary_lines.append(f"💰 **Moins cher :** {produit2}")
+        except (ValueError, AttributeError, IndexError): pass
 
         if p1_rating and p2_rating and p1_data.get('category') != 'box' and p2_data.get('category') != 'box':
             if p1_rating['avg'] > p2_rating['avg']: summary_lines.append(f"⭐ **Mieux noté :** {produit1}")
@@ -2464,7 +2468,7 @@ class SlashCommands(commands.Cog):
 
         embed = create_styled_embed(title=f"⚔️ Comparaison : {produit1} vs {produit2}", description=description_text, color=discord.Color.orange())
 
-        # --- Section 2: Formatage des colonnes ---
+        # [CORRECTION FINALE] La fonction d'aide est maintenant robuste pour les box
         def format_product_field(p_data, p_rating):
             price_text = f"💰 **Prix :** "
             if p_data.get('is_sold_out'): price_text += "❌ Épuisé"
@@ -2477,13 +2481,19 @@ class SlashCommands(commands.Cog):
             
             char_lines = []
             if p_data.get('category') == 'box':
-                stats = p_data.get('stats', {})
-                for key, value in stats.items():
-                    if 'contenu' in key.lower() or 'composition' in key.lower():
-                        items = value.replace(' / ', ',').replace(' - ', ',').split(',')
-                        content = "\n".join([f"• `{item.strip()}`" for item in items if item.strip()])
-                        if content: char_lines.append(f"📦 **Contenu :**\n{content}")
-                        break
+                # Pour les box, on lit la description détaillée
+                description = p_data.get('detailed_description', '')
+                if description:
+                    # On nettoie et formate la description en liste
+                    items = [line.strip().lstrip('-•* ').replace('*', '') for line in description.split('\n') if line.strip()]
+                    items_to_show = items[:5] # On limite à 5 pour la lisibilité
+                    content = "\n".join([f"• `{item}`" for item in items_to_show])
+                    
+                    if len(items) > 5:
+                        content += f"\n• `...et {len(items) - 5} autre(s)`"
+                    
+                    if content:
+                        char_lines.append(f"📦 **Contenu :**\n{content}")
             else:
                 stats = p_data.get('stats', {})
                 if stats.get('Gout'): char_lines.append(f"👅 **Goût :** `{stats.get('Gout')}`")
@@ -2491,7 +2501,8 @@ class SlashCommands(commands.Cog):
                 if stats.get('Cbd'): char_lines.append(f"🌿 **CBD :** `{stats.get('Cbd')}`")
 
             final_value = f"{price_text}\n{note_text}"
-            if char_lines: final_value += "\n\n" + "\n".join(char_lines)
+            if char_lines:
+                final_value += "\n\n" + "\n".join(char_lines)
             return final_value
 
         embed.add_field(name=f"__**{p1_data['name']}**__", value=format_product_field(p1_data, p1_rating), inline=True)
@@ -2500,17 +2511,10 @@ class SlashCommands(commands.Cog):
         if p1_data.get('image'): embed.set_thumbnail(url=p1_data['image'])
         if p2_data.get('image'): embed.set_image(url=p2_data['image'])
             
-        # [CORRECTION] On construit les arguments de la réponse dynamiquement
-        send_kwargs = {
-            "embed": embed,
-            "ephemeral": True
-        }
-        
-        # On ajoute la vue SEULEMENT si les conditions sont remplies
+        send_kwargs = {"embed": embed, "ephemeral": True}
         if p1_data.get('category') != 'box' and p2_data.get('category') != 'box':
             send_kwargs["view"] = CompareView(produit1, produit2)
         
-        # On envoie la réponse en utilisant les arguments dépaquetés
         await interaction.followup.send(**send_kwargs)
 
 async def setup(bot: commands.Bot):
