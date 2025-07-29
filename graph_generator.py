@@ -7,42 +7,49 @@ import numpy as np
 import os
 import sqlite3
 import traceback
+import re # <-- Importé pour les regex
 from typing import Dict, Any, List
 from shared_utils import Logger, DB_FILE
 
-# Chemin vers la police personnalisée (vérifiez que le nom de fichier est correct)
 FONT_PATH = os.path.join(os.path.dirname(__file__), 'assets', 'Gobold-Bold.otf')
 
+def remove_emojis(text: str) -> str:
+    """Supprime les caractères emoji et certains symboles d'une chaîne."""
+    if not text:
+        return ""
+    emoji_pattern = re.compile(
+        "["
+        u"\U0001F600-\U0001F64F"  # emoticons
+        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+        u"\U0001F680-\U0001F6FF"  # transport & map symbols
+        u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+        u"\U00002702-\U000027B0"
+        u"\U000024C2-\U0001F251"
+        "]+",
+        flags=re.UNICODE,
+    )
+    return emoji_pattern.sub(r'', text).strip()
+
 def create_radar_chart(product_name: str) -> str | None:
-    """
-    Génère un graphique en toile d'araignée pour un produit donné.
-    """
     if not os.path.exists(FONT_PATH):
         Logger.error(f"CRITIQUE: Fichier de police introuvable à '{FONT_PATH}'.")
         return None
-        
     font_props = FontProperties(fname=FONT_PATH, size=12)
     font_props_title = FontProperties(fname=FONT_PATH, size=16)
-
     conn = None
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         cursor.execute("SELECT visual_score, smell_score, touch_score, taste_score, effects_score FROM ratings WHERE product_name = ?", (product_name,))
         all_ratings = cursor.fetchall()
-
         if not all_ratings:
-            Logger.info(f"Aucune note trouvée pour '{product_name}'.")
             return None
-
         all_ratings_np = np.array(all_ratings, dtype=float)
         mean_scores = np.nanmean(np.where(all_ratings_np == None, np.nan, all_ratings_np), axis=0)
         categories = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
-        num_categories = len(categories)
         scores_for_plot = np.concatenate((mean_scores, [mean_scores[0]]))
-        angles = np.linspace(0, 2 * np.pi, num_categories, endpoint=False).tolist()
+        angles = np.linspace(0, 2 * np.pi, len(categories), endpoint=False).tolist()
         angles += angles[:1]
-
         fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
         fig.patch.set_facecolor('#2f3136')
         ax.set_facecolor('#2f3136')
@@ -52,7 +59,6 @@ def create_radar_chart(product_name: str) -> str | None:
         ax.set_rgrids([2, 4, 6, 8], angle=90)
         ax.grid(color="gray", linestyle='--', linewidth=0.5)
         ax.set_thetagrids(np.degrees(angles[:-1]), categories)
-
         for label in ax.get_xticklabels():
             label.set_fontproperties(font_props)
             label.set_color('white')
@@ -60,14 +66,12 @@ def create_radar_chart(product_name: str) -> str | None:
         for label in ax.get_yticklabels():
             label.set_fontproperties(FontProperties(fname=FONT_PATH, size=10))
             label.set_color('darkgrey')
-        
         ax.spines['polar'].set_color('gray')
-        ax.set_title(f'Profil de saveur : {product_name}\n', fontproperties=font_props_title, color='white')
-
+        product_name_clean = remove_emojis(product_name)
+        ax.set_title(f'Profil de saveur : {product_name_clean}\n', fontproperties=font_props_title, color='white')
         output_dir = "charts"
         os.makedirs(output_dir, exist_ok=True)
-        filename = f"{output_dir}/{product_name.replace(' ', '_').replace('/', '')}_radar_chart.png"
-        
+        filename = f"{output_dir}/{product_name_clean.replace(' ', '_').replace('/', '')}_radar_chart.png"
         plt.savefig(filename, bbox_inches='tight', dpi=120, transparent=True)
         plt.close(fig)
         return filename
@@ -79,79 +83,50 @@ def create_radar_chart(product_name: str) -> str | None:
         if conn:
             conn.close()
 
-
 def create_comparison_radar_chart(product1_name: str, product2_name: str) -> str | None:
-    """
-    [CORRIGÉ] Génère un seul graphique radar superposant les données de deux produits,
-    en gérant les noms de produits de manière robuste.
-    """
     if not os.path.exists(FONT_PATH):
         Logger.error(f"CRITIQUE: Fichier de police introuvable à '{FONT_PATH}'.")
         return None
-        
     font_props = FontProperties(fname=FONT_PATH, size=12)
     font_props_legend = FontProperties(fname=FONT_PATH, size=11)
     font_props_title = FontProperties(fname=FONT_PATH, size=16)
-
     conn = None
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        
-        # [CORRECTION] Utilisation de LIKE pour trouver les produits même si le nom contient des emojis/caractères spéciaux
-        query = """
-            SELECT product_name, 
-                   AVG(visual_score), AVG(smell_score), AVG(touch_score), 
-                   AVG(taste_score), AVG(effects_score)
-            FROM ratings
-            WHERE product_name LIKE ? OR product_name LIKE ?
-            GROUP BY product_name
-        """
-        # On ajoute des '%' pour que la recherche soit flexible
+        query = "SELECT product_name, AVG(visual_score), AVG(smell_score), AVG(touch_score), AVG(taste_score), AVG(effects_score) FROM ratings WHERE product_name LIKE ? OR product_name LIKE ? GROUP BY product_name"
         cursor.execute(query, (f'%{product1_name}%', f'%{product2_name}%'))
         results = cursor.fetchall()
-
-        # [CORRECTION] Logique robuste pour extraire les données
         scores1, scores2 = None, None
-        db_name1, db_name2 = product1_name, product2_name # Noms par défaut
-
+        db_name1, db_name2 = product1_name, product2_name
         for row in results:
             db_name = row[0]
             scores = np.array(row[1:], dtype=float)
-            # On vérifie si le nom de la BDD contient le nom passé en argument
             if product1_name in db_name and scores1 is None:
                 scores1 = scores
-                db_name1 = db_name # On sauvegarde le vrai nom avec emoji
+                db_name1 = db_name
             elif product2_name in db_name and scores2 is None:
                 scores2 = scores
-                db_name2 = db_name # On sauvegarde le vrai nom avec emoji
-
+                db_name2 = db_name
         if scores1 is None or scores2 is None:
             Logger.warning(f"Données insuffisantes pour comparer '{product1_name}' et '{product2_name}'.")
             return None
-        
         categories = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
-        num_categories = len(categories)
-        angles = np.linspace(0, 2 * np.pi, num_categories, endpoint=False).tolist()
+        angles = np.linspace(0, 2 * np.pi, len(categories), endpoint=False).tolist()
         angles += angles[:1]
-
         fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
         fig.patch.set_facecolor('#2f3136')
         ax.set_facecolor('#2f3136')
-
         scores_for_plot1 = np.concatenate((scores1, [scores1[0]]))
-        ax.plot(angles, scores_for_plot1, color='#5865F2', linewidth=2, label=db_name1)
+        ax.plot(angles, scores_for_plot1, color='#5865F2', linewidth=2, label=remove_emojis(db_name1))
         ax.fill(angles, scores_for_plot1, color='#5865F2', alpha=0.2)
-
         scores_for_plot2 = np.concatenate((scores2, [scores2[0]]))
-        ax.plot(angles, scores_for_plot2, color='#57F287', linewidth=2, label=db_name2)
+        ax.plot(angles, scores_for_plot2, color='#57F287', linewidth=2, label=remove_emojis(db_name2))
         ax.fill(angles, scores_for_plot2, color='#57F287', alpha=0.2)
-        
         ax.set_ylim(0, 10)
         ax.set_rgrids([2, 4, 6, 8], angle=90)
         ax.grid(color="gray", linestyle='--', linewidth=0.5)
         ax.set_thetagrids(np.degrees(angles[:-1]), categories)
-
         for label in ax.get_xticklabels():
             label.set_fontproperties(font_props)
             label.set_color('white')
@@ -159,19 +134,15 @@ def create_comparison_radar_chart(product1_name: str, product2_name: str) -> str
         for label in ax.get_yticklabels():
             label.set_fontproperties(FontProperties(fname=FONT_PATH, size=10))
             label.set_color('darkgrey')
-        
         ax.spines['polar'].set_color('gray')
-        
         ax.set_title('Comparaison des Profils de Saveur\n', fontproperties=font_props_title, color='white')
         legend = ax.legend(loc='upper right', bbox_to_anchor=(1.4, 1.1))
         for text in legend.get_texts():
             text.set_fontproperties(font_props_legend)
             text.set_color('white')
-
         output_dir = "charts"
         os.makedirs(output_dir, exist_ok=True)
         filename = f"{output_dir}/comparison_chart_{int(time.time())}.png"
-        
         plt.savefig(filename, bbox_inches='tight', dpi=120, transparent=True)
         plt.close(fig)
         return filename
