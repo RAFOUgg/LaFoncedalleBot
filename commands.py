@@ -732,6 +732,8 @@ class ProductReviewsPaginatorView(discord.ui.View):
             await self.view.update_message(interaction)
 
 
+# Dans commands.py, remplacez l'ancienne classe ProductView par celle-ci
+
 class ProductView(discord.ui.View):
     def __init__(self, products: List[dict], category: str = None):
         super().__init__(timeout=300)
@@ -739,33 +741,49 @@ class ProductView(discord.ui.View):
         self.current_index = 0
         self.category = category
         
-        # On pré-charge le nombre d'avis
+        # [AMÉLIORATION] On pré-charge le nombre d'avis pour tous les produits de la vue en une seule fois
         self.review_counts = self._get_review_counts()
         
         # On ajoute les boutons fixes
         self.add_item(self.PrevButton())
         self.add_item(self.NextButton())
         self.add_item(self.ShowReviewsButton())
-        # [NOUVEAU] Ajout du bouton pour le graphique
         self.add_item(self.ShowGraphButton())
-
+        
         # On met à jour l'état de tous les boutons
         self.update_ui_elements()
 
     def _get_review_counts(self) -> dict:
+        """[CORRIGÉ] Récupère le nombre total de notes ET le nombre de commentaires en une seule requête."""
         product_names = [p['name'] for p in self.products]
         if not product_names: return {}
         
         conn = get_db_connection()
         cursor = conn.cursor()
         placeholders = ','.join('?' for _ in product_names)
-        cursor.execute(f"SELECT product_name, COUNT(id) FROM ratings WHERE product_name IN ({placeholders}) AND comment IS NOT NULL AND TRIM(comment) != '' GROUP BY product_name", product_names)
-        counts = {name: count for name, count in cursor.fetchall()}
+        
+        # Cette requête récupère les deux comptes nécessaires
+        query = f"""
+            SELECT 
+                product_name, 
+                COUNT(id) as total_ratings,
+                COUNT(CASE WHEN comment IS NOT NULL AND TRIM(comment) != '' THEN 1 END) as comment_count
+            FROM ratings 
+            WHERE product_name IN ({placeholders})
+            GROUP BY product_name
+        """
+        cursor.execute(query, product_names)
+        
+        # On stocke les deux comptes dans un dictionnaire
+        counts = {name: {"total": total, "comments": comments} for name, total, comments in cursor.fetchall()}
         conn.close()
         return counts
     
     def update_ui_elements(self):
+        """Met à jour l'état de tous les boutons en fonction du produit actuel."""
+        if not self.products: return
         product = self.products[self.current_index]
+        product_name = product.get('name', '')
 
         # Navigation
         prev_button = discord.utils.get(self.children, custom_id="prev_product")
@@ -773,7 +791,7 @@ class ProductView(discord.ui.View):
         if prev_button: prev_button.disabled = self.current_index == 0
         if next_button: next_button.disabled = self.current_index >= len(self.products) - 1
 
-        # Téléchargements
+        # Téléchargements (Analyse PDF, etc.)
         for item in [c for c in self.children if hasattr(c, "is_download_button")]: self.remove_item(item)
         stats = product.get('stats', {})
         for key, value in stats.items():
@@ -782,13 +800,17 @@ class ProductView(discord.ui.View):
                 emoji = "🧪" if "lab" in key.lower() else "🌿"
                 self.add_item(self.DownloadButton(label, value, emoji))
 
-        # Avis
+        # [CORRIGÉ] On récupère le dictionnaire des comptes pour le produit actuel
+        counts_for_product = self.review_counts.get(product_name, {"total": 0, "comments": 0})
+
+        # Bouton Avis
         reviews_button = discord.utils.get(self.children, custom_id="show_reviews_button")
         if reviews_button:
-            review_count = self.review_counts.get(product.get('name'), 0)
-            reviews_button.label = f"💬 Avis Clients ({review_count})"
-            reviews_button.disabled = (review_count == 0)
-        
+            comment_count = counts_for_product.get('comments', 0)
+            reviews_button.label = f"💬 Avis Clients ({comment_count})"
+            reviews_button.disabled = (comment_count == 0)
+
+        # Bouton Graphique
         graph_button = discord.utils.get(self.children, custom_id="show_graph_button")
         if graph_button:
             total_rating_count = counts_for_product.get('total', 0)
@@ -820,7 +842,6 @@ class ProductView(discord.ui.View):
         else: price_text = f"💰 **{product.get('price', 'N/A')}**"
         embed.add_field(name="Prix", value=price_text, inline=False)
         
-        # [AFFICHAGE FINAL]
         if product.get('category') == 'box' and product.get('box_contents'):
             content_str = ""
             for section, items in product['box_contents'].items():
@@ -845,6 +866,8 @@ class ProductView(discord.ui.View):
         self.update_ui_elements()
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
+    # --- Les boutons ---
+    # (Les classes de boutons PrevButton, NextButton, ShowReviewsButton, ShowGraphButton et DownloadButton ne changent pas et restent les mêmes que dans votre fichier)
     class PrevButton(discord.ui.Button):
         def __init__(self): super().__init__(label="⬅️ Précédent", style=discord.ButtonStyle.secondary, row=0, custom_id="prev_product")
         async def callback(self, interaction: discord.Interaction):
@@ -877,6 +900,7 @@ class ProductView(discord.ui.View):
                 return
             paginator = ProductReviewsPaginatorView(reviews, product_name, product_image)
             await interaction.followup.send(embed=paginator.create_embed(), view=paginator, ephemeral=True)
+
     class ShowGraphButton(discord.ui.Button):
         def __init__(self):
             super().__init__(label="📊 Afficher le Graphique", style=discord.ButtonStyle.primary, row=1, custom_id="show_graph_button")
@@ -908,10 +932,6 @@ class ProductView(discord.ui.View):
                 if chart_path and os.path.exists(chart_path):
                     os.remove(chart_path)
 
-    class DownloadButton(discord.ui.Button):
-        def __init__(self, label, url, emoji=None):
-            super().__init__(label=label, style=discord.ButtonStyle.link, url=url, emoji=emoji)
-            self.is_download_button = True
     class DownloadButton(discord.ui.Button):
         def __init__(self, label, url, emoji=None):
             super().__init__(label=label, style=discord.ButtonStyle.link, url=url, emoji=emoji)
