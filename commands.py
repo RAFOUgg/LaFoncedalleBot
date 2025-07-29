@@ -784,7 +784,6 @@ class ProductView(discord.ui.View):
         return ""
 
     def create_embed(self) -> discord.Embed:
-        # ... (cette fonction est correcte et reste inchangée) ...
         product = self.products[self.current_index]
         emoji = self.get_category_emoji()
         embed_color = discord.Color.dark_red() if product.get('is_sold_out') else discord.Color.from_rgb(255, 204, 0)
@@ -792,32 +791,44 @@ class ProductView(discord.ui.View):
         embed = discord.Embed(title=title, url=product.get('product_url', CATALOG_URL), color=embed_color)
         if product.get('image'):
             embed.set_thumbnail(url=product['image'])
+        
         description = product.get('detailed_description', "Aucune description.")
         if description:
             embed.add_field(name="Description", value=description[:1024], inline=False)
+        
         price_text = ""
         if product.get('is_sold_out'): price_text = "❌ **ÉPUISÉ**"
         elif product.get('is_promo'): price_text = f"🏷️ **{product.get('price')}** ~~{product.get('original_price')}~~"
         else: price_text = f"💰 **{product.get('price', 'N/A')}**"
         embed.add_field(name="Prix", value=price_text, inline=True)
+        
         if not product.get('is_sold_out') and product.get('stats', {}).get('Stock'):
             embed.add_field(name="Stock", value=f"{product['stats']['Stock']}", inline=True)
-        stats = product.get('stats', {})
-        char_lines = []
-        ignore_keys = ["pdf", "lab", "terpen", "stock", "description"]
-        ignore_values = ["livraison", "offert", "derniers", "grammes", "lots"]
-        for k, v in stats.items():
-            k_lower, v_str = k.lower(), str(v)
-            v_lower = v_str.lower()
-            if (any(key in k_lower for key in ignore_keys) or v_str.startswith(("http", "gid://")) or any(val in v_lower for val in ignore_values)):
-                continue
-            if "effet" in k_lower: char_lines.append(f"**Effet :** {v_str}")
-            elif "gout" in k_lower: char_lines.append(f"**Goût :** {v_str}")
-            elif "cbd" in k_lower: char_lines.append(f"**CBD :** {v_str}")
-            elif "thc" in k_lower: char_lines.append(f"**THC :** {v_str}")
-            else: char_lines.append(f"**{k.strip().capitalize()} :** {v_str}")
-        if char_lines:
-            embed.add_field(name="Caractéristiques", value="\n".join(char_lines), inline=False)
+        
+        # [LOGIQUE AMÉLIORÉE] Affichage conditionnel pour les box vs autres produits
+        if product.get('category') == 'box' and product.get('box_contents'):
+            content_list = "\n".join([f"• `{item}`" for item in product['box_contents']])
+            if len(content_list) > 1024: # Limite de Discord
+                content_list = content_list[:1000] + "..."
+            embed.add_field(name="📦 Contenu de la Box", value=content_list, inline=False)
+        else:
+            stats = product.get('stats', {})
+            char_lines = []
+            ignore_keys = ["pdf", "lab", "terpen", "stock", "description", "contenu", "composition"]
+            ignore_values = ["livraison", "offert", "derniers", "grammes", "lots"]
+            for k, v in stats.items():
+                k_lower, v_str = k.lower(), str(v)
+                v_lower = v_str.lower()
+                if (any(key in k_lower for key in ignore_keys) or v_str.startswith(("http", "gid://")) or any(val in v_lower for val in ignore_values)):
+                    continue
+                if "effet" in k_lower: char_lines.append(f"**Effet :** {v_str}")
+                elif "gout" in k_lower: char_lines.append(f"**Goût :** {v_str}")
+                elif "cbd" in k_lower: char_lines.append(f"**CBD :** {v_str}")
+                elif "thc" in k_lower: char_lines.append(f"**THC :** {v_str}")
+                else: char_lines.append(f"**{k.strip().capitalize()} :** {v_str}")
+            if char_lines:
+                embed.add_field(name="Caractéristiques", value="\n".join(char_lines), inline=False)
+
         embed.add_field(name="\u200b", value=f"**[Voir la fiche produit sur le site]({product.get('product_url', CATALOG_URL)})**", inline=False)
         embed.set_footer(text=f"Produit {self.current_index + 1} sur {len(self.products)}")
         return embed
@@ -2468,7 +2479,6 @@ class SlashCommands(commands.Cog):
 
         embed = create_styled_embed(title=f"⚔️ Comparaison : {produit1} vs {produit2}", description=description_text, color=discord.Color.orange())
 
-        # [CORRECTION FINALE] La fonction d'aide est maintenant robuste pour les box
         def format_product_field(p_data, p_rating):
             price_text = f"💰 **Prix :** "
             if p_data.get('is_sold_out'): price_text += "❌ Épuisé"
@@ -2480,20 +2490,12 @@ class SlashCommands(commands.Cog):
                 note_text = f"⭐ **Note :** **{p_rating['avg']:.2f}/10** ({p_rating['count']} avis)"
             
             char_lines = []
-            if p_data.get('category') == 'box':
-                # Pour les box, on lit la description détaillée
-                description = p_data.get('detailed_description', '')
-                if description:
-                    # On nettoie et formate la description en liste
-                    items = [line.strip().lstrip('-•* ').replace('*', '') for line in description.split('\n') if line.strip()]
-                    items_to_show = items[:5] # On limite à 5 pour la lisibilité
-                    content = "\n".join([f"• `{item}`" for item in items_to_show])
-                    
-                    if len(items) > 5:
-                        content += f"\n• `...et {len(items) - 5} autre(s)`"
-                    
-                    if content:
-                        char_lines.append(f"📦 **Contenu :**\n{content}")
+            # [LOGIQUE AMÉLIORÉE] On utilise la nouvelle clé 'box_contents'
+            if p_data.get('category') == 'box' and p_data.get('box_contents'):
+                content = "\n".join([f"• `{item}`" for item in p_data['box_contents'][:5]]) # On limite à 5
+                if len(p_data['box_contents']) > 5:
+                    content += f"\n• `...et {len(p_data['box_contents']) - 5} autre(s)`"
+                char_lines.append(f"📦 **Contenu :**\n{content}")
             else:
                 stats = p_data.get('stats', {})
                 if stats.get('Gout'): char_lines.append(f"👅 **Goût :** `{stats.get('Gout')}`")

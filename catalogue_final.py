@@ -64,32 +64,35 @@ query getFiles($ids: [ID!]!) {
 def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve: set) -> dict:
     """
     Extrait, nettoie et formate les données d'un seul objet produit Shopify.
+    [VERSION AMÉLIORÉE] Gère spécifiquement le contenu des box.
     """
-    # ÉTAPE 1 : Créer le dictionnaire principal vide. C'est la ligne la plus importante.
     product_data = {}
     
-    # --- Extraction des données brutes ---
     product_data['name'] = prod.title
     product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
     product_data['image'] = prod.image.src if prod.image else None
     
-    # --- Catégorie et Description ---
     category_map_display = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
     product_data['category'] = category_map_display.get(category, category)
 
     desc_html = prod.body_html
     if desc_html:
         soup = BeautifulSoup(desc_html, 'html.parser')
-        for br in soup.find_all("br"): 
-            br.replace_with("\n")
-        product_data['detailed_description'] = soup.get_text(separator="\n", strip=True)
+        # On extrait la description marketing avant de chercher le contenu de la box
+        # C'est une heuristique : on s'arrête au premier titre qui ressemble à "composition" ou "contenu"
+        composition_marker = soup.find(['strong', 'h2', 'h3'], string=re.compile(r'composition|contenu', re.IGNORECASE))
+        if composition_marker:
+            # On ne prend que le texte AVANT le marqueur de composition
+            desc_text = soup.get_text(separator='\n', strip=True).split(composition_marker.get_text())[0]
+            product_data['detailed_description'] = desc_text.strip()
+        else:
+            product_data['detailed_description'] = soup.get_text(separator='\n', strip=True)
     else:
         product_data['detailed_description'] = "Pas de description."
     
-    # --- Gestion des Variants (Prix, Promo, Épuisé) ---
+    # --- Gestion des Variants (inchangée) ---
     available_variants = [v for v in prod.variants if v.inventory_quantity > 0 or v.inventory_policy == 'continue']
     product_data['is_sold_out'] = not available_variants
-    
     if available_variants:
         min_price_variant = min(available_variants, key=lambda v: float(v.price))
         price = float(min_price_variant.price)
@@ -103,19 +106,28 @@ def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve:
         product_data['is_promo'] = False
         product_data['original_price'] = None
 
-    # --- Extraction des Metafields (Stats) ---
-    # ÉTAPE 2 : Créer le sous-dictionnaire pour les stats.
+    # --- [LOGIQUE AMÉLIORÉE] Extraction des Metafields ET du contenu des box ---
     product_data['stats'] = {}
-    
-    # ÉTAPE 3 : Mettre la pause AVANT l'appel réseau pour respecter les limites de l'API.
+    product_data['box_contents'] = [] # On initialise une liste vide pour le contenu de la box
     time.sleep(0.5) 
     
     for meta in prod.metafields():
         key = meta.key.replace('_', ' ').capitalize()
         value = meta.value
-        product_data['stats'][key] = value
-        if isinstance(value, str) and value.startswith("gid://shopify/"):
-            gids_to_resolve.add(value)
+        
+        # Si c'est une box et qu'on trouve un champ "composition" ou "contenu", on le traite spécialement
+        if category == 'box' and ('contenu' in key.lower() or 'composition' in key.lower()):
+            soup_meta = BeautifulSoup(value, 'html.parser')
+            # On cherche les list items (<li>) ou les paragraphes (<p>)
+            items = [li.get_text(strip=True) for li in soup_meta.find_all('li')]
+            if not items: # Fallback pour du texte simple
+                items = [line.strip() for line in soup_meta.get_text(separator='\n').split('\n') if line.strip()]
+            product_data['box_contents'] = items
+        else:
+            # Sinon, on traite comme une caractéristique normale
+            product_data['stats'][key] = value
+            if isinstance(value, str) and value.startswith("gid://shopify/"):
+                gids_to_resolve.add(value)
             
     return product_data
 
