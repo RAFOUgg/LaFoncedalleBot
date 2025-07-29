@@ -8,6 +8,7 @@ import os
 import sqlite3
 from typing import Dict, Any, List
 from shared_utils import Logger, DB_FILE
+import traceback
 
 # [NOUVEAU] Définir le chemin vers la police personnalisée
 FONT_PATH = os.path.join(os.path.dirname(__file__), 'assets', 'Gobold Bold.otf')
