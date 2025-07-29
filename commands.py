@@ -2581,75 +2581,52 @@ class SlashCommands(commands.Cog):
         
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         
-    @app_commands.command(name="inspect", description="[STAFF] Affiche tous les méta-champs bruts d'un produit Shopify.")
+    @app_commands.command(name="ping_api", description="[STAFF] Teste la connexion à l'API Flask interne.")
     @app_commands.check(is_staff_or_owner)
-    @app_commands.autocomplete(produit=product_autocomplete)
-    @app_commands.describe(produit="Le produit à inspecter.")
-    async def inspect_product(self, interaction: discord.Interaction, produit: str):
-        await interaction.response.defer(ephemeral=True, thinking=True)
-
-        # 1. Retrouver l'ID du produit depuis le cache
-        product_map = {p['name'].lower(): p for p in self.bot.product_cache.get('products', [])}
-        p_data = product_map.get(produit.lower())
-
-        if not p_data or 'id' not in p_data or not p_data['id']:
-            return await interaction.followup.send(f"😕 Impossible de trouver l'ID du produit '{produit}' dans le cache. Essayez de vider le cache et de forcer la mise à jour.", ephemeral=True)
+    async def ping_api(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         
-        product_gid = p_data['id']
-
-        # 2. [CORRECTION] Définir la requête GraphQL pour chercher par ID
-        METAFIELD_INSPECTOR_QUERY = """
-        query getProductMetafields($id: ID!) {
-          node(id: $id) {
-            ... on Product {
-              title
-              metafields(first: 50) {
-                edges {
-                  node {
-                    namespace
-                    key
-                    value
-                    type
-                  }
-                }
-              }
-            }
-          }
-        }
-        """
-
-        # 3. Exécuter la requête
+        api_url = os.getenv('APP_URL')
+        if not api_url:
+            await interaction.followup.send("❌ La variable d'environnement `APP_URL` n'est pas définie.", ephemeral=True)
+            return
+        
+        import aiohttp
+        import time
+        start_time = time.time()
+        
         try:
-            session = shopify.Session(os.getenv('SHOPIFY_SHOP_URL'), os.getenv('SHOPIFY_API_VERSION'), os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN'))
-            shopify.ShopifyResource.activate_session(session)
-            client = shopify.GraphQL()
-            # [CORRECTION] Utiliser la variable "id" au lieu de "handle"
-            result_json = client.execute(METAFIELD_INSPECTOR_QUERY, variables={"id": product_gid})
-            result = json.loads(result_json)
-            shopify.ShopifyResource.clear_session()
-
-            product_info = result.get('data', {}).get('node')
-            if not product_info or not product_info.get('title'):
-                return await interaction.followup.send("❌ Le produit n'a pas été trouvé via l'API GraphQL avec son ID.", ephemeral=True)
-
-            metafields = [edge['node'] for edge in product_info.get('metafields', {}).get('edges', [])]
-
-            # 4. Créer l'embed de résultat
-            embed = create_styled_embed(f"🔍 Inspection de : {product_info.get('title')}", "Voici tous les méta-champs trouvés pour ce produit.")
-
-            if not metafields:
-                embed.description += "\n\nAucun méta-champ trouvé."
-            
-            for meta in metafields:
-                namespace, key, value, meta_type = meta.get('namespace'), meta.get('key'), str(meta.get('value', '')), meta.get('type')
-                if len(value) > 200: value = value[:200] + "..."
-                embed.add_field(name=f"`{namespace}.{key}` (Type: `{meta_type}`)", value=f"```{value}```", inline=False)
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_url, timeout=10) as response:
+                    duration = round((time.time() - start_time) * 1000)
+                    if response.ok:
+                        content = await response.text()
+                        await interaction.followup.send(
+                            f"✅ **Succès !**\n"
+                            f"L'API a répondu en `{duration} ms`.\n"
+                            f"**Statut :** `{response.status}`\n"
+                            f"**Réponse :** ```{content[:1500]}```",
+                            ephemeral=True
+                        )
+                    else:
+                        content = await response.text()
+                        await interaction.followup.send(
+                            f"⚠️ **Échec de la connexion.**\n"
+                            f"L'API a répondu en `{duration} ms` mais avec une erreur.\n"
+                            f"**Statut :** `{response.status}`\n"
+                            f"**Réponse :** ```{content[:1500]}```",
+                            ephemeral=True
+                        )
 
         except Exception as e:
-            traceback.print_exc()
-            await interaction.followup.send(f"❌ Une erreur est survenue lors de l'inspection : {e}", ephemeral=True)
+            duration = round((time.time() - start_time) * 1000)
+            await interaction.followup.send(
+                f"❌ **Erreur Critique de Connexion !**\n"
+                f"La requête a échoué après `{duration} ms`.\n"
+                f"**Erreur :** ```{e}```\n"
+                f"Vérifiez que le service API est bien nommé `lafoncedalleapi` dans `docker-compose.yml` et que les deux services sont sur le même réseau.",
+                ephemeral=True
+            )
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SlashCommands(bot))

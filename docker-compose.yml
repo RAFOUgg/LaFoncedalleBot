@@ -1,41 +1,32 @@
 version: '3.8'
 
 services:
-  # Service de l'API Flask, géré par Gunicorn
   lafoncedalleapi:
     build: .
     container_name: lafoncedalleapi
-    # La commande pour lancer Gunicorn en production.
-    # Il écoute sur le port 5000 À L'INTÉRIEUR du conteneur.
     command: gunicorn --workers 4 --bind 0.0.0.0:5000 app:app
     volumes:
       - .:/app
-    # On lie le fichier .env pour que l'API ait ses clés
     env_file:
       - .env
     networks:
-      - lafoncedallenet
+      - lafoncedallenet # <-- Doit être présent
     restart: unless-stopped
 
-  # Service du Bot Discord
   lafoncedallebot:
     build: .
     container_name: lafoncedallebot
-    # La commande pour lancer le bot.
-    command: python bot_runner.py
+    command: python bot_runner.py # Ou votre script start.sh
     volumes:
       - .:/app
-    # On lie le fichier .env pour que le Bot ait ses clés ET la bonne APP_URL
     env_file:
       - .env
-    # Fait en sorte que le bot attende que l'API démarre
-    depends_on:
+    depends_on: # <-- Important pour l'ordre de démarrage
       - lafoncedalleapi
     networks:
-      - lafoncedallenet
+      - lafoncedallenet # <-- Doit être présent
     restart: unless-stopped
 
-# On définit le réseau privé que les deux services utiliseront pour communiquer
-networks:
+networks: # <-- Cette section est OBLIGATOIRE
   lafoncedallenet:
     driver: bridge
