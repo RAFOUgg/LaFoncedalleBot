@@ -91,6 +91,7 @@ def get_site_data_from_graphql():
     """
     Récupère toutes les données du site (produits, collections, méta-champs)
     en une seule requête GraphQL pour éviter le rate limiting.
+    [VERSION 2.2 - CORRECTION FINALE ID MANQUANT]
     """
     Logger.info("Démarrage de la récupération via GraphQL Shopify...")
     
@@ -124,15 +125,17 @@ def get_site_data_from_graphql():
             elif any("weed" in title for title in collection_titles): category = "weed"
             elif any("hash" in title for title in collection_titles): category = "hash"
             
-            # [CORRECTION] Accès sécurisé à l'image
             images_edges = prod.get('images', {}).get('edges', [])
             image_url = images_edges[0].get('node', {}).get('url') if images_edges else None
 
+            product_gid = prod.get('id')
+
             category_map_display = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
             product_data = {
+                'id': product_gid,
                 'name': prod.get('title'),
                 'product_url': f"https://la-foncedalle.fr/products/{prod.get('handle')}",
-                'image': image_url, # Utilisation de la variable sécurisée
+                'image': image_url,
                 'category': category_map_display.get(category),
                 'detailed_description': BeautifulSoup(prod.get('bodyHtml', ''), 'html.parser').get_text(separator='\n', strip=True),
                 'stats': {},
