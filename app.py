@@ -493,6 +493,37 @@ def get_user_stats(discord_id):
         print(f"Erreur lors de la récupération des stats pour {discord_id}: {e}")
         return jsonify({"error": "Erreur interne du serveur."}), 500
 
+@app.route('/api/get_shop_stats')
+def get_shop_stats():
+    # Sécurisation de l'endpoint
+    auth_header = request.headers.get('Authorization')
+    expected_header = f"Bearer {FLASK_SECRET_KEY}"
+    if not auth_header or auth_header != expected_header:
+        return jsonify({"error": "Accès non autorisé."}), 403
+
+    session = shopify.Session(SHOP_URL, SHOPIFY_API_VERSION, SHOPIFY_ADMIN_ACCESS_TOKEN)
+    shopify.ShopifyResource.activate_session(session)
+    
+    try:
+        # Calculer la date d'il y a 7 jours
+        seven_days_ago_iso = (datetime.utcnow() - timedelta(days=7)).isoformat()
+
+        # Récupérer les commandes des 7 derniers jours
+        orders = shopify.Order.find(created_at_min=seven_days_ago_iso, status='any', limit=250)
+        
+        weekly_revenue = sum(float(order.total_price) for order in orders)
+        weekly_order_count = len(orders)
+
+    except Exception as e:
+        print(f"Erreur API Shopify dans get_shop_stats: {e}")
+        return jsonify({"error": "Erreur lors de la récupération des statistiques de la boutique."}), 500
+    finally:
+        shopify.ShopifyResource.clear_session()
+
+    return jsonify({
+        "weekly_revenue": weekly_revenue,
+        "weekly_order_count": weekly_order_count
+    })
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

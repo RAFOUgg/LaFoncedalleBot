@@ -420,6 +420,75 @@ class ProfileView(discord.ui.View):
     async def reset_button(self, i: discord.Interaction, button: discord.ui.Button):
         await i.response.send_message(f"Voulez-vous vraiment supprimer toutes les notes de {self.target_user.mention} ?", view=ConfirmResetNotesView(self.target_user, self.bot), ephemeral=True)
 
+class ConfigMenuView(discord.ui.View):
+    def __init__(self, bot, author, original_embed):
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.author = author
+        self.original_embed = original_embed # Pour le bouton retour
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author.id:
+            await interaction.response.send_message("Vous n'êtes pas autorisé à utiliser ces boutons.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="🔧 Config Principale", style=discord.ButtonStyle.primary)
+    async def show_main_config(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        guild = interaction.guild
+        
+        # --- Logique de l'ancienne commande /config view ---
+        staff_role_id = await config_manager.get_state(guild.id, 'staff_role_id')
+        mention_role_id = await config_manager.get_state(guild.id, 'mention_role_id')
+        menu_channel_id = await config_manager.get_state(guild.id, 'menu_channel_id')
+        selection_channel_id = await config_manager.get_state(guild.id, 'selection_channel_id')
+        db_export_channel_id = await config_manager.get_state(guild.id, 'db_export_channel_id')
+
+        def format_setting(item_id, item_type, is_critical=False):
+            if not item_id: return f"{'❌' if is_critical else '⚠️'} `Non défini`"
+            try:
+                item_id_int = int(item_id)
+                item = guild.get_role(item_id_int) if item_type == 'role' else guild.get_channel(item_id_int)
+                if item: return f"✅ {item.mention}"
+                return f"{'❌' if is_critical else '⚠️'} `Introuvable (ID: {item_id})`"
+            except (ValueError, TypeError): return f"❌ `ID Invalide ({item_id})`"
+
+        embed = create_styled_embed("🔧 Configuration Principale", f"Paramètres pour **{guild.name}**.")
+        embed.add_field(name="📌 Rôles", value=f"**Staff :** {format_setting(staff_role_id, 'role')}\n**Mention :** {format_setting(mention_role_id, 'role')}", inline=False)
+        embed.add_field(name="📺 Salons", value=f"**Menu :** {format_setting(menu_channel_id, 'channel', True)}\n**Sélection :** {format_setting(selection_channel_id, 'channel')}\n**Sauvegardes :** {format_setting(db_export_channel_id, 'channel')}", inline=False)
+        
+        await interaction.edit_original_response(embed=embed, view=self)
+
+    @discord.ui.button(label="🏆 Config Fidélité", style=discord.ButtonStyle.primary)
+    async def show_loyalty_config(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        guild = interaction.guild
+
+        # --- Logique de l'ancienne commande /config loyalty view ---
+        loyalty_config = config_manager.get_config("loyalty_roles", {})
+        embed = create_styled_embed("🏆 Configuration Fidélité & Succès", "Voici les rôles actuellement configurés.", color=discord.Color.gold())
+        
+        if not loyalty_config:
+            embed.description += "\nAucun rôle n'est configuré. Utilisez `/config loyalty set` pour en ajouter un."
+        else:
+            sorted_roles = sorted(loyalty_config.values(), key=lambda item: item.get('threshold', 9999))
+            for data in sorted_roles:
+                role_id = data.get('id')
+                role = guild.get_role(int(role_id)) if role_id else None
+                value_str = f"**Rôle :** {role.mention if role else f'⚠️ Rôle introuvable'}\n"
+                if data.get('type') == 'threshold': value_str += f"**Condition :** `{data.get('threshold')} notes`"
+                elif data.get('type') == 'explorer': value_str += "**Condition :** Noter 1 produit de chaque catégorie"
+                elif data.get('type') == 'specialist': value_str += "**Condition :** Noter 5 produits dans une même catégorie"
+                embed.add_field(name=f"{data.get('emoji', '')} {data.get('name', 'N/A')}", value=value_str, inline=False)
+        
+        await interaction.edit_original_response(embed=embed, view=self)
+
+    @discord.ui.button(label="⬅️ Retour", style=discord.ButtonStyle.secondary, row=1)
+    async def go_back(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # On recrée la vue de debug originale et on remet l'embed d'origine
+        view = DebugView(self.bot, self.author)
+        await interaction.response.edit_message(embed=self.original_embed, view=view)
 class DebugView(discord.ui.View):
     def __init__(self, bot, author):
         super().__init__(timeout=300)
@@ -427,89 +496,78 @@ class DebugView(discord.ui.View):
         self.author = author
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        # S'assure que seul l'auteur de la commande peut utiliser les boutons
         if interaction.user.id != self.author.id:
             await interaction.response.send_message("Vous n'êtes pas autorisé à utiliser ces boutons.", ephemeral=True)
             return False
         return True
 
-    @discord.ui.button(label="🔄 Synchroniser les Commandes", style=discord.ButtonStyle.primary, row=0)
-    async def sync_commands(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(thinking=True, ephemeral=True)
-        try:
-            synced = await self.bot.tree.sync()
-            await interaction.followup.send(f"✅ **Succès !** {len(synced)} commandes synchronisées avec Discord.", ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"❌ **Échec de la synchronisation :**\n```py\n{e}\n```", ephemeral=True)
-
-    @discord.ui.button(label="👥 Forcer la Synchro Rôles", style=discord.ButtonStyle.success, row=1)
-    async def force_sync_roles(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(thinking=True, ephemeral=True)
-        try:
-            # On appelle la fonction attachée à l'instance du bot
-            await self.bot.sync_all_loyalty_roles(self.bot)
-            await interaction.followup.send("✅ **Succès !** La tâche de synchronisation des rôles a été lancée pour tous les serveurs.", ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"❌ **Échec de la synchronisation des rôles :**\n```py\n{e}\n```", ephemeral=True)
-
-    @discord.ui.button(label="📢 Forcer la Publication du Menu", style=discord.ButtonStyle.success, row=0)
+    # --- Ligne 0 : Actions de Publication ---
+    @discord.ui.button(label="📢 Forcer Publication Menu", style=discord.ButtonStyle.success, row=0)
     async def force_publish(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(thinking=True, ephemeral=True)
         try:
             await self.bot.check_for_updates(self.bot, force_publish=True)
-            await interaction.followup.send("✅ **Succès !** La tâche de publication forcée du menu a été lancée.", ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"❌ **Échec de la publication :**\n```py\n{e}\n```", ephemeral=True)
+            await interaction.followup.send("✅ Tâche de publication du menu lancée.", ephemeral=True)
+        except Exception as e: await interaction.followup.send(f"❌ **Échec :**\n```py\n{e}\n```", ephemeral=True)
     
-    @discord.ui.button(label="📤 Forcer la Sélection Semaine", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="📤 Forcer Sélection Semaine", style=discord.ButtonStyle.primary, row=0)
     async def force_selection(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(thinking=True, ephemeral=True)
-        if not interaction.guild:
-            await interaction.followup.send("❌ Cette action ne peut être effectuée qu'au sein d'un serveur.", ephemeral=True)
-            return
+        if not interaction.guild: return await interaction.followup.send("❌ Action impossible en DM.", ephemeral=True)
         try:
             await self.bot.post_weekly_selection(self.bot, interaction.guild.id)
-            await interaction.followup.send("✅ **Succès !** La publication de la sélection de la semaine a été lancée.", ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"❌ **Échec de la publication de la sélection :**\n```py\n{e}\n```", ephemeral=True)
+            await interaction.followup.send("✅ Tâche de publication de la sélection lancée.", ephemeral=True)
+        except Exception as e: await interaction.followup.send(f"❌ **Échec :**\n```py\n{e}\n```", ephemeral=True)
 
-    @discord.ui.button(label="📁 Exporter la base de donnée", style=discord.ButtonStyle.primary, row=0)
-    async def export_db(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        try:
-            if not os.path.exists(DB_FILE):
-                await interaction.followup.send("Fichier de base de données introuvable.", ephemeral=True)
-                return
-            file = discord.File(DB_FILE, filename=os.path.basename(DB_FILE))
-            await interaction.followup.send("Voici la base de données des notes utilisateur :", file=file, ephemeral=True)
-        except Exception as e:
-            Logger.error(f"Erreur lors de l'envoi du fichier DB : {e}")
-            await interaction.followup.send("Erreur lors de l'envoi du fichier de base de données.", ephemeral=True)
-
-    @discord.ui.button(label="📊 Afficher le Dashboard", style=discord.ButtonStyle.secondary, row=1)
-    async def show_dashboard(self, interaction: discord.Interaction, button: discord.ui.Button):
+    # --- Ligne 1 : Actions de Synchronisation ---
+    @discord.ui.button(label="🔄 Sync Commandes", style=discord.ButtonStyle.primary, row=1)
+    async def sync_commands(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(thinking=True, ephemeral=True)
         try:
-            if not interaction.guild: return await interaction.followup.send("❌ Action impossible en DM.", ephemeral=True)
-            
-            # On récupère le cog pour appeler la méthode de génération
+            synced = await self.bot.tree.sync()
+            await interaction.followup.send(f"✅ {len(synced)} commandes synchronisées.", ephemeral=True)
+        except Exception as e: await interaction.followup.send(f"❌ **Échec :**\n```py\n{e}\n```", ephemeral=True)
+
+    @discord.ui.button(label="👥 Forcer Synchro Rôles", style=discord.ButtonStyle.success, row=1)
+    async def force_sync_roles(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        try:
+            await self.bot.sync_all_loyalty_roles(self.bot)
+            await interaction.followup.send("✅ Tâche de synchronisation des rôles lancée.", ephemeral=True)
+        except Exception as e: await interaction.followup.send(f"❌ **Échec :**\n```py\n{e}\n```", ephemeral=True)
+
+    # --- Ligne 2 : Outils de Diagnostic et Configuration ---
+    @discord.ui.button(label="📊 Dashboard", style=discord.ButtonStyle.secondary, row=2)
+    async def show_dashboard(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        if not interaction.guild: return await interaction.followup.send("❌ Action impossible en DM.", ephemeral=True)
+        try:
             slash_commands_cog = self.bot.get_cog("SlashCommands")
-            if not slash_commands_cog:
-                return await interaction.followup.send("❌ Erreur critique : le cog des commandes est introuvable.", ephemeral=True)
-            
             dashboard_embed = await slash_commands_cog.generate_dashboard_embed(interaction.guild)
             await interaction.followup.send(embed=dashboard_embed, ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"❌ **Échec de la génération du dashboard :**\n```py\n{e}\n```", ephemeral=True)
+        except Exception as e: await interaction.followup.send(f"❌ **Échec :**\n```py\n{e}\n```", ephemeral=True)
 
-    @discord.ui.button(label="🗑️ Vider le Cache Produits", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="🔧 Afficher la Configuration", style=discord.ButtonStyle.secondary, row=2)
+    async def show_config_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = create_styled_embed("🔧 Menu de Configuration", "Choisissez une catégorie à afficher.")
+        view = ConfigMenuView(self.bot, self.author, interaction.message.embeds[0])
+        await interaction.response.edit_message(embed=embed, view=view)
+        
+    # --- Ligne 3 : Actions de Maintenance ---
+    @discord.ui.button(label="🗑️ Vider Cache", style=discord.ButtonStyle.secondary, row=3)
     async def clear_cache(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.bot.product_cache = {}
-        await interaction.response.send_message("✅ Cache de produits en mémoire vidé. Il sera rechargé au prochain `/check` ou à la prochaine tâche.", ephemeral=True)
-
-    @discord.ui.button(label="📨 Tester l'Envoi d'E-mail", style=discord.ButtonStyle.danger, row=1)
+        await interaction.response.send_message("✅ Cache de produits en mémoire vidé.", ephemeral=True)
+    
+    @discord.ui.button(label="📁 Exporter DB", style=discord.ButtonStyle.secondary, row=3)
+    async def export_db(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        if not os.path.exists(DB_FILE): return await interaction.followup.send("Fichier DB introuvable.", ephemeral=True)
+        file = discord.File(DB_FILE, filename=f"backup_manual_{int(time.time())}.db")
+        await interaction.followup.send("Voici la base de données :", file=file, ephemeral=True)
+        
+    @discord.ui.button(label="📨 Tester E-mail", style=discord.ButtonStyle.danger, row=3)
     async def test_email(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Ouvre la fenêtre modale pour demander l'adresse e-mail
         await interaction.response.send_modal(EmailTestModal())
 
 class MenuView(discord.ui.View):
@@ -1334,73 +1392,14 @@ class ContactButtonsView(discord.ui.View):
             if url: 
                 self.add_item(discord.ui.Button(label=label, style=discord.ButtonStyle.link, url=url, emoji=emoji))
 @app_commands.guild_only()
-class ConfigCog(commands.GroupCog, name="config", description="Gère la configuration du bot LaFoncedalle."):
+class ConfigCog(commands.GroupCog, name="config", description="Gère l'édition de la configuration du bot."):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         super().__init__()
 
-    # --- On définit un SOUS-GROUPE pour les commandes "set" ---
+    # --- Sous-groupe pour /config set ---
     set_group = app_commands.Group(name="set", description="Définit un paramètre de configuration.")
 
-    # --- COMMANDE D'AFFICHAGE (/config view) ---
-    # Dans commands.py, localisez la commande view_config
-
-    @app_commands.command(name="view", description="[STAFF] Affiche la configuration actuelle du bot pour ce serveur.")
-    @app_commands.check(is_staff_or_owner)
-    async def view_config(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        guild = interaction.guild
-        staff_role_id = await config_manager.get_state(guild.id, 'staff_role_id')
-        mention_role_id = await config_manager.get_state(guild.id, 'mention_role_id')
-        menu_channel_id = await config_manager.get_state(guild.id, 'menu_channel_id')
-        selection_channel_id = await config_manager.get_state(guild.id, 'selection_channel_id')
-        
-        # [MODIFICATION] Le nom de la variable est corrigé pour correspondre à ce qui est utilisé plus bas
-        db_export_channel_id = await config_manager.get_state(guild.id, 'db_export_channel_id')
-        
-        # J'ai supprimé la récupération des rôles de succès ici car ils sont gérés par /config loyalty view
-        # C'est plus propre et ça évite de surcharger cette commande.
-
-        def format_setting(item_id, item_type, is_critical=False):
-            if not item_id: return f"{'❌' if is_critical else '⚠️'} `Non défini`"
-            try:
-                item_id_int = int(item_id)
-                item = guild.get_role(item_id_int) if item_type == 'role' else guild.get_channel(item_id_int)
-                if item: return f"✅ {item.mention}"
-                return f"{'❌' if is_critical else '⚠️'} `Introuvable (ID: {item_id})`"
-            except (ValueError, TypeError):
-                return f"❌ `ID Invalide ({item_id})`"
-
-        staff_role_text = format_setting(staff_role_id, 'role')
-        mention_role_text = format_setting(mention_role_id, 'role')
-        menu_channel_text = format_setting(menu_channel_id, 'channel', is_critical=True)
-        selection_channel_text = format_setting(selection_channel_id, 'channel')
-        
-        # [CORRECTION] La ligne manquante est ajoutée ici
-        db_export_channel_text = format_setting(db_export_channel_id, 'channel')
-
-        embed = discord.Embed(
-            title=f"Configuration de {self.bot.user.name}",
-            description=f"Voici les paramètres actuels pour le serveur **{guild.name}**.",
-            color=discord.Color.blue(), timestamp=datetime.now(paris_tz)
-        )
-        
-        roles_text = (
-            f"**Staff :** {staff_role_text}\n"
-            f"**Mention Nouveautés :** {mention_role_text}\n"
-        )
-        embed.add_field(name="📌 Rôles Principaux", value=roles_text, inline=False)
-        
-        salons_text = (
-            f"**Menu Principal :** {menu_channel_text}\n"
-            f"**Sélection de la Semaine :** {selection_channel_text}\n"
-            f"**Sauvegardes DB :** {db_export_channel_text}"
-        )
-        embed.add_field(name="📺 Salons", value=salons_text, inline=False)
-        embed.set_footer(text="Utilisez /config set pour les rôles/salons et /config loyalty pour les succès.")
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-    # --- COMMANDE /config set role ---
     @set_group.command(name="role", description="[STAFF] Configure un rôle spécifique (staff, mentions).")
     @app_commands.check(is_staff_or_owner)
     @app_commands.describe(parametre="Le type de rôle à configurer.", valeur="Le rôle à assigner.")
@@ -1410,11 +1409,9 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
     ])
     async def set_role(self, interaction: discord.Interaction, parametre: Choice[str], valeur: discord.Role):
         await config_manager.update_state(interaction.guild.id, parametre.value, valeur.id)
-        await log_user_action(interaction, f"a configuré le paramètre '{parametre.name}' sur {valeur.name}")
         await interaction.response.send_message(f"✅ Le paramètre **{parametre.name}** est maintenant assigné à {valeur.mention}.", ephemeral=True)
 
-    # --- COMMANDE /config set salon ---
-    @set_group.command(name="salon", description="[STAFF] Configure un salon spécifique (menu, sélection).")
+    @set_group.command(name="salon", description="[STAFF] Configure un salon spécifique (menu, sélection, etc.).")
     @app_commands.check(is_staff_or_owner)
     @app_commands.describe(parametre="Le type de salon à configurer.", valeur="Le salon à assigner.")
     @app_commands.choices(parametre=[
@@ -1424,46 +1421,12 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
     ])
     async def set_salon(self, interaction: discord.Interaction, parametre: Choice[str], valeur: discord.TextChannel):
         await config_manager.update_state(interaction.guild.id, parametre.value, valeur.id)
-        await log_user_action(interaction, f"a configuré le paramètre '{parametre.name}' sur {valeur.name}")
         await interaction.response.send_message(f"✅ Le paramètre **{parametre.name}** est maintenant assigné à {valeur.mention}.", ephemeral=True)
 
     
-    loyalty_group = app_commands.Group(name="loyalty", description="Gère les rôles de fidélité.")
+    # --- Sous-groupe pour /config loyalty ---
+    loyalty_group = app_commands.Group(name="loyalty", description="Gère l'édition des rôles de fidélité et succès.")
     
-    @loyalty_group.command(name="view", description="[STAFF] Affiche la configuration des rôles de fidélité et succès.")
-    @app_commands.check(is_staff_or_owner)
-    async def view_loyalty(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        loyalty_config = config_manager.get_config("loyalty_roles", {})
-        
-        embed = create_styled_embed("🏆 Configuration Fidélité & Succès", "Voici les rôles actuellement configurés.", color=discord.Color.gold())
-        
-        if not loyalty_config:
-            embed.description = "Aucun rôle n'est configuré.\nUtilisez `/config loyalty set` pour en ajouter un."
-        else:
-            # On trie pour un affichage cohérent
-            sorted_roles = sorted(loyalty_config.values(), key=lambda item: item.get('threshold', 9999))
-            
-            for data in sorted_roles:
-                role_id = data.get('id')
-                role = interaction.guild.get_role(int(role_id)) if role_id else None
-                role_mention = role.mention if role else f"⚠️ Rôle introuvable (ID: {role_id})"
-                emoji = data.get('emoji', '')
-                name = data.get('name', 'N/A')
-                role_type = data.get('type')
-                
-                value_str = f"**Rôle :** {role_mention}\n"
-                if role_type == 'threshold':
-                    value_str += f"**Condition :** Atteindre `{data.get('threshold', 'N/A')} notes`"
-                elif role_type == 'explorer':
-                    value_str += "**Condition :** Noter 1 produit de chaque catégorie (fleur, résine, accessoire)"
-                elif role_type == 'specialist':
-                    value_str += "**Condition :** Noter 5 produits dans une même catégorie"
-                
-                embed.add_field(name=f"{emoji} {name}", value=value_str, inline=False)
-
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
     @loyalty_group.command(name="set", description="[STAFF] Ajoute ou modifie un rôle de fidélité ou de succès.")
     @app_commands.check(is_staff_or_owner)
     @app_commands.describe(
@@ -1481,23 +1444,16 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
     async def set_loyalty(self, interaction: discord.Interaction, role: discord.Role, name: str, emoji: str, type: Choice[str], threshold: Optional[app_commands.Range[int, 1, 1000]] = None):
         await interaction.response.defer(ephemeral=True)
 
-        # Validation : un 'threshold' est requis si le type est 'threshold'
         if type.value == 'threshold' and threshold is None:
-            await interaction.followup.send("❌ Pour un rôle de type 'Palier', vous devez spécifier un `threshold` (nombre de notes).", ephemeral=True)
+            await interaction.followup.send("❌ Pour un rôle de type 'Palier', vous devez spécifier un `threshold`.", ephemeral=True)
             return
             
         loyalty_config = config_manager.get_config("loyalty_roles", {})
-        
-        # On utilise l'ID du rôle comme clé unique pour faciliter les mises à jour
         role_id_str = str(role.id)
         
         loyalty_config[role_id_str] = {
-            "id": role_id_str,
-            "name": name,
-            "emoji": emoji,
-            "type": type.value
+            "id": role_id_str, "name": name, "emoji": emoji, "type": type.value
         }
-        # On ajoute le seuil uniquement si c'est pertinent
         if type.value == 'threshold':
             loyalty_config[role_id_str]['threshold'] = threshold
         
@@ -1510,20 +1466,24 @@ class SlashCommands(commands.Cog):
         self.bot = bot
     
     async def product_autocomplete(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
-        # On récupère les produits depuis le cache du bot
         products = self.bot.product_cache.get('products', [])
         
-        # On s'assure que la liste n'est pas vide et contient des dictionnaires avec une clé 'name'
         if not products or not isinstance(products[0], dict):
             return []
 
-        # On filtre les produits qui contiennent la saisie de l'utilisateur (insensible à la casse)
+        # [MODIFICATION] Liste de mots-clés à exclure SPÉCIFIQUEMENT pour la comparaison
+        # On ne veut pas comparer des accessoires.
+        exclude_keywords = ["briquet", "feuille", "papier", "grinder", "accessoire", "telegram", "instagram", "tiktok"]
+
         choices = [
             prod['name'] for prod in products 
-            if 'name' in prod and current.lower() in prod['name'].lower()
+            if 'name' in prod 
+            # On vérifie que le nom du produit ne contient aucun mot-clé d'exclusion
+            and not any(keyword in prod['name'].lower() for keyword in exclude_keywords)
+            # Puis on filtre par la saisie de l'utilisateur
+            and current.lower() in prod['name'].lower()
         ]
         
-        # On retourne les 25 premiers résultats sous forme de Choice
         return [
             app_commands.Choice(name=choice, value=choice)
             for choice in choices[:25]
@@ -1531,77 +1491,103 @@ class SlashCommands(commands.Cog):
     
     async def generate_dashboard_embed(self, guild: discord.Guild) -> discord.Embed:
         """
-        Récupère les statistiques et génère l'embed du dashboard pour un serveur.
+        Récupère les statistiques et génère l'embed du dashboard amélioré pour un serveur.
         """
-        # Période de temps pour les statistiques "récentes" (7 derniers jours)
         one_week_ago_dt = datetime.utcnow() - timedelta(days=7)
         one_week_ago_iso = one_week_ago_dt.isoformat()
 
-        # 1. Requêtes à la base de données (groupées pour l'efficacité)
+        # 1. Requêtes à la base de données
         def _fetch_stats_sync():
             conn = sqlite3.connect(DB_FILE)
             cursor = conn.cursor()
             
-            # Statistiques globales
+            # Stats globales
             total_ratings = cursor.execute("SELECT COUNT(id) FROM ratings").fetchone()[0]
             total_linked_accounts = cursor.execute("SELECT COUNT(discord_id) FROM user_links").fetchone()[0]
-            
-            # Statistiques de la semaine
+            total_raters = cursor.execute("SELECT COUNT(DISTINCT user_id) FROM ratings").fetchone()[0]
+
+            # Stats de la semaine
             weekly_ratings = cursor.execute("SELECT COUNT(id) FROM ratings WHERE rating_timestamp >= ?", (one_week_ago_iso,)).fetchone()[0]
-            weekly_active_raters = cursor.execute("SELECT COUNT(DISTINCT user_id) FROM ratings WHERE rating_timestamp >= ?", (one_week_ago_iso,)).fetchone()[0]
             
-            # Produit le plus noté de la semaine
-            cursor.execute("""
-                SELECT product_name, COUNT(id) as count 
-                FROM ratings 
-                WHERE rating_timestamp >= ? 
-                GROUP BY product_name 
-                ORDER BY count DESC 
-                LIMIT 1
-            """, (one_week_ago_iso,))
+            # Top Noteur de la semaine
+            cursor.execute("SELECT user_id, COUNT(id) as count FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY count DESC LIMIT 1", (one_week_ago_iso,))
+            top_rater_row = cursor.fetchone()
+
+            # Produit Star de la semaine (meilleure note)
+            cursor.execute("SELECT product_name, AVG((visual_score+smell_score+touch_score+taste_score+effects_score)/5.0) as avg_score FROM ratings WHERE rating_timestamp >= ? GROUP BY product_name ORDER BY avg_score DESC LIMIT 1", (one_week_ago_iso,))
             top_product_row = cursor.fetchone()
+            
+            # Produit à surveiller (pire note)
+            cursor.execute("SELECT product_name, AVG((visual_score+smell_score+touch_score+taste_score+effects_score)/5.0) as avg_score FROM ratings WHERE rating_timestamp >= ? GROUP BY product_name ORDER BY avg_score ASC LIMIT 1", (one_week_ago_iso,))
+            worst_product_row = cursor.fetchone()
 
             conn.close()
             return {
-                "total_ratings": total_ratings,
-                "total_linked": total_linked_accounts,
-                "weekly_ratings": weekly_ratings,
-                "weekly_raters": weekly_active_raters,
-                "top_product": top_product_row
+                "total_ratings": total_ratings, "total_linked": total_linked_accounts,
+                "total_raters": total_raters, "weekly_ratings": weekly_ratings,
+                "top_rater": top_rater_row, "top_product": top_product_row,
+                "worst_product": worst_product_row
             }
 
         db_stats = await asyncio.to_thread(_fetch_stats_sync)
 
-        # 2. Statistiques du serveur Discord
-        new_members_weekly = sum(1 for member in guild.members if not member.bot and member.joined_at and member.joined_at.replace(tzinfo=timezone.utc) > one_week_ago_dt.replace(tzinfo=timezone.utc))
-        
+        # 2. Appel à l'API Flask pour les stats de la boutique
+        shop_stats = {}
+        try:
+            import aiohttp
+            api_url = f"{APP_URL}/api/get_shop_stats"
+            headers = {"Authorization": f"Bearer {FLASK_SECRET_KEY}"}
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_url, headers=headers, timeout=15) as response:
+                    if response.ok:
+                        shop_stats = await response.json()
+        except Exception:
+            # En cas d'erreur, les stats de la boutique seront simplement "N/A"
+            pass
+
         # 3. Création de l'embed
         embed = create_styled_embed(
             title=f"📊 Tableau de Bord - {guild.name}",
             description=f"Aperçu de l'activité des 7 derniers jours.",
             color=discord.Color.blue()
         )
-        
-        # Section : Activité de la Semaine
-        weekly_stats_text = (
-            f"**Nouvelles Notes :** `{db_stats['weekly_ratings']}`\n"
-            f"**Noteurs Actifs :** `{db_stats['weekly_raters']}`\n"
-            f"**Nouveaux Membres :** `{new_members_weekly}`"
-        )
-        if db_stats['top_product']:
-            product_name, count = db_stats['top_product']
-            weekly_stats_text += f"\n**Produit Star :** *{product_name}* (`{count}` notes)"
-        
-        embed.add_field(name="📈 Activité de la Semaine", value=weekly_stats_text, inline=False)
 
-        # Section : Statistiques Globales
-        global_stats_text = (
-            f"**Notes Totales :** `{db_stats['total_ratings']}`\n"
-            f"**Comptes Liés au Total :** `{db_stats['total_linked']}`\n"
-            f"**Nombre de Membres :** `{guild.member_count}`"
+        # Section 1 : Activité Communautaire
+        top_rater_text = "Aucun"
+        if db_stats['top_rater']:
+            user_id, count = db_stats['top_rater']
+            member = guild.get_member(user_id)
+            top_rater_text = f"{member.mention if member else f'ID: {user_id}'} (`{count}` notes)"
+
+        community_text = (
+            f"**Nouvelles Notes :** `{db_stats['weekly_ratings']}`\n"
+            f"**Top Noteur :** {top_rater_text}"
         )
-        embed.add_field(name="🌐 Statistiques Globales", value=global_stats_text, inline=False)
+        embed.add_field(name="📈 Activité Communautaire (7j)", value=community_text, inline=False)
+
+        # Section 2 : Performance Produits
+        product_text = ""
+        if db_stats['top_product']:
+            product_name, score = db_stats['top_product']
+            product_text += f"⭐ **Produit Star :** *{product_name}* (`{score:.2f}/10`)\n"
+        if db_stats['worst_product']:
+            product_name, score = db_stats['worst_product']
+            product_text += f"⚠️ **À surveiller :** *{product_name}* (`{score:.2f}/10`)"
         
+        if not product_text: product_text = "Pas de nouvelles notes cette semaine."
+        embed.add_field(name="🌿 Performance Produits (7j)", value=product_text, inline=False)
+
+        # Section 3 : Statistiques Globales & Boutique
+        avg_notes = (db_stats['total_ratings'] / db_stats['total_raters']) if db_stats['total_raters'] > 0 else 0
+        global_text = (
+            f"**Notes Totales :** `{db_stats['total_ratings']}`\n"
+            f"**Comptes Liés :** `{db_stats['total_linked']}`\n"
+            f"**Moyenne/noteur :** `{avg_notes:.2f}`\n"
+            f"**CA (7j) :** `{shop_stats.get('weekly_revenue', 'N/A'):.2f} €`\n"
+            f"**Commandes (7j) :** `{shop_stats.get('weekly_order_count', 'N/A')}`"
+        )
+        embed.add_field(name="🌐 Global & Boutique", value=global_text, inline=False)
+
         embed.set_footer(text=f"Rapport généré le {datetime.now(paris_tz).strftime('%d/%m/%Y à %H:%M')}")
         
         return embed
@@ -1979,27 +1965,18 @@ class SlashCommands(commands.Cog):
         config_text = ""
         def format_setting(item_id, get_method, is_critical=False):
             if not item_id: return f"{'❌' if is_critical else '⚠️'} `Non défini`"
-            item = get_method(int(item_id))
-            if item: return f"✅ {item.mention}"
-            return f"{'❌' if is_critical else '⚠️'} `Introuvable (ID: {item_id})`"
+            try:
+                item = get_method(int(item_id))
+                return f"✅ {item.mention}" if item else f"⚠️ `Introuvable`"
+            except (ValueError, TypeError): return "❌ `ID invalide`"
 
         staff_role_id = await config_manager.get_state(guild.id, 'staff_role_id')
         config_text += f"**Rôle Staff :** {format_setting(staff_role_id, guild.get_role)}\n"
         
-        mention_role_id = await config_manager.get_state(guild.id, 'mention_role_id')
-        config_text += f"**Rôle Mention :** {format_setting(mention_role_id, guild.get_role)}\n"
-
         menu_channel_id = await config_manager.get_state(guild.id, 'menu_channel_id')
-        config_text += f"**Salon Menu :** {format_setting(menu_channel_id, guild.get_channel, is_critical=True)}\n"
-
-        selection_channel_id = await config_manager.get_state(guild.id, 'selection_channel_id')
-        config_text += f"**Salon Sélection :** {format_setting(selection_channel_id, guild.get_channel)}\n"
-
-        # [AJOUT] Vérification de la configuration du salon de sauvegarde
-        db_export_channel_id = await config_manager.get_state(guild.id, 'db_export_channel_id')
-        config_text += f"**Salon Sauvegardes :** {format_setting(db_export_channel_id, guild.get_channel)}\n"
-
-        embed.add_field(name="🔧 Configuration Locale", value=config_text, inline=False)
+        config_text += f"**Salon Menu :** {format_setting(menu_channel_id, guild.get_channel, is_critical=True)}"
+        
+        embed.add_field(name="🔧 Configuration Locale (Principale)", value=config_text, inline=False)
         
         # --- 4. & 5. Cache et Base de Données ---
         if self.bot.product_cache:
@@ -2404,6 +2381,8 @@ class SlashCommands(commands.Cog):
         view = HelpView(self)
         await interaction.response.send_message(embed=view.main_embed, view=view, ephemeral=True)
 
+    # Dans commands.py, remplacez la commande /comparer dans la classe SlashCommands
+
     @app_commands.command(name="comparer", description="Compare deux produits côte à côte.")
     @app_commands.autocomplete(produit1=product_autocomplete, produit2=product_autocomplete)
     @app_commands.describe(
@@ -2413,12 +2392,10 @@ class SlashCommands(commands.Cog):
     async def comparer(self, interaction: discord.Interaction, produit1: str, produit2: str):
         await interaction.response.defer(ephemeral=True)
 
-        # 1. Vérifier que les deux produits sont différents
         if produit1.lower() == produit2.lower():
             await interaction.followup.send("❌ Veuillez choisir deux produits différents à comparer.", ephemeral=True)
             return
 
-        # 2. Récupérer les informations des produits depuis le cache
         product_map = {p['name'].lower(): p for p in self.bot.product_cache.get('products', [])}
         
         p1_data = product_map.get(produit1.lower())
@@ -2428,10 +2405,9 @@ class SlashCommands(commands.Cog):
             missing = []
             if not p1_data: missing.append(f"'{produit1}'")
             if not p2_data: missing.append(f"'{produit2}'")
-            await interaction.followup.send(f"😕 Impossible de trouver les informations pour le(s) produit(s) : {', '.join(missing)}.", ephemeral=True)
+            await interaction.followup.send(f"😕 Impossible de trouver les informations pour : {', '.join(missing)}.", ephemeral=True)
             return
             
-        # 3. Récupérer les notes moyennes de la communauté pour les deux produits
         def _get_avg_ratings(p1_name, p2_name):
             conn = sqlite3.connect(DB_FILE)
             cursor = conn.cursor()
@@ -2453,14 +2429,13 @@ class SlashCommands(commands.Cog):
         p1_rating = avg_ratings.get(produit1.lower())
         p2_rating = avg_ratings.get(produit2.lower())
         
-        # 4. Création de l'embed de comparaison
         embed = create_styled_embed(
             title=f"⚔️ Comparaison : {produit1} vs {produit2}",
             description="Voici un résumé des caractéristiques et des notes de la communauté.",
             color=discord.Color.orange()
         )
         
-        # Fonction d'aide pour formater les champs
+        # [MODIFICATION MAJEURE] La fonction d'aide est maintenant plus intelligente
         def format_product_field(p_data, p_rating):
             # Prix
             price_text = ""
@@ -2471,27 +2446,43 @@ class SlashCommands(commands.Cog):
             else:
                 price_text = f"💰 **{p_data.get('price', 'N/A')}**"
 
-            # Note
-            if p_rating:
+            # Note (non applicable pour les box)
+            note_text = "N/A"
+            if p_data.get('category') != 'box' and p_rating:
                 note_text = f"⭐ **{p_rating['avg']:.2f}/10** ({p_rating['count']} avis)"
-            else:
-                note_text = "N/A"
-
-            # Caractéristiques
-            stats = p_data.get('stats', {})
+            
             char_lines = []
-            if stats.get('Gout'): char_lines.append(f"Goût : `{stats['Gout']}`")
-            if stats.get('Effet'): char_lines.append(f"Effet : `{stats['Effet']}`")
-            if stats.get('Cbd'): char_lines.append(f"CBD : `{stats['Cbd']}`")
+            # Cas spécial pour les BOX
+            if p_data.get('category') == 'box':
+                stats = p_data.get('stats', {})
+                # On cherche une clé comme "Contenu" dans les stats (metafields Shopify)
+                for key, value in stats.items():
+                    if 'contenu' in key.lower():
+                        # On formate le contenu pour qu'il soit plus lisible
+                        items = value.replace(' / ', ',').replace(' - ', ',').split(',')
+                        formatted_content = "\n".join([f"• `{item.strip()}`" for item in items if item.strip()])
+                        if formatted_content:
+                             char_lines.append(f"**Contenu :**\n{formatted_content}")
+                        break # On a trouvé le contenu, pas besoin de chercher plus loin
+            else:
+            # Logique normale pour les autres produits
+                stats = p_data.get('stats', {})
+                if stats.get('Gout'): char_lines.append(f"**Goût :** `{stats.get('Gout')}`")
+                if stats.get('Effet'): char_lines.append(f"**Effet :** `{stats.get('Effet')}`")
+                if stats.get('Cbd'): char_lines.append(f"**CBD :** `{stats.get('Cbd')}`")
 
-            return f"{price_text}\n{note_text}\n" + '\n'.join(char_lines)
+            # On assemble le tout
+            final_value = f"{price_text}\n{note_text}"
+            if char_lines:
+                final_value += "\n\n" + "\n".join(char_lines)
+            
+            return final_value
 
-        # Ajouter les deux produits comme des champs "inline"
-        embed.add_field(name=f"__**{produit1}**__", value=format_product_field(p1_data, p1_rating), inline=True)
-        embed.add_field(name=f"__**{produit2}**__", value=format_product_field(p2_data, p2_rating), inline=True)
+        embed.add_field(name=f"__**{p1_data['name']}**__", value=format_product_field(p1_data, p1_rating), inline=True)
+        embed.add_field(name=f"__**{p2_data['name']}**__", value=format_product_field(p2_data, p2_rating), inline=True)
 
         await interaction.followup.send(embed=embed, ephemeral=True)
-        
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(SlashCommands(bot))
     await bot.add_cog(ConfigCog(bot))
