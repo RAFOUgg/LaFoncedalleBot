@@ -537,9 +537,8 @@ def get_shop_stats():
         "monthly_order_count": monthly_order_count
     })
 
-# Ajoutez cette fonction à la fin de app.py
-@app.route('/api/get_full_comparison', methods=['POST'])
-def get_full_comparison():
+@app.route('/api/get_comparison_data', methods=['POST'])
+def get_comparison_data():
     data = request.json
     p1_name_query = data.get('product1_name')
     p2_name_query = data.get('product2_name')
@@ -551,11 +550,13 @@ def get_full_comparison():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # On utilise une seule requête pour obtenir les moyennes de notes
+        # Une seule requête qui calcule tout ce dont nous avons besoin
         query = """
             SELECT product_name, 
-                   AVG((COALESCE(visual_score,0)+COALESCE(smell_score,0)+COALESCE(touch_score,0)+COALESCE(taste_score,0)+COALESCE(effects_score,0))/5.0) as avg_score,
-                   COUNT(id) as count
+                   COUNT(id) as count,
+                   AVG((COALESCE(visual_score,0)+COALESCE(smell_score,0)+COALESCE(touch_score,0)+COALESCE(taste_score,0)+COALESCE(effects_score,0))/5.0) as avg_total,
+                   AVG(visual_score), AVG(smell_score), AVG(touch_score), 
+                   AVG(taste_score), AVG(effects_score)
             FROM ratings
             WHERE product_name LIKE ? OR product_name LIKE ?
             GROUP BY product_name
@@ -564,13 +565,22 @@ def get_full_comparison():
         results = cursor.fetchall()
         conn.close()
 
-        # On transforme les résultats en un dictionnaire pour un accès facile
-        ratings_map = {row[0]: {"avg": row[1], "count": row[2]} for row in results}
+        # Transformer les résultats en un dictionnaire facile à utiliser
+        data_map = {}
+        for row in results:
+            data_map[row[0]] = {
+                "count": row[1],
+                "avg_total": row[2],
+                "details": {
+                    'Visuel': row[3], 'Odeur': row[4], 'Toucher': row[5],
+                    'Goût': row[6], 'Effets': row[7]
+                }
+            }
 
-        return jsonify(ratings_map), 200
+        return jsonify(data_map), 200
 
     except Exception as e:
-        Logger.error(f"Erreur API dans get_full_comparison: {e}")
+        Logger.error(f"Erreur API dans get_comparison_data: {e}")
         traceback.print_exc()
         return jsonify({"error": "Erreur interne du serveur."}), 500
     

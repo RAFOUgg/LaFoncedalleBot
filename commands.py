@@ -33,78 +33,34 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
 # --- VUES ET MODALES ---
 
 class CompareView(discord.ui.View):
-    def __init__(self, product1_name: str, product2_name: str):
+    # [MODIFIÉ] La vue stocke maintenant les données détaillées complètes
+    def __init__(self, p1_data: dict, p2_data: dict):
         super().__init__(timeout=300)
-        self.product1_name = product1_name
-        self.product2_name = product2_name
+        self.p1_data = p1_data
+        self.p2_data = p2_data
 
-    @discord.ui.button(label="📊 Comparer les Notes", style=discord.ButtonStyle.secondary)
-    async def compare_notes(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True, thinking=True)
+    @discord.ui.button(label="📊 Comparer les Notes Détaillées", style=discord.ButtonStyle.secondary)
+    async def compare_notes_detailed(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Plus besoin d'appel API, les données sont déjà là !
+        await interaction.response.defer(ephemeral=True)
         
         button.disabled = True
         await interaction.message.edit(view=self)
 
-        try:
-            # [CORRECTION] On appelle l'API au lieu de la base de données
-            import aiohttp
-            api_url = f"{APP_URL}/api/get_comparison_notes"
-            payload = {
-                "product1_name": self.product1_name,
-                "product2_name": self.product2_name
-            }
+        embed = create_styled_embed(
+            title="📊 Comparaison des Notes Détaillées",
+            description="Voici les notes moyennes pour chaque critère.",
+            show_logo=False,
+            color=discord.Color.teal()
+        )
 
-            async with aiohttp.ClientSession() as session:
-                # On utilise le port 10000 car c'est celui exposé par Nginx/Docker
-                # Note: Assurez-vous que APP_URL est bien http://VOTRE_IP:10000
-                async with session.post(api_url, json=payload, timeout=20) as response:
-                    if not response.ok:
-                        error_text = await response.text()
-                        raise Exception(f"L'API a retourné une erreur {response.status}: {error_text}")
-                    data = await response.json()
-                    results = data.get("notes", [])
+        def format_scores(scores_dict):
+            return "\n".join([f"**{cat} :** `{score:.2f}/10`" for cat, score in scores_dict.items() if score is not None])
 
-            if len(results) < 2:
-                await interaction.followup.send("😕 Impossible de comparer, il manque des notes pour l'un des produits.", ephemeral=True)
-                return
+        embed.add_field(name=f"1️⃣ {self.p1_data['name']}", value=format_scores(self.p1_data['rating']['details']), inline=True)
+        embed.add_field(name=f"2️⃣ {self.p2_data['name']}", value=format_scores(self.p2_data['rating']['details']), inline=True)
 
-            # Logique pour trier les résultats (ne change pas)
-            scores1, scores2 = None, None
-            db_name1, db_name2 = self.product1_name, self.product2_name
-
-            for item in results:
-                db_name = item["product_name"]
-                scores = {
-                    'Visuel': item["visual_score"], 'Odeur': item["smell_score"], 'Toucher': item["touch_score"],
-                    'Goût': item["taste_score"], 'Effets': item["effects_score"]
-                }
-                if self.product1_name in db_name and scores1 is None:
-                    scores1 = scores
-                    db_name1 = db_name
-                elif self.product2_name in db_name and scores2 is None:
-                    scores2 = scores
-                    db_name2 = db_name
-            
-            # Création de l'embed (ne change pas)
-            embed = create_styled_embed(
-                title=f"📊 Comparaison des Notes",
-                description="Voici les notes moyennes détaillées pour chaque produit.",
-                show_logo=False,
-                color=discord.Color.teal()
-            )
-
-            def format_scores(scores_dict):
-                return "\n".join([f"**{cat} :** `{score:.2f}/10`" for cat, score in scores_dict.items() if score is not None])
-
-            embed.add_field(name=f"1️⃣ {db_name1}", value=format_scores(scores1), inline=True)
-            embed.add_field(name=f"2️⃣ {db_name2}", value=format_scores(scores2), inline=True)
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
-
-        except Exception as e:
-            Logger.error(f"Échec de la comparaison textuelle des notes : {e}")
-            traceback.print_exc()
-            await interaction.followup.send("❌ Oups ! Une erreur est survenue lors de la récupération des notes.", ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 class HelpView(discord.ui.View):
     def __init__(self, cog_instance):
@@ -2485,78 +2441,69 @@ class SlashCommands(commands.Cog):
     # Dans commands.py, remplacez la méthode comparer de la classe SlashCommands
 
     @app_commands.command(name="comparer", description="Compare deux produits côte à côte.")
-@app_commands.autocomplete(produit1=product_autocomplete, produit2=product_autocomplete)
-@app_commands.describe(
-    produit1="Le premier produit à comparer.",
-    produit2="Le second produit à comparer."
-)
-async def comparer(self, interaction: discord.Interaction, produit1: str, produit2: str):
-    await interaction.response.defer(ephemeral=True)
+    @app_commands.autocomplete(produit1=product_autocomplete, produit2=product_autocomplete)
+    @app_commands.describe(produit1="Le premier produit à comparer.", produit2="Le second produit à comparer.")
+    async def comparer(self, interaction: discord.Interaction, produit1: str, produit2: str):
+        await interaction.response.defer(ephemeral=True)
 
-    try:
-        if produit1.lower() == produit2.lower():
-            return await interaction.followup.send("❌ Veuillez choisir deux produits différents.", ephemeral=True)
+        try:
+            if produit1.lower() == produit2.lower():
+                return await interaction.followup.send("❌ Veuillez choisir deux produits différents.", ephemeral=True)
 
-        # 1. On récupère les données des produits depuis le cache du bot (qui est en mémoire)
-        product_map = {p['name'].lower(): p for p in self.bot.product_cache.get('products', [])}
-        p1_data = next((p for p_name, p in product_map.items() if produit1 in p_name), None)
-        p2_data = next((p for p_name, p in product_map.items() if produit2 in p_name), None)
+            product_map = {p['name'].lower(): p for p in self.bot.product_cache.get('products', [])}
+            p1_data = next((p for p_name, p in product_map.items() if produit1 in p_name), None)
+            p2_data = next((p for p_name, p in product_map.items() if produit2 in p_name), None)
 
-        if not p1_data or not p2_data:
-            missing = f"'{produit1 if not p1_data else produit2}'"
-            return await interaction.followup.send(f"😕 Impossible de trouver les informations pour {missing}.", ephemeral=True)
+            if not p1_data or not p2_data:
+                return await interaction.followup.send("😕 Impossible de trouver les informations pour un des produits.", ephemeral=True)
 
-        # 2. On appelle notre NOUVELLE API pour obtenir les notes
-        import aiohttp
-        api_url = f"{APP_URL}/api/get_full_comparison"
-        payload = {"product1_name": produit1, "product2_name": produit2}
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(api_url, json=payload) as response:
-                if not response.ok:
-                    raise Exception(f"API Error {response.status}: {await response.text()}")
-                api_data = await response.json()
-        
-        # On trouve les données de notes correspondantes
-        p1_rating = next((data for name, data in api_data.items() if produit1 in name), None)
-        p2_rating = next((data for name, data in api_data.items() if produit2 in name), None)
-
-        # 3. On construit l'embed (logique de comparaison)
-        summary_lines = []
-        if p1_rating and p2_rating:
-            if p1_rating['avg'] > p2_rating['avg']:
-                summary_lines.append(f"⭐ **Mieux noté :** {p1_data['name']}")
-            else:
-                summary_lines.append(f"⭐ **Mieux noté :** {p2_data['name']}")
-        
-        summary_text = "\n".join(summary_lines)
-        description_text = f"Voici un résumé des caractéristiques et des notes.\n\n**En bref :**\n{summary_text}" if summary_lines else "Voici un résumé des caractéristiques et des notes."
-        embed = create_styled_embed(title=f"⚔️ Comparaison : {p1_data['name']} vs {p2_data['name']}", description=description_text, color=discord.Color.orange())
-
-        # Fonction interne pour formater chaque champ de produit
-        def format_product_field(p_data, p_rating):
-            price_text = f"💰 **Prix :** {p_data.get('price', 'N/A')}"
-            note_text = "⭐ **Note :** N/A"
-            if p_rating:
-                note_text = f"⭐ **Note :** **{p_rating['avg']:.2f}/10** ({p_rating['count']} avis)"
+            import aiohttp
+            api_url = f"{APP_URL}/api/get_comparison_data"
+            payload = {"product1_name": produit1, "product2_name": produit2}
             
-            stats = p_data.get('stats', {})
-            gout = next((v for k, v in stats.items() if k.lower() in ['goût', 'gout']), "N/A")
-            effet = stats.get('Effet', "N/A")
+            async with aiohttp.ClientSession() as session:
+                async with session.post(api_url, json=payload) as response:
+                    if not response.ok:
+                        raise Exception(f"API Error {response.status}: {await response.text()}")
+                    api_data = await response.json()
+            
+            p1_rating = next((data for name, data in api_data.items() if produit1 in name), None)
+            p2_rating = next((data for name, data in api_data.items() if produit2 in name), None)
 
-            return f"{price_text}\n{note_text}\n\n👅 **Goût :** {gout}\n🧠 **Effet :** {effet}"
+            summary_lines = []
+            if p1_rating and p2_rating:
+                if p1_rating['avg_total'] > p2_rating['avg_total']:
+                    summary_lines.append(f"⭐ **Mieux noté :** {p1_data['name']}")
+                else:
+                    summary_lines.append(f"⭐ **Mieux noté :** {p2_data['name']}")
+            
+            description_text = f"Voici un résumé des caractéristiques.\n\n**En bref :**\n" + "\n".join(summary_lines) if summary_lines else "Voici un résumé des caractéristiques."
+            embed = create_styled_embed(title=f"⚔️ Comparaison : {p1_data['name']} vs {p2_data['name']}", description=description_text, color=discord.Color.orange())
 
-        embed.add_field(name=f"1️⃣ {p1_data['name']}", value=format_product_field(p1_data, p1_rating), inline=True)
-        embed.add_field(name=f"2️⃣ {p2_data['name']}", value=format_product_field(p2_data, p2_rating), inline=True)
+            def format_product_field(p_data, p_rating):
+                price_text = f"💰 **Prix :** {p_data.get('price', 'N/A')}"
+                note_text = "⭐ **Note :** N/A"
+                if p_rating:
+                    note_text = f"⭐ **Note :** **{p_rating['avg_total']:.2f}/10** ({p_rating['count']} avis)"
+                stats = p_data.get('stats', {})
+                gout = next((v for k, v in stats.items() if k.lower() in ['goût', 'gout']), "N/A")
+                effet = stats.get('Effet', "N/A")
+                return f"{price_text}\n{note_text}\n\n👅 **Goût :** {gout}\n🧠 **Effet :** {effet}"
 
-        # 4. On envoie l'embed avec le bouton
-        view = CompareView(p1_data['name'], p2_data['name'])
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            embed.add_field(name=f"1️⃣ {p1_data['name']}", value=format_product_field(p1_data, p1_rating), inline=True)
+            embed.add_field(name=f"2️⃣ {p2_data['name']}", value=format_product_field(p2_data, p2_rating), inline=True)
+            
+            # On stocke toutes les données pour la vue
+            p1_full_data = {"name": p1_data['name'], "rating": p1_rating}
+            p2_full_data = {"name": p2_data['name'], "rating": p2_rating}
+            
+            view = CompareView(p1_full_data, p2_full_data)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
-    except Exception as e:
-        Logger.error(f"Erreur majeure dans la commande /comparer : {e}")
-        traceback.print_exc()
-        await interaction.followup.send("❌ Oups, une erreur critique est survenue. Le staff a été notifié.", ephemeral=True)
+        except Exception as e:
+            Logger.error(f"Erreur majeure dans la commande /comparer : {e}")
+            traceback.print_exc()
+            await interaction.followup.send("❌ Oups, une erreur critique est survenue. Le staff a été notifié.", ephemeral=True)
         
 
 async def setup(bot: commands.Bot):
