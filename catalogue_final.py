@@ -91,7 +91,6 @@ def get_site_data_from_graphql():
     """
     Récupère toutes les données du site (produits, collections, méta-champs)
     en une seule requête GraphQL pour éviter le rate limiting.
-    [VERSION 2.1 - CORRECTION INDEXERROR]
     """
     Logger.info("Démarrage de la récupération via GraphQL Shopify...")
     
@@ -183,123 +182,6 @@ def get_site_data_from_graphql():
         Logger.error(f"CRITIQUE lors de la récupération via GraphQL Shopify : {e}")
         traceback.print_exc()
         return None
-
-
-# [MODIFIÉ]
-def get_site_data_from_api():
-    """
-    Version FINALE ET ROBUSTE : Catégorise les produits en se basant sur leurs collections
-    ET ne récupère QUE les produits PUBLIÉS sur la boutique en ligne.
-    Cette version est refactorisée pour utiliser une fonction d'aide.
-    """
-    Logger.info("Démarrage de la récupération via API Shopify (par collection)...")
-    
-    try:
-        shop_url = os.getenv('SHOPIFY_SHOP_URL')
-        api_version = os.getenv('SHOPIFY_API_VERSION')
-        access_token = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
-
-        if not all([shop_url, api_version, access_token]): 
-            Logger.error("Identifiants Shopify manquants.")
-            return None
-
-        session = shopify.Session(shop_url, api_version, access_token)
-        shopify.ShopifyResource.activate_session(session)
-        shopify.Shop.current()
-
-        # --- ÉTAPE 1 : Récupérer la liste de tous les produits PUBLIÉS ---
-        published_products_api = shopify.Product.find(published_status='published', limit=250)
-        published_product_ids = {prod.id for prod in published_products_api}
-        Logger.info(f"{len(published_product_ids)} produits publiés trouvés sur la boutique.")
-
-        # --- ÉTAPE 2 : Récupérer les promotions ---
-        general_promos = get_smart_promotions_from_api()
-
-        # --- ÉTAPE 3 : Traiter les collections pour catégoriser les produits ---
-        collection_keyword_map = {
-            "hash": "hash",
-            "weed": "weed",
-            "box": "box",
-        }
-        
-        all_products = {} 
-        gids_to_resolve = set()
-
-        collections = shopify.CustomCollection.find()
-        
-        for collection in collections:
-            collection_title_lower = collection.title.lower()
-            category = None
-            
-            for keyword, cat in collection_keyword_map.items():
-                if keyword in collection_title_lower:
-                    category = cat
-                    break
-
-            if category:
-                Logger.info(f"Analyse des produits de la collection '{collection.title}'...")
-                products_in_collection = collection.products()
-                
-                for prod in products_in_collection:
-                    if prod.id not in published_product_ids or prod.id in all_products:
-                        continue
-                    
-                    if any(kw in prod.title.lower() for kw in ["telegram", "instagram", "tiktok"]):
-                        continue
-
-                    # On appelle la fonction d'aide pour extraire les données
-                    product_data = _extract_product_data(prod, category, gids_to_resolve)
-                    all_products[prod.id] = product_data
-
-        # --- Logique de Fallback pour les produits hors-collection (ex: accessoires) ---
-        Logger.info("Recherche des produits hors-collections (type accessoires)...")
-        for prod in published_products_api:
-            if prod.id in all_products:
-                continue
-            
-            if any(kw in prod.title.lower() for kw in ["briquet", "feuille", "grinder", "accessoire"]):
-                # On réutilise la même fonction d'aide, beaucoup plus propre !
-                product_data = _extract_product_data(prod, "accessoire", gids_to_resolve)
-                all_products[prod.id] = product_data
-                Logger.info(f"Produit accessoire trouvé : {prod.title}")
-
-        raw_products_data = list(all_products.values())
-        
-        # --- ÉTAPE 4 : Résolution des GIDs ---
-        gid_url_map = {}
-        if gids_to_resolve:
-            Logger.info(f"Résolution de {len(gids_to_resolve)} GIDs pour les fichiers...")
-            client = shopify.GraphQL()
-            result_json = client.execute(RESOLVE_FILES_QUERY, variables={"ids": list(gids_to_resolve)})
-            result = json.loads(result_json)
-            for node in result.get('data', {}).get('nodes', []):
-                if node:
-                    gid = node.get('id')
-                    url = node.get('url') or (node.get('image', {}).get('url') if 'image' in node else None)
-                    if gid and url: 
-                        gid_url_map[gid] = url
-
-        # --- ÉTAPE 5 : Finalisation des données ---
-        final_products = []
-        for product_data in raw_products_data:
-            for key, value in product_data['stats'].items():
-                # Remplace les GID par les URL résolues
-                if isinstance(value, str) and value in gid_url_map:
-                    product_data['stats'][key] = gid_url_map[value]
-            final_products.append(product_data)
-
-        Logger.success(f"Récupération API terminée. {len(final_products)} produits PUBLIÉS valides trouvés.")
-        return {"timestamp": a_time.time(), "products": final_products, "general_promos": general_promos}
-
-    except Exception as e:
-        Logger.error(f"CRITIQUE lors de la récupération via API Shopify : {repr(e)}")
-        traceback.print_exc()
-        return None
-    finally:
-        if 'shopify' in locals() and shopify.ShopifyResource.get_session():
-            shopify.ShopifyResource.clear_session()
-
-# Dans catalogue_final.py
 
 async def post_weekly_selection(bot_instance: commands.Bot, guild_id_to_run: Optional[int] = None):
     async def run_for_guild(guild_id):
