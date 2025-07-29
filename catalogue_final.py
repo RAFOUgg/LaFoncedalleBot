@@ -63,11 +63,9 @@ query getFiles($ids: [ID!]!) {
 
 def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve: set) -> dict:
     """
-    Extrait, nettoie et formate les données d'un seul objet produit Shopify.
-    [VERSION FINALE CORRIGÉE]
+    [VERSION DE DÉBOGAGE] Affiche tous les méta-champs d'une box pour trouver le bon.
     """
     product_data = {}
-    
     product_data['name'] = prod.title
     product_data['product_url'] = f"https://la-foncedalle.fr/products/{prod.handle}"
     product_data['image'] = prod.image.src if prod.image else None
@@ -79,6 +77,7 @@ def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve:
     product_data['detailed_description'] = BeautifulSoup(desc_html, 'html.parser').get_text(separator='\n', strip=True) if desc_html else "Pas de description."
     
     # --- Gestion des Variants (inchangée) ---
+    # ... (le code pour le prix, etc., ne change pas)
     available_variants = [v for v in prod.variants if v.inventory_quantity > 0 or v.inventory_policy == 'continue']
     product_data['is_sold_out'] = not available_variants
     if available_variants:
@@ -92,42 +91,25 @@ def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve:
     else:
         product_data['price'] = "N/A"; product_data['is_promo'] = False; product_data['original_price'] = None
 
-    # --- [LOGIQUE ENTIÈREMENT CORRIGÉE] Extraction des Metafields ---
     product_data['stats'] = {}
     product_data['box_contents'] = []
     time.sleep(0.5)
-    
-    # Liste blanche des caractéristiques à afficher pour les produits simples
-    WHITELISTED_STATS = ['effet', 'gout', 'goût', 'cbd', 'thc']
 
+    # --- [MODIFICATION POUR DÉBOGAGE] ---
+    # Si le produit est une des box, on affiche tous ses méta-champs
+    if "box" in prod.title.lower():
+        print(f"\n--- [DEBUG] METAFIELDS POUR : {prod.title} ---")
+        for meta in prod.metafields():
+            print(f"  -> Namespace: {meta.namespace}")
+            print(f"  -> Key:       {meta.key}")
+            print(f"  -> Value:     {meta.value[:300]}...") # On tronque la valeur pour la lisibilité
+            print("-" * 20)
+        print("--- FIN DEBUG ---\n")
+    # --- FIN DE LA MODIFICATION DE DÉBOGAGE ---
+
+    # L'ancienne logique reste pour que le bot ne crashe pas
     for meta in prod.metafields():
-        key_lower = meta.key.lower()
-        value = meta.value
-
-        # Cas 1: C'est le méta-champ de composition pour une box
-        if category == 'box' and ('composition' in key_lower or 'contenu' in key_lower):
-            soup_meta = BeautifulSoup(value, 'html.parser')
-            # On cherche tous les éléments de texte, peu importe la balise
-            all_lines = soup_meta.get_text(separator='\n').split('\n')
-            content_items = []
-            for line in all_lines:
-                cleaned_line = line.strip()
-                # On ignore les lignes vides et les titres de section
-                if cleaned_line and not cleaned_line.lower().startswith(('les hash', 'les fleurs')):
-                    content_items.append(cleaned_line)
-            product_data['box_contents'] = content_items
-            # On passe au méta-champ suivant, on ne veut pas l'ajouter aux stats
-            continue
-
-        # Cas 2: C'est une caractéristique autorisée pour un produit normal
-        if key_lower in WHITELISTED_STATS:
-            key_formatted = meta.key.replace('_', ' ').capitalize()
-            product_data['stats'][key_formatted] = value
-
-        # Cas 3: C'est un fichier PDF/lien (on le garde pour les boutons de téléchargement)
-        if isinstance(value, str) and value.startswith("gid://shopify/"):
-            gids_to_resolve.add(value)
-            product_data['stats'][meta.key.replace('_', ' ').capitalize()] = value
+        product_data['stats'][meta.key] = meta.value
             
     return product_data
 
