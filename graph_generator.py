@@ -1,3 +1,4 @@
+# graph_generator.py
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -9,17 +10,15 @@ import traceback
 from typing import Dict, Any, List
 from shared_utils import Logger, DB_FILE
 
-# [NOUVEAU] Définir le chemin vers la police personnalisée
+# Chemin vers la police personnalisée (vérifiez que le nom de fichier est correct)
 FONT_PATH = os.path.join(os.path.dirname(__file__), 'assets', 'Gobold-Bold.otf')
 
 def create_radar_chart(product_name: str) -> str | None:
     """
-    [CORRIGÉ] Génère un graphique en toile d'araignée en utilisant une police personnalisée
-    et un style adapté à Discord.
-    Retourne le chemin vers le fichier image généré ou None en cas d'échec.
+    Génère un graphique en toile d'araignée pour un produit donné.
     """
     if not os.path.exists(FONT_PATH):
-        Logger.error(f"CRITIQUE: Fichier de police introuvable à l'emplacement '{FONT_PATH}'. Impossible de générer des graphiques.")
+        Logger.error(f"CRITIQUE: Fichier de police introuvable à '{FONT_PATH}'.")
         return None
         
     font_props = FontProperties(fname=FONT_PATH, size=12)
@@ -29,24 +28,17 @@ def create_radar_chart(product_name: str) -> str | None:
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT visual_score, smell_score, touch_score, taste_score, effects_score
-            FROM ratings
-            WHERE product_name = ?
-        """, (product_name,))
+        cursor.execute("SELECT visual_score, smell_score, touch_score, taste_score, effects_score FROM ratings WHERE product_name = ?", (product_name,))
         all_ratings = cursor.fetchall()
 
         if not all_ratings:
-            Logger.info(f"Aucune note trouvée pour '{product_name}'. Impossible de générer le graphique.")
+            Logger.info(f"Aucune note trouvée pour '{product_name}'.")
             return None
 
         all_ratings_np = np.array(all_ratings, dtype=float)
         mean_scores = np.nanmean(np.where(all_ratings_np == None, np.nan, all_ratings_np), axis=0)
-
         categories = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
         num_categories = len(categories)
-
         scores_for_plot = np.concatenate((mean_scores, [mean_scores[0]]))
         angles = np.linspace(0, 2 * np.pi, num_categories, endpoint=False).tolist()
         angles += angles[:1]
@@ -54,33 +46,22 @@ def create_radar_chart(product_name: str) -> str | None:
         fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
         fig.patch.set_facecolor('#2f3136')
         ax.set_facecolor('#2f3136')
-
         ax.plot(angles, scores_for_plot, color='#5865F2', linewidth=2)
         ax.fill(angles, scores_for_plot, color='#5865F2', alpha=0.25)
-
-        # Grille et étiquettes
         ax.set_ylim(0, 10)
-        
-        # [CORRECTION FINALE] On sépare la définition des positions de la grille et son style.
-        # 1. On définit où placer les cercles de la grille et leurs étiquettes.
         ax.set_rgrids([2, 4, 6, 8], angle=90)
-        # 2. On stylise les lignes de la grille (radiales ET angulaires) avec ax.grid()
         ax.grid(color="gray", linestyle='--', linewidth=0.5)
-
         ax.set_thetagrids(np.degrees(angles[:-1]), categories)
 
-        # Style des étiquettes texte de la grille
         for label in ax.get_xticklabels():
             label.set_fontproperties(font_props)
             label.set_color('white')
             label.set_y(label.get_position()[1] * 1.1)
-
         for label in ax.get_yticklabels():
             label.set_fontproperties(FontProperties(fname=FONT_PATH, size=10))
             label.set_color('darkgrey')
         
         ax.spines['polar'].set_color('gray')
-        
         ax.set_title(f'Profil de saveur : {product_name}\n', fontproperties=font_props_title, color='white')
 
         output_dir = "charts"
@@ -89,26 +70,23 @@ def create_radar_chart(product_name: str) -> str | None:
         
         plt.savefig(filename, bbox_inches='tight', dpi=120, transparent=True)
         plt.close(fig)
-
-        Logger.success(f"Graphique généré pour '{product_name}' : {filename}")
         return filename
-
     except Exception as e:
-        Logger.error(f"Erreur inattendue lors de la génération du graphique pour '{product_name}': {e}")
+        Logger.error(f"Erreur inattendue dans create_radar_chart pour '{product_name}': {e}")
         traceback.print_exc()
         return None
     finally:
         if conn:
             conn.close()
 
-# Ajoutez cette nouvelle fonction à la fin de graph_generator.py
 
 def create_comparison_radar_chart(product1_name: str, product2_name: str) -> str | None:
     """
-    [CORRIGÉ] Génère un seul graphique radar superposant les données de deux produits.
+    [CORRIGÉ] Génère un seul graphique radar superposant les données de deux produits,
+    en gérant les noms de produits de manière robuste.
     """
     if not os.path.exists(FONT_PATH):
-        Logger.error(f"CRITIQUE: Fichier de police introuvable à l'emplacement '{FONT_PATH}'. Impossible de générer des graphiques.")
+        Logger.error(f"CRITIQUE: Fichier de police introuvable à '{FONT_PATH}'.")
         return None
         
     font_props = FontProperties(fname=FONT_PATH, size=12)
@@ -119,48 +97,56 @@ def create_comparison_radar_chart(product1_name: str, product2_name: str) -> str
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-
-        # Récupérer les notes pour les deux produits en une seule requête
-        cursor.execute("""
+        
+        # [CORRECTION] Utilisation de LIKE pour trouver les produits même si le nom contient des emojis/caractères spéciaux
+        query = """
             SELECT product_name, 
                    AVG(visual_score), AVG(smell_score), AVG(touch_score), 
                    AVG(taste_score), AVG(effects_score)
             FROM ratings
-            WHERE product_name IN (?, ?)
+            WHERE product_name LIKE ? OR product_name LIKE ?
             GROUP BY product_name
-        """, (product1_name, product2_name))
+        """
+        # On ajoute des '%' pour que la recherche soit flexible
+        cursor.execute(query, (f'%{product1_name}%', f'%{product2_name}%'))
         results = cursor.fetchall()
 
-        if len(results) < 2:
-            Logger.warning(f"Données insuffisantes pour comparer '{product1_name}' et '{product2_name}'. Un des produits n'a pas de notes.")
+        # [CORRECTION] Logique robuste pour extraire les données
+        scores1, scores2 = None, None
+        db_name1, db_name2 = product1_name, product2_name # Noms par défaut
+
+        for row in results:
+            db_name = row[0]
+            scores = np.array(row[1:], dtype=float)
+            # On vérifie si le nom de la BDD contient le nom passé en argument
+            if product1_name in db_name and scores1 is None:
+                scores1 = scores
+                db_name1 = db_name # On sauvegarde le vrai nom avec emoji
+            elif product2_name in db_name and scores2 is None:
+                scores2 = scores
+                db_name2 = db_name # On sauvegarde le vrai nom avec emoji
+
+        if scores1 is None or scores2 is None:
+            Logger.warning(f"Données insuffisantes pour comparer '{product1_name}' et '{product2_name}'.")
             return None
         
-        # Organiser les données dans un dictionnaire pour un accès facile
-        scores_map = {row[0]: np.array(row[1:], dtype=float) for row in results}
-
         categories = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
         num_categories = len(categories)
-
         angles = np.linspace(0, 2 * np.pi, num_categories, endpoint=False).tolist()
-        angles += angles[:1] # Fermer le cercle
+        angles += angles[:1]
 
         fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
         fig.patch.set_facecolor('#2f3136')
         ax.set_facecolor('#2f3136')
 
-        # --- Dessiner le Produit 1 ---
-        scores1 = scores_map[product1_name]
         scores_for_plot1 = np.concatenate((scores1, [scores1[0]]))
-        ax.plot(angles, scores_for_plot1, color='#5865F2', linewidth=2, label=product1_name) # Bleu Discord
+        ax.plot(angles, scores_for_plot1, color='#5865F2', linewidth=2, label=db_name1)
         ax.fill(angles, scores_for_plot1, color='#5865F2', alpha=0.2)
 
-        # --- Dessiner le Produit 2 ---
-        scores2 = scores_map[product2_name]
         scores_for_plot2 = np.concatenate((scores2, [scores2[0]]))
-        ax.plot(angles, scores_for_plot2, color='#57F287', linewidth=2, label=product2_name) # Vert Discord
+        ax.plot(angles, scores_for_plot2, color='#57F287', linewidth=2, label=db_name2)
         ax.fill(angles, scores_for_plot2, color='#57F287', alpha=0.2)
         
-        # Configuration de l'axe et de la grille
         ax.set_ylim(0, 10)
         ax.set_rgrids([2, 4, 6, 8], angle=90)
         ax.grid(color="gray", linestyle='--', linewidth=0.5)
@@ -170,33 +156,27 @@ def create_comparison_radar_chart(product1_name: str, product2_name: str) -> str
             label.set_fontproperties(font_props)
             label.set_color('white')
             label.set_y(label.get_position()[1] * 1.1)
-
         for label in ax.get_yticklabels():
             label.set_fontproperties(FontProperties(fname=FONT_PATH, size=10))
             label.set_color('darkgrey')
         
         ax.spines['polar'].set_color('gray')
         
-        # Titre et Légende
         ax.set_title('Comparaison des Profils de Saveur\n', fontproperties=font_props_title, color='white')
         legend = ax.legend(loc='upper right', bbox_to_anchor=(1.4, 1.1))
         for text in legend.get_texts():
             text.set_fontproperties(font_props_legend)
             text.set_color('white')
 
-        # Sauvegarde
         output_dir = "charts"
         os.makedirs(output_dir, exist_ok=True)
         filename = f"{output_dir}/comparison_chart_{int(time.time())}.png"
         
         plt.savefig(filename, bbox_inches='tight', dpi=120, transparent=True)
         plt.close(fig)
-
-        Logger.success(f"Graphique de comparaison généré : {filename}")
         return filename
-
     except Exception as e:
-        Logger.error(f"Erreur inattendue lors de la génération du graphique de comparaison : {e}")
+        Logger.error(f"Erreur inattendue dans create_comparison_radar_chart : {e}")
         traceback.print_exc()
         return None
     finally:
