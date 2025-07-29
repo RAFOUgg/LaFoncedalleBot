@@ -38,42 +38,71 @@ class CompareView(discord.ui.View):
         self.product1_name = product1_name
         self.product2_name = product2_name
 
-    @discord.ui.button(label="📊 Comparer les Graphiques", style=discord.ButtonStyle.secondary)
-    async def compare_graphs(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="📊 Comparer les Notes", style=discord.ButtonStyle.secondary) # Changement de label
+    async def compare_notes(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
         
         button.disabled = True
         await interaction.message.edit(view=self)
 
-        chart_path = None
         try:
-            # On appelle notre nouvelle fonction de comparaison en une seule fois
-            chart_path = await asyncio.to_thread(
-                create_comparison_radar_chart, 
-                self.product1_name, 
-                self.product2_name
+            # Récupérer les données des deux produits en une seule fois
+            def _fetch_comparison_data_sync(p1, p2):
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                query = """
+                    SELECT product_name, 
+                           AVG(visual_score), AVG(smell_score), AVG(touch_score), 
+                           AVG(taste_score), AVG(effects_score)
+                    FROM ratings
+                    WHERE product_name LIKE ? OR product_name LIKE ?
+                    GROUP BY product_name
+                """
+                cursor.execute(query, (f'%{p1}%', f'%{p2}%'))
+                return cursor.fetchall()
+
+            results = await asyncio.to_thread(_fetch_comparison_data_sync, self.product1_name, self.product2_name)
+
+            scores1, scores2 = None, None
+            db_name1, db_name2 = self.product1_name, self.product2_name
+
+            for row in results:
+                db_name = row[0]
+                scores = {
+                    'Visuel': row[1], 'Odeur': row[2], 'Toucher': row[3],
+                    'Goût': row[4], 'Effets': row[5]
+                }
+                if self.product1_name in db_name and scores1 is None:
+                    scores1 = scores
+                    db_name1 = db_name
+                elif self.product2_name in db_name and scores2 is None:
+                    scores2 = scores
+                    db_name2 = db_name
+
+            if scores1 is None or scores2 is None:
+                await interaction.followup.send("😕 Impossible de comparer, il manque des notes pour l'un des produits.", ephemeral=True)
+                return
+            
+            # Création de l'embed de comparaison textuel
+            embed = create_styled_embed(
+                title=f"📊 Comparaison des Notes",
+                description="Voici les notes moyennes détaillées pour chaque produit.",
+                show_logo=False,
+                color=discord.Color.teal()
             )
 
-            if chart_path:
-                file = discord.File(chart_path, filename="comparison_chart.png")
-                embed = create_styled_embed(
-                    title="📊 Comparaison Graphique",
-                    description=f"Voici les profils de **{self.product1_name}** et **{self.product2_name}** superposés.",
-                    show_logo=False # On cache le logo pour laisser plus de place à l'image
-                ).set_image(url="attachment://comparison_chart.png")
-                
-                await interaction.followup.send(embed=embed, file=file, ephemeral=True)
-            else:
-                await interaction.followup.send("😕 Impossible de générer le graphique de comparaison, il n'y a probablement pas assez de notes pour l'un des produits.", ephemeral=True)
+            def format_scores(scores_dict):
+                return "\n".join([f"**{cat} :** `{score:.2f}/10`" for cat, score in scores_dict.items() if score is not None])
+
+            embed.add_field(name=f"1️⃣ {db_name1}", value=format_scores(scores1), inline=True)
+            embed.add_field(name=f"2️⃣ {db_name2}", value=format_scores(scores2), inline=True)
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
         except Exception as e:
-            Logger.error(f"Échec critique dans la vue de comparaison de graphiques : {e}")
+            Logger.error(f"Échec de la comparaison textuelle des notes : {e}")
             traceback.print_exc()
-            await interaction.followup.send("❌ Oups ! Une erreur majeure est survenue. Le staff a été notifié.", ephemeral=True)
-            
-        finally:
-            if chart_path and os.path.exists(chart_path):
-                os.remove(chart_path)
+            await interaction.followup.send("❌ Oups ! Une erreur est survenue lors de la récupération des notes.", ephemeral=True)
 
 class HelpView(discord.ui.View):
     def __init__(self, cog_instance):
