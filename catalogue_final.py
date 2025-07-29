@@ -86,7 +86,16 @@ query getProductsWithMetafields {
   }
 }
 """
-
+RESOLVE_FILES_QUERY = """
+query getFiles($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    ... on GenericFile {
+      id
+      url
+    }
+  }
+}
+"""
 # Dans catalogue_final.py
 
 # Dans catalogue_final.py
