@@ -2042,12 +2042,13 @@ class SlashCommands(commands.Cog):
             status_text += f"✅ **API Shopify :** `Connectée en {round((end_time - start_time) * 1000)} ms`\n"
         except Exception:
             status_text += f"❌ **API Shopify :** `Échec de connexion`\n"
-
+        start_time = time.time()
         try:
             import requests
+            duration = round((time.time() - start_time) * 1000)
             res = await asyncio.to_thread(requests.get, f"{APP_URL}/", timeout=5)
             res.raise_for_status()
-            status_text += f"✅ **API Flask :** `En ligne ({res.status_code})`\n"
+            status_text += f"✅ **API Flask :** `En ligne ({duration} ms)`\n"
         except Exception:
             status_text += f"❌ **API Flask :** `Injoignable ou erreur`\n"
         
@@ -2581,52 +2582,6 @@ class SlashCommands(commands.Cog):
         
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         
-    @app_commands.command(name="ping_api", description="[STAFF] Teste la connexion à l'API Flask interne.")
-    @app_commands.check(is_staff_or_owner)
-    async def ping_api(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        
-        api_url = os.getenv('APP_URL')
-        if not api_url:
-            await interaction.followup.send("❌ La variable d'environnement `APP_URL` n'est pas définie.", ephemeral=True)
-            return
-        
-        import aiohttp
-        import time
-        start_time = time.time()
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(api_url, timeout=10) as response:
-                    duration = round((time.time() - start_time) * 1000)
-                    if response.ok:
-                        content = await response.text()
-                        await interaction.followup.send(
-                            f"✅ **Succès !**\n"
-                            f"L'API a répondu en `{duration} ms`.\n"
-                            f"**Statut :** `{response.status}`\n"
-                            f"**Réponse :** ```{content[:1500]}```",
-                            ephemeral=True
-                        )
-                    else:
-                        content = await response.text()
-                        await interaction.followup.send(
-                            f"⚠️ **Échec de la connexion.**\n"
-                            f"L'API a répondu en `{duration} ms` mais avec une erreur.\n"
-                            f"**Statut :** `{response.status}`\n"
-                            f"**Réponse :** ```{content[:1500]}```",
-                            ephemeral=True
-                        )
-
-        except Exception as e:
-            duration = round((time.time() - start_time) * 1000)
-            await interaction.followup.send(
-                f"❌ **Erreur Critique de Connexion !**\n"
-                f"La requête a échoué après `{duration} ms`.\n"
-                f"**Erreur :** ```{e}```\n"
-                f"Vérifiez que le service API est bien nommé `lafoncedalleapi` dans `docker-compose.yml` et que les deux services sont sur le même réseau.",
-                ephemeral=True
-            )
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SlashCommands(bot))
