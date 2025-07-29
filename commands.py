@@ -442,6 +442,16 @@ class DebugView(discord.ui.View):
         except Exception as e:
             await interaction.followup.send(f"❌ **Échec de la synchronisation :**\n```py\n{e}\n```", ephemeral=True)
 
+    @discord.ui.button(label="👥 Forcer la Synchro Rôles", style=discord.ButtonStyle.success, row=1)
+    async def force_sync_roles(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        try:
+            # On appelle la fonction attachée à l'instance du bot
+            await self.bot.sync_all_loyalty_roles(self.bot)
+            await interaction.followup.send("✅ **Succès !** La tâche de synchronisation des rôles a été lancée pour tous les serveurs.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ **Échec de la synchronisation des rôles :**\n```py\n{e}\n```", ephemeral=True)
+
     @discord.ui.button(label="📢 Forcer la Publication du Menu", style=discord.ButtonStyle.success, row=0)
     async def force_publish(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(thinking=True, ephemeral=True)
@@ -475,6 +485,22 @@ class DebugView(discord.ui.View):
         except Exception as e:
             Logger.error(f"Erreur lors de l'envoi du fichier DB : {e}")
             await interaction.followup.send("Erreur lors de l'envoi du fichier de base de données.", ephemeral=True)
+
+    @discord.ui.button(label="📊 Afficher le Dashboard", style=discord.ButtonStyle.secondary, row=1)
+    async def show_dashboard(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        try:
+            if not interaction.guild: return await interaction.followup.send("❌ Action impossible en DM.", ephemeral=True)
+            
+            # On récupère le cog pour appeler la méthode de génération
+            slash_commands_cog = self.bot.get_cog("SlashCommands")
+            if not slash_commands_cog:
+                return await interaction.followup.send("❌ Erreur critique : le cog des commandes est introuvable.", ephemeral=True)
+            
+            dashboard_embed = await slash_commands_cog.generate_dashboard_embed(interaction.guild)
+            await interaction.followup.send(embed=dashboard_embed, ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ **Échec de la génération du dashboard :**\n```py\n{e}\n```", ephemeral=True)
 
     @discord.ui.button(label="🗑️ Vider le Cache Produits", style=discord.ButtonStyle.secondary, row=1)
     async def clear_cache(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1482,7 +1508,104 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
 class SlashCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+    
+    async def product_autocomplete(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+        # On récupère les produits depuis le cache du bot
+        products = self.bot.product_cache.get('products', [])
         
+        # On s'assure que la liste n'est pas vide et contient des dictionnaires avec une clé 'name'
+        if not products or not isinstance(products[0], dict):
+            return []
+
+        # On filtre les produits qui contiennent la saisie de l'utilisateur (insensible à la casse)
+        choices = [
+            prod['name'] for prod in products 
+            if 'name' in prod and current.lower() in prod['name'].lower()
+        ]
+        
+        # On retourne les 25 premiers résultats sous forme de Choice
+        return [
+            app_commands.Choice(name=choice, value=choice)
+            for choice in choices[:25]
+        ]
+    
+    async def generate_dashboard_embed(self, guild: discord.Guild) -> discord.Embed:
+        """
+        Récupère les statistiques et génère l'embed du dashboard pour un serveur.
+        """
+        # Période de temps pour les statistiques "récentes" (7 derniers jours)
+        one_week_ago_dt = datetime.utcnow() - timedelta(days=7)
+        one_week_ago_iso = one_week_ago_dt.isoformat()
+
+        # 1. Requêtes à la base de données (groupées pour l'efficacité)
+        def _fetch_stats_sync():
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            
+            # Statistiques globales
+            total_ratings = cursor.execute("SELECT COUNT(id) FROM ratings").fetchone()[0]
+            total_linked_accounts = cursor.execute("SELECT COUNT(discord_id) FROM user_links").fetchone()[0]
+            
+            # Statistiques de la semaine
+            weekly_ratings = cursor.execute("SELECT COUNT(id) FROM ratings WHERE rating_timestamp >= ?", (one_week_ago_iso,)).fetchone()[0]
+            weekly_active_raters = cursor.execute("SELECT COUNT(DISTINCT user_id) FROM ratings WHERE rating_timestamp >= ?", (one_week_ago_iso,)).fetchone()[0]
+            
+            # Produit le plus noté de la semaine
+            cursor.execute("""
+                SELECT product_name, COUNT(id) as count 
+                FROM ratings 
+                WHERE rating_timestamp >= ? 
+                GROUP BY product_name 
+                ORDER BY count DESC 
+                LIMIT 1
+            """, (one_week_ago_iso,))
+            top_product_row = cursor.fetchone()
+
+            conn.close()
+            return {
+                "total_ratings": total_ratings,
+                "total_linked": total_linked_accounts,
+                "weekly_ratings": weekly_ratings,
+                "weekly_raters": weekly_active_raters,
+                "top_product": top_product_row
+            }
+
+        db_stats = await asyncio.to_thread(_fetch_stats_sync)
+
+        # 2. Statistiques du serveur Discord
+        new_members_weekly = sum(1 for member in guild.members if not member.bot and member.joined_at and member.joined_at.replace(tzinfo=timezone.utc) > one_week_ago_dt.replace(tzinfo=timezone.utc))
+        
+        # 3. Création de l'embed
+        embed = create_styled_embed(
+            title=f"📊 Tableau de Bord - {guild.name}",
+            description=f"Aperçu de l'activité des 7 derniers jours.",
+            color=discord.Color.blue()
+        )
+        
+        # Section : Activité de la Semaine
+        weekly_stats_text = (
+            f"**Nouvelles Notes :** `{db_stats['weekly_ratings']}`\n"
+            f"**Noteurs Actifs :** `{db_stats['weekly_raters']}`\n"
+            f"**Nouveaux Membres :** `{new_members_weekly}`"
+        )
+        if db_stats['top_product']:
+            product_name, count = db_stats['top_product']
+            weekly_stats_text += f"\n**Produit Star :** *{product_name}* (`{count}` notes)"
+        
+        embed.add_field(name="📈 Activité de la Semaine", value=weekly_stats_text, inline=False)
+
+        # Section : Statistiques Globales
+        global_stats_text = (
+            f"**Notes Totales :** `{db_stats['total_ratings']}`\n"
+            f"**Comptes Liés au Total :** `{db_stats['total_linked']}`\n"
+            f"**Nombre de Membres :** `{guild.member_count}`"
+        )
+        embed.add_field(name="🌐 Statistiques Globales", value=global_stats_text, inline=False)
+        
+        embed.set_footer(text=f"Rapport généré le {datetime.now(paris_tz).strftime('%d/%m/%Y à %H:%M')}")
+        
+        return embed
+
     async def _update_all_user_roles(self, guild: discord.Guild, member: discord.Member):
         """
         Vérifie et synchronise TOUS les rôles de fidélité et de succès pour un membre.
@@ -2281,6 +2404,94 @@ class SlashCommands(commands.Cog):
         view = HelpView(self)
         await interaction.response.send_message(embed=view.main_embed, view=view, ephemeral=True)
 
+    @app_commands.command(name="comparer", description="Compare deux produits côte à côte.")
+    @app_commands.autocomplete(produit1=product_autocomplete, produit2=product_autocomplete)
+    @app_commands.describe(
+        produit1="Le premier produit à comparer.",
+        produit2="Le second produit à comparer."
+    )
+    async def comparer(self, interaction: discord.Interaction, produit1: str, produit2: str):
+        await interaction.response.defer(ephemeral=True)
+
+        # 1. Vérifier que les deux produits sont différents
+        if produit1.lower() == produit2.lower():
+            await interaction.followup.send("❌ Veuillez choisir deux produits différents à comparer.", ephemeral=True)
+            return
+
+        # 2. Récupérer les informations des produits depuis le cache
+        product_map = {p['name'].lower(): p for p in self.bot.product_cache.get('products', [])}
+        
+        p1_data = product_map.get(produit1.lower())
+        p2_data = product_map.get(produit2.lower())
+
+        if not p1_data or not p2_data:
+            missing = []
+            if not p1_data: missing.append(f"'{produit1}'")
+            if not p2_data: missing.append(f"'{produit2}'")
+            await interaction.followup.send(f"😕 Impossible de trouver les informations pour le(s) produit(s) : {', '.join(missing)}.", ephemeral=True)
+            return
+            
+        # 3. Récupérer les notes moyennes de la communauté pour les deux produits
+        def _get_avg_ratings(p1_name, p2_name):
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            query = """
+                SELECT 
+                    product_name, 
+                    AVG((COALESCE(visual_score,0) + COALESCE(smell_score,0) + COALESCE(touch_score,0) + COALESCE(taste_score,0) + COALESCE(effects_score,0)) / 5.0) as avg_score,
+                    COUNT(id) as rating_count
+                FROM ratings 
+                WHERE product_name IN (?, ?)
+                GROUP BY product_name
+            """
+            cursor.execute(query, (p1_name, p2_name))
+            results = {row[0].lower(): {"avg": row[1], "count": row[2]} for row in cursor.fetchall()}
+            conn.close()
+            return results
+
+        avg_ratings = await asyncio.to_thread(_get_avg_ratings, produit1, produit2)
+        p1_rating = avg_ratings.get(produit1.lower())
+        p2_rating = avg_ratings.get(produit2.lower())
+        
+        # 4. Création de l'embed de comparaison
+        embed = create_styled_embed(
+            title=f"⚔️ Comparaison : {produit1} vs {produit2}",
+            description="Voici un résumé des caractéristiques et des notes de la communauté.",
+            color=discord.Color.orange()
+        )
+        
+        # Fonction d'aide pour formater les champs
+        def format_product_field(p_data, p_rating):
+            # Prix
+            price_text = ""
+            if p_data.get('is_sold_out'):
+                price_text = "❌ **Épuisé**"
+            elif p_data.get('is_promo'):
+                price_text = f"🏷️ **{p_data.get('price')}** ~~{p_data.get('original_price')}~~"
+            else:
+                price_text = f"💰 **{p_data.get('price', 'N/A')}**"
+
+            # Note
+            if p_rating:
+                note_text = f"⭐ **{p_rating['avg']:.2f}/10** ({p_rating['count']} avis)"
+            else:
+                note_text = "N/A"
+
+            # Caractéristiques
+            stats = p_data.get('stats', {})
+            char_lines = []
+            if stats.get('Gout'): char_lines.append(f"Goût : `{stats['Gout']}`")
+            if stats.get('Effet'): char_lines.append(f"Effet : `{stats['Effet']}`")
+            if stats.get('Cbd'): char_lines.append(f"CBD : `{stats['Cbd']}`")
+
+            return f"{price_text}\n{note_text}\n" + '\n'.join(char_lines)
+
+        # Ajouter les deux produits comme des champs "inline"
+        embed.add_field(name=f"__**{produit1}**__", value=format_product_field(p1_data, p1_rating), inline=True)
+        embed.add_field(name=f"__**{produit2}**__", value=format_product_field(p2_data, p2_rating), inline=True)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
 async def setup(bot: commands.Bot):
     await bot.add_cog(SlashCommands(bot))
     await bot.add_cog(ConfigCog(bot))
