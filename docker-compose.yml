@@ -1,53 +1,41 @@
 version: '3.8'
 
 services:
-  # Service de l'API Flask
+  # Service de l'API Flask, géré par Gunicorn
   lafoncedalleapi:
     build: .
-    command: gunicorn --bind 0.0.0.0:5000 --workers 4 app:app
     container_name: lafoncedalleapi
-    restart: always
+    # La commande pour lancer Gunicorn en production.
+    # Il écoute sur le port 5000 À L'INTÉRIEUR du conteneur.
+    command: gunicorn --workers 4 --bind 0.0.0.0:5000 app:app
+    volumes:
+      - .:/app
+    # On lie le fichier .env pour que l'API ait ses clés
     env_file:
       - .env
-    volumes:
-      - ./config.json:/app/config.json           # Lien pour le fichier de configuration principal
-      - ./bot_state.json:/app/bot_state.json     # Lien pour l'état du bot (ex: dernier message)
-      - ./ratings.db:/app/ratings.db             # Lien pour la base de données
-      - ./scrape_cache.json:/app/scrape_cache.json # Lien pour le cache des produits
-      - ./user_actions.log:/app/user_actions.log # Lien pour les logs d'actions
-      - ./claimed_nitro_codes.json:/app/claimed_nitro_codes.json
-      - ./claimed_welcome_codes.json:/app/claimed_welcome_codes.json
-      - ./nitro_codes.txt:/app/nitro_codes.txt
-      - ./welcome_codes.txt:/app/welcome_codes.txt
-    ports:
-      - "5000:5000"
     networks:
       - lafoncedallenet
+    restart: unless-stopped
 
   # Service du Bot Discord
   lafoncedallebot:
     build: .
     container_name: lafoncedallebot
-    restart: always
-    command: ["python", "bot_runner.py"] # <--- CORRECTION : Le bot lance bot_runner.py
-    depends_on:
-      - lafoncedalleapi # Le bot attend que l'API soit prête
+    # La commande pour lancer le bot.
+    command: python bot_runner.py
+    volumes:
+      - .:/app
+    # On lie le fichier .env pour que le Bot ait ses clés ET la bonne APP_URL
     env_file:
       - .env
-    volumes:
-      - ./config.json:/app/config.json           # Lien pour le fichier de configuration principal
-      - ./bot_state.json:/app/bot_state.json     # Lien pour l'état du bot (ex: dernier message)
-      - ./ratings.db:/app/ratings.db             # Lien pour la base de données
-      - ./scrape_cache.json:/app/scrape_cache.json # Lien pour le cache des produits
-      - ./user_actions.log:/app/user_actions.log # Lien pour les logs d'actions
-      - ./claimed_nitro_codes.json:/app/claimed_nitro_codes.json
-      - ./claimed_welcome_codes.json:/app/claimed_welcome_codes.json
-      - ./nitro_codes.txt:/app/nitro_codes.txt
-      - ./welcome_codes.txt:/app/welcome_codes.txt
+    # Fait en sorte que le bot attende que l'API démarre
+    depends_on:
+      - lafoncedalleapi
     networks:
       - lafoncedallenet
+    restart: unless-stopped
 
-# Définition du réseau partagé
+# On définit le réseau privé que les deux services utiliseront pour communiquer
 networks:
   lafoncedallenet:
     driver: bridge
