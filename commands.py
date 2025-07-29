@@ -1572,111 +1572,111 @@ class SlashCommands(commands.Cog):
         ]
     
     async def generate_dashboard_embed(self, guild: discord.Guild) -> discord.Embed:
-    """
-    [MODIFIÉ] Récupère les statistiques et génère l'embed du dashboard amélioré pour un serveur.
-    """
-    one_week_ago_dt = datetime.utcnow() - timedelta(days=7)
-    one_week_ago_iso = one_week_ago_dt.isoformat()
+        """
+        [MODIFIÉ] Récupère les statistiques et génère l'embed du dashboard amélioré pour un serveur.
+        """
+        one_week_ago_dt = datetime.utcnow() - timedelta(days=7)
+        one_week_ago_iso = one_week_ago_dt.isoformat()
 
-    # 1. Requêtes à la base de données (inchangé)
-    def _fetch_stats_sync():
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        # 1. Requêtes à la base de données (inchangé)
+        def _fetch_stats_sync():
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            total_ratings = cursor.execute("SELECT COUNT(id) FROM ratings").fetchone()[0]
+            total_linked_accounts = cursor.execute("SELECT COUNT(discord_id) FROM user_links").fetchone()[0]
+            total_raters = cursor.execute("SELECT COUNT(DISTINCT user_id) FROM ratings").fetchone()[0]
+
+            weekly_ratings = cursor.execute("SELECT COUNT(id) FROM ratings WHERE rating_timestamp >= ?", (one_week_ago_iso,)).fetchone()[0]
+            
+            cursor.execute("SELECT user_id, COUNT(id) as count FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY count DESC LIMIT 1", (one_week_ago_iso,))
+            top_rater_row = cursor.fetchone()
+
+            cursor.execute("SELECT product_name, AVG((visual_score+smell_score+touch_score+taste_score+effects_score)/5.0) as avg_score FROM ratings WHERE rating_timestamp >= ? GROUP BY product_name ORDER BY avg_score DESC LIMIT 1", (one_week_ago_iso,))
+            top_product_row = cursor.fetchone()
+            
+            cursor.execute("SELECT product_name, AVG((visual_score+smell_score+touch_score+taste_score+effects_score)/5.0) as avg_score FROM ratings WHERE rating_timestamp >= ? GROUP BY product_name ORDER BY avg_score ASC LIMIT 1", (one_week_ago_iso,))
+            worst_product_row = cursor.fetchone()
+
+            conn.close()
+            return {
+                "total_ratings": total_ratings, "total_linked": total_linked_accounts,
+                "total_raters": total_raters, "weekly_ratings": weekly_ratings,
+                "top_rater": top_rater_row, "top_product": top_product_row,
+                "worst_product": worst_product_row
+            }
+
+        db_stats = await asyncio.to_thread(_fetch_stats_sync)
+
+        # 2. Appel à l'API Flask (inchangé)
+        shop_stats = {}
+        try:
+            import aiohttp
+            api_url = f"{APP_URL}/api/get_shop_stats"
+            headers = {"Authorization": f"Bearer {FLASK_SECRET_KEY}"}
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_url, headers=headers, timeout=20) as response:
+                    if response.ok:
+                        shop_stats = await response.json()
+        except Exception:
+            pass
+
+        # 3. [MODIFIÉ] Création de l'embed
+        embed = create_styled_embed(
+            title=f"📊 Tableau de Bord - {guild.name}",
+            description=f"Statistiques globales et activité récente.",
+            color=discord.Color.blue()
+        )
+
+        # --- Section 1 : Boutique ---
+        shop_text_weekly = (
+            f"**CA (7j) :** `{shop_stats.get('weekly_revenue', 0.0):.2f} €`\n"
+            f"**Commandes (7j) :** `{shop_stats.get('weekly_order_count', 'N/A')}`"
+        )
+        shop_text_monthly = (
+            f"**CA (Mois) :** `{shop_stats.get('monthly_revenue', 0.0):.2f} €`\n"
+            f"**Commandes (Mois) :** `{shop_stats.get('monthly_order_count', 'N/A')}`"
+        )
+        embed.add_field(name="<:shopify:1234567890> Activité de la Boutique", value=shop_text_weekly, inline=True)
+        embed.add_field(name="\u200b", value=shop_text_monthly, inline=True)
+        embed.add_field(name="\u200b", value="\u200b", inline=False) # Ligne de séparation
+
+        # --- Section 2 : Communauté ---
+        top_rater_text = "*Aucun*"
+        if db_stats['top_rater']:
+            user_id, count = db_stats['top_rater']
+            member = guild.get_member(user_id)
+            top_rater_text = f"{member.mention if member else f'ID: {user_id}'} (`{count}`)"
+
+        community_text_weekly = (
+            f"**Notes (7j) :** `{db_stats['weekly_ratings']}`\n"
+            f"**Top Noteur (7j) :** {top_rater_text}"
+        )
+        avg_notes = (db_stats['total_ratings'] / db_stats['total_raters']) if db_stats['total_raters'] > 0 else 0
+        community_text_global = (
+            f"**Notes totales :** `{db_stats['total_ratings']}`\n"
+            f"**Comptes Liés :** `{db_stats['total_linked']}`"
+        )
         
-        total_ratings = cursor.execute("SELECT COUNT(id) FROM ratings").fetchone()[0]
-        total_linked_accounts = cursor.execute("SELECT COUNT(discord_id) FROM user_links").fetchone()[0]
-        total_raters = cursor.execute("SELECT COUNT(DISTINCT user_id) FROM ratings").fetchone()[0]
+        embed.add_field(name="👥 Activité Communautaire", value=community_text_weekly, inline=True)
+        embed.add_field(name="\u200b", value=community_text_global, inline=True)
+        embed.add_field(name="\u200b", value="\u200b", inline=False) # Ligne de séparation
 
-        weekly_ratings = cursor.execute("SELECT COUNT(id) FROM ratings WHERE rating_timestamp >= ?", (one_week_ago_iso,)).fetchone()[0]
+        # --- Section 3 : Performance Produits ---
+        product_text = ""
+        if db_stats['top_product']:
+            product_name, score = db_stats['top_product']
+            product_text += f"⭐ **Produit Star (7j) :** *{product_name}* (`{score:.2f}/10`)\n"
+        if db_stats['worst_product']:
+            product_name, score = db_stats['worst_product']
+            product_text += f"⚠️ **À surveiller (7j) :** *{product_name}* (`{score:.2f}/10`)"
         
-        cursor.execute("SELECT user_id, COUNT(id) as count FROM ratings WHERE rating_timestamp >= ? GROUP BY user_id ORDER BY count DESC LIMIT 1", (one_week_ago_iso,))
-        top_rater_row = cursor.fetchone()
+        if not product_text: product_text = "*Pas de nouvelles notes cette semaine.*"
+        embed.add_field(name="🌿 Performance Produits", value=product_text, inline=False)
 
-        cursor.execute("SELECT product_name, AVG((visual_score+smell_score+touch_score+taste_score+effects_score)/5.0) as avg_score FROM ratings WHERE rating_timestamp >= ? GROUP BY product_name ORDER BY avg_score DESC LIMIT 1", (one_week_ago_iso,))
-        top_product_row = cursor.fetchone()
+        embed.set_footer(text=f"Rapport généré le {datetime.now(paris_tz).strftime('%d/%m/%Y à %H:%M')}")
         
-        cursor.execute("SELECT product_name, AVG((visual_score+smell_score+touch_score+taste_score+effects_score)/5.0) as avg_score FROM ratings WHERE rating_timestamp >= ? GROUP BY product_name ORDER BY avg_score ASC LIMIT 1", (one_week_ago_iso,))
-        worst_product_row = cursor.fetchone()
-
-        conn.close()
-        return {
-            "total_ratings": total_ratings, "total_linked": total_linked_accounts,
-            "total_raters": total_raters, "weekly_ratings": weekly_ratings,
-            "top_rater": top_rater_row, "top_product": top_product_row,
-            "worst_product": worst_product_row
-        }
-
-    db_stats = await asyncio.to_thread(_fetch_stats_sync)
-
-    # 2. Appel à l'API Flask (inchangé)
-    shop_stats = {}
-    try:
-        import aiohttp
-        api_url = f"{APP_URL}/api/get_shop_stats"
-        headers = {"Authorization": f"Bearer {FLASK_SECRET_KEY}"}
-        async with aiohttp.ClientSession() as session:
-            async with session.get(api_url, headers=headers, timeout=20) as response:
-                if response.ok:
-                    shop_stats = await response.json()
-    except Exception:
-        pass
-
-    # 3. [MODIFIÉ] Création de l'embed
-    embed = create_styled_embed(
-        title=f"📊 Tableau de Bord - {guild.name}",
-        description=f"Statistiques globales et activité récente.",
-        color=discord.Color.blue()
-    )
-
-    # --- Section 1 : Boutique ---
-    shop_text_weekly = (
-        f"**CA (7j) :** `{shop_stats.get('weekly_revenue', 0.0):.2f} €`\n"
-        f"**Commandes (7j) :** `{shop_stats.get('weekly_order_count', 'N/A')}`"
-    )
-    shop_text_monthly = (
-        f"**CA (Mois) :** `{shop_stats.get('monthly_revenue', 0.0):.2f} €`\n"
-        f"**Commandes (Mois) :** `{shop_stats.get('monthly_order_count', 'N/A')}`"
-    )
-    embed.add_field(name="<:shopify:1234567890> Activité de la Boutique", value=shop_text_weekly, inline=True)
-    embed.add_field(name="\u200b", value=shop_text_monthly, inline=True)
-    embed.add_field(name="\u200b", value="\u200b", inline=False) # Ligne de séparation
-
-    # --- Section 2 : Communauté ---
-    top_rater_text = "*Aucun*"
-    if db_stats['top_rater']:
-        user_id, count = db_stats['top_rater']
-        member = guild.get_member(user_id)
-        top_rater_text = f"{member.mention if member else f'ID: {user_id}'} (`{count}`)"
-
-    community_text_weekly = (
-        f"**Notes (7j) :** `{db_stats['weekly_ratings']}`\n"
-        f"**Top Noteur (7j) :** {top_rater_text}"
-    )
-    avg_notes = (db_stats['total_ratings'] / db_stats['total_raters']) if db_stats['total_raters'] > 0 else 0
-    community_text_global = (
-        f"**Notes totales :** `{db_stats['total_ratings']}`\n"
-        f"**Comptes Liés :** `{db_stats['total_linked']}`"
-    )
-    
-    embed.add_field(name="👥 Activité Communautaire", value=community_text_weekly, inline=True)
-    embed.add_field(name="\u200b", value=community_text_global, inline=True)
-    embed.add_field(name="\u200b", value="\u200b", inline=False) # Ligne de séparation
-
-    # --- Section 3 : Performance Produits ---
-    product_text = ""
-    if db_stats['top_product']:
-        product_name, score = db_stats['top_product']
-        product_text += f"⭐ **Produit Star (7j) :** *{product_name}* (`{score:.2f}/10`)\n"
-    if db_stats['worst_product']:
-        product_name, score = db_stats['worst_product']
-        product_text += f"⚠️ **À surveiller (7j) :** *{product_name}* (`{score:.2f}/10`)"
-    
-    if not product_text: product_text = "*Pas de nouvelles notes cette semaine.*"
-    embed.add_field(name="🌿 Performance Produits", value=product_text, inline=False)
-
-    embed.set_footer(text=f"Rapport généré le {datetime.now(paris_tz).strftime('%d/%m/%Y à %H:%M')}")
-    
-    return embed
+        return embed
 
     async def _update_all_user_roles(self, guild: discord.Guild, member: discord.Member):
         """
