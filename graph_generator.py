@@ -101,9 +101,11 @@ def create_radar_chart(product_name: str) -> str | None:
         if conn:
             conn.close()
 
+# Ajoutez cette nouvelle fonction à la fin de graph_generator.py
+
 def create_comparison_radar_chart(product1_name: str, product2_name: str) -> str | None:
     """
-    Génère un seul graphique radar superposant les données de deux produits.
+    [CORRIGÉ] Génère un seul graphique radar superposant les données de deux produits.
     """
     if not os.path.exists(FONT_PATH):
         Logger.error(f"CRITIQUE: Fichier de police introuvable à l'emplacement '{FONT_PATH}'. Impossible de générer des graphiques.")
@@ -130,10 +132,10 @@ def create_comparison_radar_chart(product1_name: str, product2_name: str) -> str
         results = cursor.fetchall()
 
         if len(results) < 2:
-            Logger.warning(f"Données insuffisantes pour comparer '{product1_name}' et '{product2_name}'.")
+            Logger.warning(f"Données insuffisantes pour comparer '{product1_name}' et '{product2_name}'. Un des produits n'a pas de notes.")
             return None
         
-        # Organiser les données dans un dictionnaire
+        # Organiser les données dans un dictionnaire pour un accès facile
         scores_map = {row[0]: np.array(row[1:], dtype=float) for row in results}
 
         categories = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
@@ -146,16 +148,16 @@ def create_comparison_radar_chart(product1_name: str, product2_name: str) -> str
         fig.patch.set_facecolor('#2f3136')
         ax.set_facecolor('#2f3136')
 
-        # --- Produit 1 ---
+        # --- Dessiner le Produit 1 ---
         scores1 = scores_map[product1_name]
         scores_for_plot1 = np.concatenate((scores1, [scores1[0]]))
-        ax.plot(angles, scores_for_plot1, color='#5865F2', linewidth=2, label=product1_name)
+        ax.plot(angles, scores_for_plot1, color='#5865F2', linewidth=2, label=product1_name) # Bleu Discord
         ax.fill(angles, scores_for_plot1, color='#5865F2', alpha=0.2)
 
-        # --- Produit 2 ---
+        # --- Dessiner le Produit 2 ---
         scores2 = scores_map[product2_name]
         scores_for_plot2 = np.concatenate((scores2, [scores2[0]]))
-        ax.plot(angles, scores_for_plot2, color='#57F287', linewidth=2, label=product2_name) # Couleur verte Discord
+        ax.plot(angles, scores_for_plot2, color='#57F287', linewidth=2, label=product2_name) # Vert Discord
         ax.fill(angles, scores_for_plot2, color='#57F287', alpha=0.2)
         
         # Configuration de l'axe et de la grille

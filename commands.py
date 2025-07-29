@@ -47,7 +47,7 @@ class CompareView(discord.ui.View):
 
         chart_path = None
         try:
-            # On appelle notre nouvelle fonction de comparaison
+            # On appelle notre nouvelle fonction de comparaison en une seule fois
             chart_path = await asyncio.to_thread(
                 create_comparison_radar_chart, 
                 self.product1_name, 
@@ -58,7 +58,8 @@ class CompareView(discord.ui.View):
                 file = discord.File(chart_path, filename="comparison_chart.png")
                 embed = create_styled_embed(
                     title="📊 Comparaison Graphique",
-                    description=f"Voici les profils de **{self.product1_name}** et **{self.product2_name}** superposés."
+                    description=f"Voici les profils de **{self.product1_name}** et **{self.product2_name}** superposés.",
+                    show_logo=False # On cache le logo pour laisser plus de place à l'image
                 ).set_image(url="attachment://comparison_chart.png")
                 
                 await interaction.followup.send(embed=embed, file=file, ephemeral=True)
@@ -1637,7 +1638,7 @@ class SlashCommands(commands.Cog):
             f"**CA (Mois) :** `{shop_stats.get('monthly_revenue', 0.0):.2f} €`\n"
             f"**Commandes (Mois) :** `{shop_stats.get('monthly_order_count', 'N/A')}`"
         )
-        embed.add_field(name="<:shopify:1234567890> Activité de la Boutique", value=shop_text_weekly, inline=True)
+        embed.add_field(name=f"{SHOPIFY_EMOJI} Activité de la Boutique", value=shop_text_weekly, inline=True)
         embed.add_field(name="\u200b", value=shop_text_monthly, inline=True)
         embed.add_field(name="\u200b", value="\u200b", inline=False) # Ligne de séparation
 

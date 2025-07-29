@@ -38,6 +38,7 @@ executor = ThreadPoolExecutor(max_workers=10)
 paris_tz = timezone(timedelta(hours=2))
 
 # --- Emojis (définis avant d'être utilisés) ---
+SHOPIFY_EMOJI = discord.PartialEmoji(name="shopify", id=1399846602880843908)
 TIKTOK_EMOJI = discord.PartialEmoji(name="TikToklogo", id=1392768463642296361)
 LFONCEDALLE_EMOJI = discord.PartialEmoji(name="LaFoncedalle_logo", id=1391890495088754769)
 LFONCEDALLE_PLAT_EMOJI = discord.PartialEmoji(name="LaFoncedalle_plat", id=1392778604122738729)
