@@ -34,7 +34,7 @@ NITRO_CODES_FILE = os.path.join(BASE_DIR, "nitro_codes.txt")
 CLAIMED_CODES_FILE = os.path.join(BASE_DIR, "claimed_nitro_codes.json")
 
 # --- Objets Partagés ---
-executor = ThreadPoolExecutor(max_workers=2)
+executor = ThreadPoolExecutor(max_workers=10)
 paris_tz = timezone(timedelta(hours=2))
 
 # --- Emojis (définis avant d'être utilisés) ---
