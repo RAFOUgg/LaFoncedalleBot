@@ -26,8 +26,8 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
         fonts = {}
         try:
             font_paths = {
-                "bold": os.path.join(ASSETS_DIR, "Gobold Bold.otf"),
-                "regular": os.path.join(ASSETS_DIR, "Gobold Regular.otf"),
+                "bold": os.path.join(ASSETS_DIR, "Gobold-Bold.otf"),
+                "regular": os.path.join(ASSETS_DIR, "Gobold-Regular.otf"),
             }
             fonts.update({
                 'name': ImageFont.truetype(font_paths['bold'], 70),
