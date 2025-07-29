@@ -2496,6 +2496,87 @@ class SlashCommands(commands.Cog):
             if char_lines:
                 final_value += "\n\n" + "\n".join(char_lines)
             return final_value
+        
+    @app_commands.command(name="inspect", description="[STAFF] Affiche tous les méta-champs bruts d'un produit Shopify.")
+    @app_commands.check(is_staff_or_owner)
+    @app_commands.autocomplete(produit=product_autocomplete)
+    @app_commands.describe(produit="Le produit à inspecter.")
+    async def inspect_product(self, interaction: discord.Interaction, produit: str):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        # 1. Retrouver le "handle" du produit depuis le cache (nécessaire pour GraphQL)
+        product_map = {p['name'].lower(): p for p in self.bot.product_cache.get('products', [])}
+        p_data = product_map.get(produit.lower())
+
+        if not p_data or 'product_url' not in p_data:
+            return await interaction.followup.send(f"😕 Impossible de trouver le produit '{produit}' dans le cache.", ephemeral=True)
+        
+        product_handle = p_data['product_url'].split('/')[-1]
+
+        # 2. Définir une requête GraphQL pour obtenir TOUS les méta-champs
+        METAFIELD_INSPECTOR_QUERY = """
+        query getProductMetafields($handle: String!) {
+          product(handle: $handle) {
+            title
+            metafields(first: 50) {
+              edges {
+                node {
+                  namespace
+                  key
+                  value
+                  type
+                }
+              }
+            }
+          }
+        }
+        """
+
+        # 3. Exécuter la requête
+        try:
+            session = shopify.Session(os.getenv('SHOPIFY_SHOP_URL'), os.getenv('SHOPIFY_API_VERSION'), os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN'))
+            shopify.ShopifyResource.activate_session(session)
+            client = shopify.GraphQL()
+            result_json = client.execute(METAFIELD_INSPECTOR_QUERY, variables={"handle": product_handle})
+            result = json.loads(result_json)
+            shopify.ShopifyResource.clear_session()
+
+            product_info = result.get('data', {}).get('product')
+            if not product_info:
+                return await interaction.followup.send("❌ Le produit n'a pas été trouvé via l'API GraphQL.", ephemeral=True)
+
+            metafields = [edge['node'] for edge in product_info.get('metafields', {}).get('edges', [])]
+
+            # 4. Créer l'embed de résultat
+            embed = create_styled_embed(
+                f"🔍 Inspection de : {product_info.get('title')}",
+                f"Voici tous les méta-champs trouvés pour ce produit. Identifiez le champ contenant le contenu de la box."
+            )
+
+            if not metafields:
+                embed.description += "\n\nAucun méta-champ trouvé."
+            
+            for meta in metafields:
+                namespace = meta.get('namespace')
+                key = meta.get('key')
+                value = str(meta.get('value', ''))
+                meta_type = meta.get('type')
+                
+                # On tronque les valeurs trop longues pour la lisibilité
+                if len(value) > 200:
+                    value = value[:200] + "..."
+                
+                embed.add_field(
+                    name=f"Champ : `{namespace}.{key}` (Type: `{meta_type}`)",
+                    value=f"```{value}```",
+                    inline=False
+                )
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as e:
+            traceback.print_exc()
+            await interaction.followup.send(f"❌ Une erreur est survenue lors de l'inspection : {e}", ephemeral=True)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SlashCommands(bot))
