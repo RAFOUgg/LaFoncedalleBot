@@ -87,34 +87,30 @@ query getProductsWithMetafields {
 }
 """
 
+# Dans catalogue_final.py
+
 def get_site_data_from_graphql():
     """
-    Récupère toutes les données du site (produits, collections, méta-champs)
-    en une seule requête GraphQL pour éviter le rate limiting.
-    [VERSION 2.2 - CORRECTION FINALE ID MANQUANT]
+    Récupère toutes les données du site en une seule requête GraphQL.
+    [VERSION FINALE 3.0 - Utilise les clés de méta-champs exactes]
     """
     Logger.info("Démarrage de la récupération via GraphQL Shopify...")
     
     try:
+        # ... (le code de connexion à l'API reste le même)
         shop_url = os.getenv('SHOPIFY_SHOP_URL')
         api_version = os.getenv('SHOPIFY_API_VERSION')
         access_token = os.getenv('SHOPIFY_ADMIN_ACCESS_TOKEN')
-
         if not all([shop_url, api_version, access_token]): 
-            Logger.error("Identifiants Shopify manquants.")
-            return None
-
+            Logger.error("Identifiants Shopify manquants."); return None
         session = shopify.Session(shop_url, api_version, access_token)
         shopify.ShopifyResource.activate_session(session)
-        
         client = shopify.GraphQL()
         result_json = client.execute(PRODUCTS_WITH_METAFIELDS_QUERY)
         result = json.loads(result_json)
-        
         shopify.ShopifyResource.clear_session()
 
         final_products = []
-        WHITELISTED_STATS = ['effet', 'gout', 'goût', 'cbd', 'thc']
         
         for product_edge in result.get('data', {}).get('products', {}).get('edges', []):
             prod = product_edge['node']
@@ -127,19 +123,15 @@ def get_site_data_from_graphql():
             
             images_edges = prod.get('images', {}).get('edges', [])
             image_url = images_edges[0].get('node', {}).get('url') if images_edges else None
-
             product_gid = prod.get('id')
 
             category_map_display = {"weed": "fleurs", "hash": "résines", "box": "box", "accessoire": "accessoires"}
             product_data = {
-                'id': product_gid,
-                'name': prod.get('title'),
+                'id': product_gid, 'name': prod.get('title'),
                 'product_url': f"https://la-foncedalle.fr/products/{prod.get('handle')}",
-                'image': image_url,
-                'category': category_map_display.get(category),
+                'image': image_url, 'category': category_map_display.get(category),
                 'detailed_description': BeautifulSoup(prod.get('bodyHtml', ''), 'html.parser').get_text(separator='\n', strip=True),
-                'stats': {},
-                'box_contents': []
+                'stats': {}, 'box_contents': []
             }
 
             variants = [v['node'] for v in prod.get('variants', {}).get('edges', [])]
@@ -156,28 +148,31 @@ def get_site_data_from_graphql():
             else:
                 product_data.update({'price': "N/A", 'is_promo': False, 'original_price': None})
 
+            # --- [LOGIQUE FINALE D'EXTRACTION DES METAFIELDS] ---
             metafields = [m['node'] for m in prod.get('metafields', {}).get('edges', [])]
             for meta in metafields:
-                key_lower = meta.get('key', '').lower()
-                value = meta.get('value', '')
+                full_key = f"{meta.get('namespace')}.{meta.get('key')}"
+                value = str(meta.get('value', ''))
 
-                if category == 'box' and ('composition' in key_lower or 'contenu' in key_lower):
-                    soup_meta = BeautifulSoup(value, 'html.parser')
-                    all_lines = soup_meta.get_text(separator='\n').split('\n')
-                    content_items = [line.strip().lstrip('-•* ').replace('*', '') for line in all_lines if line.strip() and not line.lower().startswith(('les hash', 'les fleurs', ':', 'les '))]
-                    if content_items: product_data['box_contents'] = content_items
+                # Cas 1: C'est le champ du contenu de la box
+                if category == 'box' and full_key == 'custom.box_description':
+                    lines = [line.strip() for line in value.split('\n') if line.strip()]
+                    if len(lines) > 1:
+                        product_data['box_contents'] = lines[1:] # On ignore la première ligne "Cette box contient..."
                     continue
 
-                if key_lower in WHITELISTED_STATS:
+                # Cas 2: C'est une caractéristique pour un produit simple
+                if category != 'box':
+                    if full_key == 'custom.effet_tag': product_data['stats']['Effet'] = value
+                    elif full_key == 'custom.gout_tag': product_data['stats']['Goût'] = value
+                
+                # Cas 3: C'est un PDF (pour tous les produits)
+                if 'pdf' in full_key:
                     product_data['stats'][meta.get('key').replace('_', ' ').capitalize()] = value
 
-                if isinstance(value, str) and value.startswith("gid://shopify/"):
-                    product_data['stats'][meta.get('key').replace('_', ' ').capitalize()] = value
-            
             final_products.append(product_data)
             
         general_promos = get_smart_promotions_from_api()
-
         Logger.success(f"Récupération GraphQL terminée. {len(final_products)} produits valides trouvés.")
         return {"timestamp": time.time(), "products": final_products, "general_promos": general_promos}
 

@@ -800,22 +800,19 @@ class ProductView(discord.ui.View):
         if product.get('is_sold_out'): price_text = "❌ **ÉPUISÉ**"
         elif product.get('is_promo'): price_text = f"🏷️ **{product.get('price')}** ~~{product.get('original_price')}~~"
         else: price_text = f"💰 **{product.get('price', 'N/A')}**"
-        embed.add_field(name="Prix", value=price_text, inline=True)
+        embed.add_field(name="Prix", value=price_text, inline=False)
         
-        if not product.get('is_sold_out') and product.get('stats', {}).get('Stock'):
-            embed.add_field(name="Stock", value=f"{product['stats']['Stock']}", inline=True)
-        
-        # [LOGIQUE CORRIGÉE] Affichage intelligent
+        # [AFFICHAGE FINAL]
         if product.get('category') == 'box' and product.get('box_contents'):
-            content_list = "\n".join([f"• `{item}`" for item in product['box_contents']])
+            content_list = "\n".join([f"• {item}" for item in product['box_contents']])
             if len(content_list) > 1024: content_list = content_list[:1000] + "..."
             embed.add_field(name="📦 Contenu de la Box", value=content_list, inline=False)
         else:
             stats = product.get('stats', {})
             char_lines = []
-            for k, v in stats.items():
-                if k.lower() in ['effet', 'gout', 'goût', 'cbd', 'thc']: # On utilise la même whitelist
-                    char_lines.append(f"**{k.strip().capitalize()} :** {v}")
+            if 'Effet' in stats: char_lines.append(f"🧠 **Effet :** {stats['Effet']}")
+            if 'Goût' in stats: char_lines.append(f"👅 **Goût :** {stats['Goût']}")
+            if 'Cbd' in stats: char_lines.append(f"🌿 **CBD :** {stats['Cbd']}")
             if char_lines:
                 embed.add_field(name="Caractéristiques", value="\n".join(char_lines), inline=False)
 
