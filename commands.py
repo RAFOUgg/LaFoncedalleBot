@@ -814,7 +814,7 @@ class ProductView(discord.ui.View):
             stats = product.get('stats', {})
             char_lines = []
             for k, v in stats.items():
-                if k.lower() in ['effet', 'gout', 'goût', 'cbd', 'thc']:
+                if k.lower() in ['effet', 'gout', 'goût', 'cbd', 'thc']: # On utilise la même whitelist
                     char_lines.append(f"**{k.strip().capitalize()} :** {v}")
             if char_lines:
                 embed.add_field(name="Caractéristiques", value="\n".join(char_lines), inline=False)
@@ -2487,7 +2487,6 @@ class SlashCommands(commands.Cog):
                 char_lines.append(f"📦 **Contenu :**\n{content}")
             else:
                 stats = p_data.get('stats', {})
-                # On itère sur les clés de la whitelist pour un ordre constant
                 for key_name in ['Gout', 'Goût', 'Effet', 'Cbd', 'Thc']:
                     if key_name in stats:
                         emoji = {'gout': '👅', 'goût': '👅', 'effet': '🧠', 'cbd': '🌿'}.get(key_name.lower(), '')

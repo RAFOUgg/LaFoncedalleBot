@@ -64,7 +64,7 @@ query getFiles($ids: [ID!]!) {
 def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve: set) -> dict:
     """
     Extrait, nettoie et formate les données d'un seul objet produit Shopify.
-    [VERSION FINALE] Gère le contenu des box et filtre les caractéristiques.
+    [VERSION FINALE CORRIGÉE]
     """
     product_data = {}
     
@@ -92,36 +92,41 @@ def _extract_product_data(prod: shopify.Product, category: str, gids_to_resolve:
     else:
         product_data['price'] = "N/A"; product_data['is_promo'] = False; product_data['original_price'] = None
 
-    # --- [LOGIQUE CORRIGÉE] Extraction sélective des Metafields ---
+    # --- [LOGIQUE ENTIÈREMENT CORRIGÉE] Extraction des Metafields ---
     product_data['stats'] = {}
-    product_data['box_contents'] = [] # Champ dédié pour le contenu des box
-    time.sleep(0.5) 
+    product_data['box_contents'] = []
+    time.sleep(0.5)
     
-    # Liste blanche des caractéristiques que nous voulons afficher
+    # Liste blanche des caractéristiques à afficher pour les produits simples
     WHITELISTED_STATS = ['effet', 'gout', 'goût', 'cbd', 'thc']
 
     for meta in prod.metafields():
         key_lower = meta.key.lower()
         value = meta.value
-        
-        # Cas 1: C'est une box et on a trouvé le méta-champ du contenu
+
+        # Cas 1: C'est le méta-champ de composition pour une box
         if category == 'box' and ('composition' in key_lower or 'contenu' in key_lower):
             soup_meta = BeautifulSoup(value, 'html.parser')
-            # Extraire les items de listes (<li>) ou les lignes de texte
-            items = [li.get_text(strip=True) for li in soup_meta.find_all('li')]
-            if not items:
-                items = [line.strip().lstrip('-•* ') for line in soup_meta.get_text(separator='\n').split('\n') if line.strip()]
-            product_data['box_contents'] = items
-        
+            # On cherche tous les éléments de texte, peu importe la balise
+            all_lines = soup_meta.get_text(separator='\n').split('\n')
+            content_items = []
+            for line in all_lines:
+                cleaned_line = line.strip()
+                # On ignore les lignes vides et les titres de section
+                if cleaned_line and not cleaned_line.lower().startswith(('les hash', 'les fleurs')):
+                    content_items.append(cleaned_line)
+            product_data['box_contents'] = content_items
+            # On passe au méta-champ suivant, on ne veut pas l'ajouter aux stats
+            continue
+
         # Cas 2: C'est une caractéristique autorisée pour un produit normal
-        elif key_lower in WHITELISTED_STATS:
+        if key_lower in WHITELISTED_STATS:
             key_formatted = meta.key.replace('_', ' ').capitalize()
             product_data['stats'][key_formatted] = value
-        
-        # Cas 3: C'est un fichier à résoudre (PDF, etc.), on l'ajoute toujours
+
+        # Cas 3: C'est un fichier PDF/lien (on le garde pour les boutons de téléchargement)
         if isinstance(value, str) and value.startswith("gid://shopify/"):
             gids_to_resolve.add(value)
-            # On ajoute aussi le lien aux stats pour le bouton de téléchargement
             product_data['stats'][meta.key.replace('_', ' ').capitalize()] = value
             
     return product_data
