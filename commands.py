@@ -2485,102 +2485,78 @@ class SlashCommands(commands.Cog):
     # Dans commands.py, remplacez la méthode comparer de la classe SlashCommands
 
     @app_commands.command(name="comparer", description="Compare deux produits côte à côte.")
-    @app_commands.autocomplete(produit1=product_autocomplete, produit2=product_autocomplete)
-    @app_commands.describe(
-        produit1="Le premier produit à comparer.",
-        produit2="Le second produit à comparer."
-    )
-    async def comparer(self, interaction: discord.Interaction, produit1: str, produit2: str):
-        await interaction.response.defer(ephemeral=True)
+@app_commands.autocomplete(produit1=product_autocomplete, produit2=product_autocomplete)
+@app_commands.describe(
+    produit1="Le premier produit à comparer.",
+    produit2="Le second produit à comparer."
+)
+async def comparer(self, interaction: discord.Interaction, produit1: str, produit2: str):
+    await interaction.response.defer(ephemeral=True)
 
+    try:
         if produit1.lower() == produit2.lower():
             return await interaction.followup.send("❌ Veuillez choisir deux produits différents.", ephemeral=True)
 
+        # 1. On récupère les données des produits depuis le cache du bot (qui est en mémoire)
         product_map = {p['name'].lower(): p for p in self.bot.product_cache.get('products', [])}
-        p1_data = product_map.get(produit1.lower())
-        p2_data = product_map.get(produit2.lower())
+        p1_data = next((p for p_name, p in product_map.items() if produit1 in p_name), None)
+        p2_data = next((p for p_name, p in product_map.items() if produit2 in p_name), None)
 
         if not p1_data or not p2_data:
             missing = f"'{produit1 if not p1_data else produit2}'"
             return await interaction.followup.send(f"😕 Impossible de trouver les informations pour {missing}.", ephemeral=True)
 
-        def _get_avg_ratings(p1, p2):
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute("SELECT product_name, AVG((COALESCE(visual_score,0)+COALESCE(smell_score,0)+COALESCE(touch_score,0)+COALESCE(taste_score,0)+COALESCE(effects_score,0))/5.0), COUNT(id) FROM ratings WHERE product_name IN (?,?) GROUP BY product_name", (p1, p2))
-            return {row[0].lower(): {"avg": row[1], "count": row[2]} for row in cursor.fetchall()}
+        # 2. On appelle notre NOUVELLE API pour obtenir les notes
+        import aiohttp
+        api_url = f"{APP_URL}/api/get_full_comparison"
+        payload = {"product1_name": produit1, "product2_name": produit2}
         
-        avg_ratings = await asyncio.to_thread(_get_avg_ratings, produit1, produit2)
-        p1_rating = avg_ratings.get(produit1.lower())
-        p2_rating = avg_ratings.get(produit2.lower())
+        async with aiohttp.ClientSession() as session:
+            async with session.post(api_url, json=payload) as response:
+                if not response.ok:
+                    raise Exception(f"API Error {response.status}: {await response.text()}")
+                api_data = await response.json()
+        
+        # On trouve les données de notes correspondantes
+        p1_rating = next((data for name, data in api_data.items() if produit1 in name), None)
+        p2_rating = next((data for name, data in api_data.items() if produit2 in name), None)
 
-        # [AMÉLIORATION] Logique de comparaison des prix plus robuste
+        # 3. On construit l'embed (logique de comparaison)
         summary_lines = []
-        try:
-            # Utilise une regex pour trouver le premier nombre dans la chaîne de prix
-            price1_match = re.search(r'[\d,.]+', p1_data.get('price', ''))
-            price2_match = re.search(r'[\d,.]+', p2_data.get('price', ''))
-            
-            if price1_match and price2_match:
-                price1 = float(price1_match.group(0).replace(',', '.'))
-                price2 = float(price2_match.group(0).replace(',', '.'))
-                if price1 < price2: summary_lines.append(f"💰 **Moins cher :** {produit1}")
-                elif price2 < price1: summary_lines.append(f"💰 **Moins cher :** {produit2}")
-        except (ValueError, AttributeError, IndexError): pass
-
-        if p1_rating and p2_rating and p1_data.get('category') != 'box' and p2_data.get('category') != 'box':
-            if p1_rating['avg'] > p2_rating['avg']: summary_lines.append(f"⭐ **Mieux noté :** {produit1}")
-            elif p2_rating['avg'] > p1_rating['avg']: summary_lines.append(f"⭐ **Mieux noté :** {produit2}")
-
+        if p1_rating and p2_rating:
+            if p1_rating['avg'] > p2_rating['avg']:
+                summary_lines.append(f"⭐ **Mieux noté :** {p1_data['name']}")
+            else:
+                summary_lines.append(f"⭐ **Mieux noté :** {p2_data['name']}")
+        
         summary_text = "\n".join(summary_lines)
         description_text = f"Voici un résumé des caractéristiques et des notes.\n\n**En bref :**\n{summary_text}" if summary_lines else "Voici un résumé des caractéristiques et des notes."
+        embed = create_styled_embed(title=f"⚔️ Comparaison : {p1_data['name']} vs {p2_data['name']}", description=description_text, color=discord.Color.orange())
 
-        embed = create_styled_embed(title=f"⚔️ Comparaison : {produit1} vs {produit2}", description=description_text, color=discord.Color.orange())
-
+        # Fonction interne pour formater chaque champ de produit
         def format_product_field(p_data, p_rating):
-            price_text = f"💰 **Prix :** "
-            if p_data.get('is_sold_out'): price_text += "❌ Épuisé"
-            elif p_data.get('is_promo'): price_text += f"🏷️ **{p_data.get('price')}** ~~{p_data.get('original_price')}~~"
-            else: price_text += f"**{p_data.get('price', 'N/A')}**"
-            
+            price_text = f"💰 **Prix :** {p_data.get('price', 'N/A')}"
             note_text = "⭐ **Note :** N/A"
-            if p_data.get('category') not in ['box', 'accessoires', 'accessoire'] and p_rating:
+            if p_rating:
                 note_text = f"⭐ **Note :** **{p_rating['avg']:.2f}/10** ({p_rating['count']} avis)"
             
-            char_lines = []
-            if p_data.get('category') == 'box' and p_data.get('box_contents'):
-                content_str = ""
-                for section, items in p_data['box_contents'].items():
-                    if items:
-                        if section != "Général": content_str += f"**{section}**\n"
-                        # On limite à 3 par section pour la clarté
-                        content_str += "\n".join([f"• {item}" for item in items[:3]]) 
-                        if len(items) > 3: content_str += f"\n• `...et {len(items) - 3} autre(s)`"
-                        content_str += "\n"
-                char_lines.append(f"📦 **Contenu :**\n{content_str.strip()}")
-            else:
-                stats = p_data.get('stats', {})
-                # On cherche les clés possibles pour le goût, car elles sont inconsistantes
-                gout_key = next((k for k in stats if k.lower() == 'goût' or k.lower() == 'gout'), None)
-                if gout_key: char_lines.append(f"👅 **{gout_key.capitalize()} :** `{stats[gout_key]}`")
-                if 'Effet' in stats: char_lines.append(f"🧠 **Effet :** `{stats['Effet']}`")
+            stats = p_data.get('stats', {})
+            gout = next((v for k, v in stats.items() if k.lower() in ['goût', 'gout']), "N/A")
+            effet = stats.get('Effet', "N/A")
 
-            final_value = f"{price_text}\n{note_text}"
-            if char_lines:
-                final_value += "\n\n" + "\n".join(char_lines)
-            return final_value
+            return f"{price_text}\n{note_text}\n\n👅 **Goût :** {gout}\n🧠 **Effet :** {effet}"
 
-        # [CORRECTION CRITIQUE] Appeler la fonction de formatage et ajouter les champs à l'embed
-        field1_value = format_product_field(p1_data, p1_rating)
-        field2_value = format_product_field(p2_data, p2_rating)
+        embed.add_field(name=f"1️⃣ {p1_data['name']}", value=format_product_field(p1_data, p1_rating), inline=True)
+        embed.add_field(name=f"2️⃣ {p2_data['name']}", value=format_product_field(p2_data, p2_rating), inline=True)
 
-        embed.add_field(name=f"1️⃣ {produit1}", value=field1_value, inline=True)
-        embed.add_field(name=f"2️⃣ {produit2}", value=field2_value, inline=True)
-
-        # [AMÉLIORATION] Ajouter la vue avec le bouton pour comparer les graphiques
-        view = CompareView(produit1, produit2)
-        
+        # 4. On envoie l'embed avec le bouton
+        view = CompareView(p1_data['name'], p2_data['name'])
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    except Exception as e:
+        Logger.error(f"Erreur majeure dans la commande /comparer : {e}")
+        traceback.print_exc()
+        await interaction.followup.send("❌ Oups, une erreur critique est survenue. Le staff a été notifié.", ephemeral=True)
         
 
 async def setup(bot: commands.Bot):
