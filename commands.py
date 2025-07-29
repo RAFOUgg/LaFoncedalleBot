@@ -58,7 +58,7 @@ class CompareView(discord.ui.View):
             files_to_send = []
             if chart_path1: files_to_send.append(discord.File(chart_path1))
             if chart_path2: files_to_send.append(discord.File(chart_path2))
-/
+
             if files_to_send:
                 await interaction.followup.send(content="Voici les graphiques radar comparatifs :", files=files_to_send, ephemeral=True)
             else:
