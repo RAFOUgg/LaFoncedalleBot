@@ -1317,6 +1317,8 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
     set_group = app_commands.Group(name="set", description="Définit un paramètre de configuration.")
 
     # --- COMMANDE D'AFFICHAGE (/config view) ---
+    # Dans commands.py, localisez la commande view_config
+
     @app_commands.command(name="view", description="[STAFF] Affiche la configuration actuelle du bot pour ce serveur.")
     @app_commands.check(is_staff_or_owner)
     async def view_config(self, interaction: discord.Interaction):
@@ -1326,34 +1328,42 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
         mention_role_id = await config_manager.get_state(guild.id, 'mention_role_id')
         menu_channel_id = await config_manager.get_state(guild.id, 'menu_channel_id')
         selection_channel_id = await config_manager.get_state(guild.id, 'selection_channel_id')
-        explorer_role_id = await config_manager.get_state(guild.id, 'explorer_role_id')
-        specialist_role_id = await config_manager.get_state(guild.id, 'specialist_role_id')
+        
+        # [MODIFICATION] Le nom de la variable est corrigé pour correspondre à ce qui est utilisé plus bas
+        db_export_channel_id = await config_manager.get_state(guild.id, 'db_export_channel_id')
+        
+        # J'ai supprimé la récupération des rôles de succès ici car ils sont gérés par /config loyalty view
+        # C'est plus propre et ça évite de surcharger cette commande.
 
         def format_setting(item_id, item_type, is_critical=False):
             if not item_id: return f"{'❌' if is_critical else '⚠️'} `Non défini`"
-            item = guild.get_role(item_id) if item_type == 'role' else guild.get_channel(item_id)
-            if item: return f"✅ {item.mention}"
-            return f"{'❌' if is_critical else '⚠️'} `Introuvable (ID: {item_id})`"
+            try:
+                item_id_int = int(item_id)
+                item = guild.get_role(item_id_int) if item_type == 'role' else guild.get_channel(item_id_int)
+                if item: return f"✅ {item.mention}"
+                return f"{'❌' if is_critical else '⚠️'} `Introuvable (ID: {item_id})`"
+            except (ValueError, TypeError):
+                return f"❌ `ID Invalide ({item_id})`"
 
         staff_role_text = format_setting(staff_role_id, 'role')
         mention_role_text = format_setting(mention_role_id, 'role')
         menu_channel_text = format_setting(menu_channel_id, 'channel', is_critical=True)
         selection_channel_text = format_setting(selection_channel_id, 'channel')
-        explorer_role_text = format_setting(explorer_role_id, 'role')
-        specialist_role_text = format_setting(specialist_role_id, 'role')
         
+        # [CORRECTION] La ligne manquante est ajoutée ici
+        db_export_channel_text = format_setting(db_export_channel_id, 'channel')
+
         embed = discord.Embed(
             title=f"Configuration de {self.bot.user.name}",
             description=f"Voici les paramètres actuels pour le serveur **{guild.name}**.",
             color=discord.Color.blue(), timestamp=datetime.now(paris_tz)
         )
+        
         roles_text = (
             f"**Staff :** {staff_role_text}\n"
             f"**Mention Nouveautés :** {mention_role_text}\n"
-            f"**Succès 'Explorateur' :** {explorer_role_text}\n"
-            f"**Succès 'Spécialiste' :** {specialist_role_text}"
         )
-        embed.add_field(name="📌 Rôles", value=roles_text, inline=False)
+        embed.add_field(name="📌 Rôles Principaux", value=roles_text, inline=False)
         
         salons_text = (
             f"**Menu Principal :** {menu_channel_text}\n"
@@ -1361,7 +1371,7 @@ class ConfigCog(commands.GroupCog, name="config", description="Gère la configur
             f"**Sauvegardes DB :** {db_export_channel_text}"
         )
         embed.add_field(name="📺 Salons", value=salons_text, inline=False)
-        embed.set_footer(text="Utilisez /config set <role|salon> ou /config loyalty pour gérer les rôles.")
+        embed.set_footer(text="Utilisez /config set pour les rôles/salons et /config loyalty pour les succès.")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # --- COMMANDE /config set role ---
