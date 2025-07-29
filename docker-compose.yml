@@ -4,6 +4,7 @@ services:
   # Service de l'API Flask
   lafoncedalleapi:
     build: .
+    command: gunicorn --bind 0.0.0.0:5000 --workers 4 app:app
     container_name: lafoncedalleapi
     restart: always
     command: ["python", "app.py"] # <--- L'API lance app.py
@@ -20,7 +21,7 @@ services:
       - ./nitro_codes.txt:/app/nitro_codes.txt
       - ./welcome_codes.txt:/app/welcome_codes.txt
     ports:
-      - "5000:5000" # <--- CORRECTION : Le port est sur l'API, pas le bot
+      - "5000:5000"
     networks:
       - lafoncedallenet
 
