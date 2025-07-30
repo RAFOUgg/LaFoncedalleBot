@@ -9,6 +9,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     pkg-config \
+    libpoppler-cpp-dev \
     libjpeg-dev \
     libpng-dev \
     libtiff-dev \
@@ -26,6 +27,8 @@ RUN pip install --no-cache-dir --force-reinstall --no-binary Pillow -r requireme
 COPY . .
 
 # Étape 6: Vérifier que le support pour les émojis (Raqm) est bien activé
+COPY assets/Gobold-Bold.otf /usr/local/share/fonts/
+COPY assets/Gobold-Regular.otf /usr/local/share/fonts/
 RUN python -m PIL.features
 
 # Étape 7: Forcer le système à trouver les polices copiées
