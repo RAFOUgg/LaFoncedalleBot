@@ -31,8 +31,4 @@ COPY assets/Gobold-Bold.otf /usr/local/share/fonts/
 COPY assets/Gobold-Regular.otf /usr/local/share/fonts/
 RUN python -m PIL.features
 
-# Étape 7: Forcer le système à trouver les polices copiées
-# Cette commande devrait maintenant fonctionner
 RUN fc-cache -f -v
-
-# La commande de démarrage est gérée par docker-compose.yml
