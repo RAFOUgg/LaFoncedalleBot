@@ -11,6 +11,7 @@ import re # <-- Importé pour les regex
 from typing import Dict, Any, List
 from shared_utils import Logger, DB_FILE
 import time
+import io
 
 FONT_PATH = os.path.join(os.path.dirname(__file__), 'assets', 'Gobold-Bold.otf')
 
@@ -84,62 +85,84 @@ def create_radar_chart(product_name: str) -> str | None:
         if conn:
             conn.close()
 
-def create_comparison_radar_chart(db_name1: str, scores1: np.ndarray, db_name2: str, scores2: np.ndarray) -> str | None:
-    Logger.info(f"[GraphCompare] START: Génération pour '{db_name1}' vs '{db_name2}'.")
+def create_comparison_radar_chart(db_name1: str, scores1: np.ndarray, db_name2: str, scores2: np.ndarray) -> io.BytesIO | None:
+    """Génère un graphique araignée de comparaison et le retourne comme un buffer en mémoire."""
+    Logger.info(f"[GraphCompare] Génération pour '{db_name1}' vs '{db_name2}'.")
+    
     try:
-        if not os.path.exists(FONT_PATH):
-            Logger.error(f"[GraphCompare] CRITICAL: Fichier de police introuvable à '{FONT_PATH}'.")
-            return None
-        
-        Logger.info("[GraphCompare] STEP 1: Initialisation de Matplotlib...")
-        font_props = FontProperties(family="Gobold", weight='bold', size=12)
+        # 1. DÉFINIR LES DONNÉES ET LES LABELS
+        labels = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
+        num_vars = len(labels)
+
+        # Charger les polices personnalisées
+        font_props_axes = FontProperties(family="Gobold", weight='bold', size=12)
         font_props_legend = FontProperties(family="Gobold", weight='bold', size=11)
         font_props_title = FontProperties(family="Gobold", weight='bold', size=16)
 
-        categories = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
-        angles = np.linspace(0, 2 * np.pi, len(categories), endpoint=False).tolist()
+        # 2. PRÉPARER LES ANGLES POUR LE GRAPHIQUE POLAIRE
+        angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
+        # Répéter le premier angle à la fin pour fermer le polygone
         angles += angles[:1]
 
+        # Répéter la première valeur de chaque set de données pour fermer les polygones
+        scores1_closed = np.concatenate((scores1, [scores1[0]]))
+        scores2_closed = np.concatenate((scores2, [scores2[0]]))
+
+        # 3. CRÉER LE GRAPHIQUE AVEC MATPLOTLIB
         fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
+        
+        # Appliquer le style "dark mode" du bot
         fig.patch.set_facecolor('#2f3136')
         ax.set_facecolor('#2f3136')
+
+        # TRACÉ 1 : Premier produit (bleu Discord)
+        ax.plot(angles, scores1_closed, color='#5865F2', linewidth=2, linestyle='solid', label=remove_emojis(db_name1))
+        ax.fill(angles, scores1_closed, color='#5865F2', alpha=0.25)
+
+        # TRACÉ 2 : Second produit (vert Discord)
+        ax.plot(angles, scores2_closed, color='#57F287', linewidth=2, linestyle='solid', label=remove_emojis(db_name2))
+        ax.fill(angles, scores2_closed, color='#57F287', alpha=0.25)
+
+        # 4. PERSONNALISER L'APPARENCE DU GRAPHIQUE
+        ax.set_ylim(0, 10) # Forcer l'échelle de 0 à 10
         
-        Logger.info("[GraphCompare] STEP 2: Tracé des données...")
-        scores_for_plot1 = np.concatenate((scores1, [scores1[0]]))
-        ax.plot(angles, scores_for_plot1, color='#5865F2', linewidth=2, label=remove_emojis(db_name1))
-        ax.fill(angles, scores_for_plot1, color='#5865F2', alpha=0.2)
+        # Configurer les grilles et les axes
+        ax.set_rgrids([2, 4, 6, 8], angle=90, color="gray", linestyle='--', linewidth=0.5)
+        ax.set_thetagrids(np.degrees(angles[:-1]), labels)
         
-        scores_for_plot2 = np.concatenate((scores2, [scores2[0]]))
-        ax.plot(angles, scores_for_plot2, color='#57F287', linewidth=2, label=remove_emojis(db_name2))
-        ax.fill(angles, scores_for_plot2, color='#57F287', alpha=0.2)
-                
-        Logger.info("[GraphCompare] STEP 3: Configuration des axes et de la légende...")
-        ax.set_ylim(0, 10)
-        ax.set_thetagrids(np.degrees(angles[:-1]), categories)
+        # Style des étiquettes des axes (Visuel, Odeur...)
         for label in ax.get_xticklabels():
-            label.set_fontproperties(font_props)
+            label.set_fontproperties(font_props_axes)
             label.set_color('white')
-            label.set_y(label.get_position()[1] * 1.1)
+            label.set_y(label.get_position()[1] * 1.12) # Ajustement pour éviter le chevauchement
+
+        # Masquer les étiquettes des valeurs (2, 4, 6, 8)
+        ax.set_yticklabels([])
+        ax.spines['polar'].set_color('gray')
+
+        ax.set_title('Comparaison des Profils', size=20, fontproperties=font_props_title, color='white', pad=25)
         
+        # Configurer la légende
         legend = ax.legend(loc='upper right', bbox_to_anchor=(1.4, 1.1))
         for text in legend.get_texts():
             text.set_fontproperties(font_props_legend)
             text.set_color('white')
-            
-        output_dir = "charts"
-        os.makedirs(output_dir, exist_ok=True)
-        filename = f"{output_dir}/comparison_chart_{int(time.time())}.png"
+        legend.get_frame().set_facecolor('#40444B')
+        legend.get_frame().set_edgecolor('#2f3136')
+
+        # 5. SAUVEGARDER LE GRAPHIQUE DANS UN BUFFER EN MÉMOIRE
+        buf = io.BytesIO()
+        # bbox_inches='tight' est crucial pour que la légende ne soit pas coupée
+        plt.savefig(buf, format='png', bbox_inches='tight', transparent=True, dpi=120)
+        buf.seek(0)
         
-        Logger.info(f"[GraphCompare] STEP 4: Sauvegarde du graphique vers '{filename}'...")
-        plt.savefig(filename, bbox_inches='tight', dpi=120, transparent=True)
-        
-        Logger.info("[GraphCompare] STEP 5: Sauvegarde terminée. Fermeture de la figure.")
-        plt.close(fig)
-        
-        Logger.success(f"[GraphCompare] FIN: Graphique généré avec succès: {filename}")
-        return filename
-        
+        plt.close(fig) # Très important pour libérer la mémoire !
+
+        Logger.success("[GraphCompare] Graphique généré avec succès en mémoire.")
+        return buf
+
     except Exception as e:
-        Logger.error(f"[GraphCompare] ERREUR: Une exception a été interceptée: {e}")
+        Logger.error(f"Erreur inattendue dans create_comparison_radar_chart : {e}")
         traceback.print_exc()
+        plt.close('all') # S'assurer de tout fermer en cas d'erreur
         return None
