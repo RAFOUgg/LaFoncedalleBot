@@ -103,7 +103,6 @@ class HelpView(discord.ui.View):
         embed.add_field(name=self.format_cmd("comparer"), value="Compare deux produits côte à côte : prix, caractéristiques et notes moyennes de la communauté.", inline=False)
         embed.add_field(name=self.format_cmd("ma_commande"), value="Affiche le statut de ta dernière commande (paiement, expédition, suivi de colis).", inline=False)
         embed.add_field(name=self.format_cmd("delier_compte"), value="Supprime la liaison entre ton Discord et ton e-mail, si tu souhaites en changer.", inline=False)
-        embed.add_field(name=self.format_cmd("nitro_gift"), value="Si tu boostes le serveur, utilise cette commande pour réclamer ta récompense !", inline=False)
 
         await interaction.response.edit_message(embed=embed, view=HelpNavigateView(self))
 
@@ -146,12 +145,13 @@ class HelpView(discord.ui.View):
                     value=type_desc,
                     inline=False
                 )
+        embed.add_field(name=self.format_cmd("nitro_gift"), value="Si tu boostes le serveur, utilise cette commande pour réclamer ta récompense !", inline=False)
 
         if not loyalty_config:
             embed.description += "\n\nAucun palier ou succès n'est configuré pour le moment."
 
         await interaction.response.edit_message(embed=embed, view=HelpNavigateView(self))
-        
+
 class HelpNavigateView(discord.ui.View):
     def __init__(self, main_view: HelpView):
         super().__init__(timeout=None)
