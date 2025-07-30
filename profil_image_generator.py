@@ -25,16 +25,12 @@ async def create_profile_card(user_data: dict) -> io.BytesIO:
         }
         fonts = {}
         try:
-            font_paths = {
-                "bold": os.path.join(ASSETS_DIR, "Gobold-Bold.otf"),
-                "regular": os.path.join(ASSETS_DIR, "Gobold-Regular.otf"),
-            }
             fonts.update({
-                'name': ImageFont.truetype(font_paths['bold'], 70),
-                'title': ImageFont.truetype(font_paths['bold'], 30),
-                'label': ImageFont.truetype(font_paths['regular'], 28),
-                'value': ImageFont.truetype(font_paths['bold'], 32),
-                'badge': ImageFont.truetype(font_paths['bold'], 22),
+                'name': ImageFont.truetype("Gobold-Bold.otf", 70),
+                'title': ImageFont.truetype("Gobold-Bold.otf", 30),
+                'label': ImageFont.truetype("Gobold-Regular.otf", 28),
+                'value': ImageFont.truetype("Gobold-Bold.otf", 32),
+                'badge': ImageFont.truetype("Gobold-Bold.otf", 22),
             })
         except Exception as e:
             print(f"ERREUR [ImageGen]: Polices introuvables. {e}"); traceback.print_exc(); return None

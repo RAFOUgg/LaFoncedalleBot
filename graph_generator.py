@@ -35,8 +35,8 @@ def create_radar_chart(product_name: str) -> str | None:
     if not os.path.exists(FONT_PATH):
         Logger.error(f"CRITIQUE: Fichier de police introuvable à '{FONT_PATH}'.")
         return None
-    font_props = FontProperties(fname=FONT_PATH, size=12)
-    font_props_title = FontProperties(fname=FONT_PATH, size=16)
+    font_props = FontProperties(family="Gobold", weight='bold', size=12)
+    font_props_title = FontProperties(family="Gobold", weight='bold', size=16)
     conn = None
     try:
         conn = sqlite3.connect(DB_FILE)
@@ -65,7 +65,7 @@ def create_radar_chart(product_name: str) -> str | None:
             label.set_color('white')
             label.set_y(label.get_position()[1] * 1.1)
         for label in ax.get_yticklabels():
-            label.set_fontproperties(FontProperties(fname=FONT_PATH, size=10))
+            label.set_fontproperties(FontProperties(family="Gobold", weight='regular', size=10))
             label.set_color('darkgrey')
         ax.spines['polar'].set_color('gray')
         product_name_clean = remove_emojis(product_name)
@@ -91,9 +91,9 @@ def create_comparison_radar_chart(db_name1: str, scores1: np.ndarray, db_name2: 
         Logger.error(f"CRITIQUE: Fichier de police introuvable à '{FONT_PATH}'.")
         return None
     
-    font_props = FontProperties(fname=FONT_PATH, size=12)
-    font_props_legend = FontProperties(fname=FONT_PATH, size=11)
-    font_props_title = FontProperties(fname=FONT_PATH, size=16)
+    font_props = FontProperties(family="Gobold", weight='bold', size=12)
+    font_props_legend = FontProperties(family="Gobold", weight='bold', size=11)
+    font_props_title = FontProperties(family="Gobold", weight='bold', size=16)
 
     try:
         categories = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
@@ -123,7 +123,7 @@ def create_comparison_radar_chart(db_name1: str, scores1: np.ndarray, db_name2: 
             label.set_color('white')
             label.set_y(label.get_position()[1] * 1.1)
         for label in ax.get_yticklabels():
-            label.set_fontproperties(FontProperties(fname=FONT_PATH, size=10))
+            label.set_fontproperties(FontProperties(family="Gobold", weight='regular', size=10))
             label.set_color('darkgrey')
         ax.spines['polar'].set_color('gray')
         ax.set_title('Comparaison des Profils de Saveur\n', fontproperties=font_props_title, color='white')
