@@ -8,7 +8,7 @@ from typing import List, Optional, Union
 from discord.app_commands import Choice
 from profil_image_generator import create_profile_card
 from shared_utils import *
-from graph_generator import create_radar_chart, create_comparison_radar_chart
+from graph_generator import create_radar_chart
 import re
 import numpy as np
 
