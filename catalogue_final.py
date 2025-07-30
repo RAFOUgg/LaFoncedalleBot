@@ -37,6 +37,17 @@ intents.members = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 bot.product_cache = {}
 
+# --- LISTE DES STATUTS PERSONNALISÉS ---
+BOT_STATUSES = [
+    (discord.ActivityType.watching, "les nouveautés sur la boutique 👀"),
+    (discord.ActivityType.playing, "avec /menu pour explorer"),
+    (discord.ActivityType.listening, "vos avis avec /noter 🎵"),
+    (discord.ActivityType.watching, "les promos en cours avec /promos 🎁"),
+    (discord.ActivityType.playing, "à qui aura le meilleur badge 🏆"),
+    (discord.ActivityType.watching, "le top des produits 📈"),
+    (discord.ActivityType.playing, "avec des terpènes 🌿"),
+]
+
 # Configuration des heures pour les tâches programmées
 update_time = dt_time(hour=8, minute=0, tzinfo=paris_tz)
 ranking_time = dt_time(hour=16, minute=0, tzinfo=paris_tz)
@@ -603,6 +614,18 @@ async def sync_all_loyalty_roles(bot_instance: commands.Bot):
         Logger.error(f"Erreur critique lors de la synchronisation des rôles : {e}")
         traceback.print_exc()
 
+@tasks.loop(minutes=10)
+async def change_bot_status():
+    """Tâche qui change le statut du bot toutes les 10 minutes."""
+    activity_type, message = random.choice(BOT_STATUSES)
+    activity = discord.Activity(type=activity_type, name=message)
+    await bot.change_presence(activity=activity, status=discord.Status.online)
+
+@change_bot_status.before_loop
+async def before_change_status():
+    """Attend que le bot soit prêt avant de lancer la boucle de statut."""
+    await bot.wait_until_ready()
+
 @tasks.loop(time=reengagement_time)
 async def scheduled_reengagement_check():
     await bot.wait_until_ready()
@@ -735,7 +758,6 @@ async def scheduled_selection():
 async def daily_role_sync():
     await sync_all_loyalty_roles(bot)
 
-# Dans catalogue_final.py
 
 @bot.event
 async def on_ready():
@@ -773,6 +795,7 @@ async def on_ready():
     if not daily_role_sync.is_running(): daily_role_sync.start()
     if not scheduled_db_export.is_running(): scheduled_db_export.start(bot) # [AJOUT] Démarrage de la nouvelle tâche
     if not scheduled_reengagement_check.is_running(): scheduled_reengagement_check.start()
+    if not change_bot_status.is_running(): change_bot_status.start()
     Logger.success("Toutes les tâches programmées ont démarré.")
 
 
