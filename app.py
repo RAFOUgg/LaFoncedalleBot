@@ -516,10 +516,7 @@ def get_comparison_data():
         conn.row_factory = sqlite3.Row 
         cursor = conn.cursor()
         
-        # --- REQUÊTE FINALE ET ROBUSTE ---
-        # On utilise LIKE pour trouver les produits même si leur nom dans la DB 
-        # contient des variations (emojis, etc.).
-        # Le GROUP BY sur le nom normalisé garantit une seule ligne par produit.
+        # La requête LIKE est correcte pour trouver les données
         query = """
             SELECT 
                    product_name, 
@@ -531,45 +528,37 @@ def get_comparison_data():
                    COALESCE(AVG(taste_score), 0) as gout, 
                    COALESCE(AVG(effects_score), 0) as effets
             FROM ratings
-            WHERE 
-                LOWER(TRIM(product_name)) LIKE ? 
-                OR LOWER(TRIM(product_name)) LIKE ?
-            GROUP BY 
-                CASE
-                    WHEN LOWER(TRIM(product_name)) LIKE ? THEN ?
-                    WHEN LOWER(TRIM(product_name)) LIKE ? THEN ?
-                END
+            WHERE LOWER(TRIM(product_name)) LIKE ? OR LOWER(TRIM(product_name)) LIKE ?
+            GROUP BY product_name
         """
         
-        # On prépare les paramètres pour la requête LIKE
         p1_like = f"%{p1_name.lower().strip()}%"
         p2_like = f"%{p2_name.lower().strip()}%"
         
-        cursor.execute(query, (p1_like, p2_like, p1_like, p1_name.lower().strip(), p2_like, p2_name.lower().strip()))
+        cursor.execute(query, (p1_like, p2_like))
         results = cursor.fetchall()
         conn.close()
 
         data_map = {}
         for row in results:
-            # On vérifie à quel produit d'origine cette ligne de résultat appartient
-            # et on utilise le nom Shopify normalisé comme clé, comme attendu par le bot.
-            row_name_norm = row['product_name'].lower().strip()
-            key_to_use = None
-            if p1_name.lower().strip() in row_name_norm:
-                key_to_use = p1_name.lower().strip()
-            elif p2_name.lower().strip() in row_name_norm:
-                key_to_use = p2_name.lower().strip()
-
-            if key_to_use:
-                data_map[key_to_use] = {
-                    "name": row['product_name'],
-                    "count": row['count'],
-                    "avg_total": row['avg_total'],
-                    "details": {
-                        'Visuel': row['visuel'], 'Odeur': row['odeur'], 'Toucher': row['toucher'],
-                        'Goût': row['gout'], 'Effets': row['effets']
-                    }
+            row_data = {
+                "name": row['product_name'],
+                "count": row['count'],
+                "avg_total": row['avg_total'],
+                "details": {
+                    'Visuel': row['visuel'], 'Odeur': row['odeur'], 'Toucher': row['toucher'],
+                    'Goût': row['gout'], 'Effets': row['effets']
                 }
+            }
+            
+            # --- CORRECTION FINALE ET DÉFINITIVE ---
+            # On vérifie à quel produit d'origine cette ligne correspond
+            # et on utilise le nom D'ORIGINE (envoyé par le bot) comme clé.
+            row_name_norm = row['product_name'].lower().strip()
+            if p1_name.lower().strip() in row_name_norm:
+                data_map[p1_name.lower().strip()] = row_data
+            elif p2_name.lower().strip() in row_name_norm:
+                data_map[p2_name.lower().strip()] = row_data
 
         return jsonify(data_map), 200
 
