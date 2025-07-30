@@ -550,8 +550,9 @@ def get_comparison_data():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # [CORRECTION FINALE] On utilise COALESCE(AVG(...), 0) pour remplacer les NULL par 0
-        # C'est la correction la plus importante de toutes.
+        # [CORRECTION FINALE] On revient à LIKE pour gérer les variations de noms (emojis, etc.)
+        # C'est la solution la plus robuste pour ce cas d'usage.
+        # On garde COALESCE pour se protéger des notes NULL.
         query = """
             SELECT product_name, 
                    COUNT(id) as count,
@@ -562,24 +563,26 @@ def get_comparison_data():
                    COALESCE(AVG(taste_score), 0), 
                    COALESCE(AVG(effects_score), 0)
             FROM ratings
-            WHERE product_name = ? OR product_name = ?
+            WHERE product_name LIKE ? OR product_name LIKE ?
             GROUP BY product_name
         """
-        # On utilise la correspondance exacte pour plus de fiabilité
-        cursor.execute(query, (p1_name_query, p2_name_query))
+        # On prépare les chaînes pour la recherche LIKE
+        cursor.execute(query, (f'%{p1_name_query}%', f'%{p2_name_query}%'))
         results = cursor.fetchall()
         conn.close()
 
         data_map = {}
         for row in results:
-            data_map[row[0]] = {
-                "count": row[1],
-                "avg_total": row[2],
-                "details": {
-                    'Visuel': row[3], 'Odeur': row[4], 'Toucher': row[5],
-                    'Goût': row[6], 'Effets': row[7]
+            # On s'assure que les données sont complètes avant de les ajouter
+            if all(row): # Vérifie qu'aucune colonne n'est None (COALESCE s'en charge)
+                data_map[row[0]] = {
+                    "count": row[1],
+                    "avg_total": row[2],
+                    "details": {
+                        'Visuel': row[3], 'Odeur': row[4], 'Toucher': row[5],
+                        'Goût': row[6], 'Effets': row[7]
+                    }
                 }
-            }
 
         return jsonify(data_map), 200
 
