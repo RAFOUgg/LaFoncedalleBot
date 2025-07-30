@@ -10,6 +10,7 @@ from profil_image_generator import create_profile_card
 from shared_utils import *
 from graph_generator import create_radar_chart, create_comparison_radar_chart
 import re
+import numpy as np
 
 FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY')
 
@@ -60,8 +61,9 @@ class CompareView(discord.ui.View):
             loop = asyncio.get_running_loop()
             chart_buffer = await asyncio.wait_for(
                 loop.run_in_executor(
-                    process_executor,
-                    create_comparison_radar_chart, db_name1, scores1, db_name2, scores2
+                    process_executor, # C'est le point clé
+                    create_comparison_radar_chart, 
+                    db_name1, scores1, db_name2, scores2
                 ),
                 timeout=20.0
             )
