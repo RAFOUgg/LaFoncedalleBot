@@ -93,27 +93,35 @@ def create_comparison_radar_chart(product1_name: str, product2_name: str) -> str
     font_props_title = FontProperties(fname=FONT_PATH, size=16)
     conn = None
     try:
-        conn = sqlite3.connect(DB_FILE)
+        conn = get_db_connection() # Utilise la connexion partagée, plus robuste
         cursor = conn.cursor()
         
-        # Requête pour obtenir les moyennes des deux produits
-        query = "SELECT product_name, AVG(visual_score), AVG(smell_score), AVG(touch_score), AVG(taste_score), AVG(effects_score) FROM ratings WHERE product_name LIKE ? OR product_name LIKE ? GROUP BY product_name"
-        cursor.execute(query, (f'%{product1_name}%', f'%{product2_name}%'))
+        # [AMÉLIORATION] On utilise une requête exacte (=) au lieu de LIKE, c'est plus sûr et plus rapide.
+        # La commande /comparer envoie déjà les noms complets.
+        query = """
+            SELECT product_name, 
+                   AVG(visual_score), AVG(smell_score), AVG(touch_score), 
+                   AVG(taste_score), AVG(effects_score) 
+            FROM ratings 
+            WHERE product_name = ? OR product_name = ? 
+            GROUP BY product_name
+        """
+        cursor.execute(query, (product1_name, product2_name))
         results = cursor.fetchall()
         
-        # [AMÉLIORATION] Vérification robuste des résultats
-        if len(results) < 2:
-            Logger.warning(f"Données insuffisantes pour comparer '{product1_name}' et '{product2_name}'. Trouvé : {len(results)} produit(s).")
+        # [CORRECTION MAJEURE] On ne suppose plus l'ordre, on construit un dictionnaire.
+        scores_map = {row[0]: np.nan_to_num(np.array(row[1:], dtype=float)) for row in results}
+
+        # On récupère les scores depuis le dictionnaire. Si un produit n'a pas de notes, sa clé n'existera pas.
+        scores1 = scores_map.get(product1_name)
+        scores2 = scores_map.get(product2_name)
+        
+        # On vérifie si on a bien les données pour les DEUX produits.
+        if scores1 is None or scores2 is None:
+            Logger.warning(f"Données de notes manquantes pour la comparaison entre '{product1_name}' et '{product2_name}'.")
             return None
 
-        # [AMÉLIORATION] Extraction simple et fiable des données
-        db_name1, scores1 = results[0][0], np.array(results[0][1:], dtype=float)
-        db_name2, scores2 = results[1][0], np.array(results[1][1:], dtype=float)
-        
-        # S'assurer que les scores ne sont pas NaN (au cas où il n'y aurait que des NULLs)
-        scores1 = np.nan_to_num(scores1)
-        scores2 = np.nan_to_num(scores2)
-
+        # --- À partir d'ici, le code de génération de graphique est bon, mais on le garde pour la cohérence ---
         categories = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
         angles = np.linspace(0, 2 * np.pi, len(categories), endpoint=False).tolist()
         angles += angles[:1]
@@ -123,12 +131,12 @@ def create_comparison_radar_chart(product1_name: str, product2_name: str) -> str
         
         # Tracé pour le produit 1
         scores_for_plot1 = np.concatenate((scores1, [scores1[0]]))
-        ax.plot(angles, scores_for_plot1, color='#5865F2', linewidth=2, label=remove_emojis(db_name1))
+        ax.plot(angles, scores_for_plot1, color='#5865F2', linewidth=2, label=remove_emojis(product1_name))
         ax.fill(angles, scores_for_plot1, color='#5865F2', alpha=0.2)
         
         # Tracé pour le produit 2
         scores_for_plot2 = np.concatenate((scores2, [scores2[0]]))
-        ax.plot(angles, scores_for_plot2, color='#57F287', linewidth=2, label=remove_emojis(db_name2))
+        ax.plot(angles, scores_for_plot2, color='#57F287', linewidth=2, label=remove_emojis(product2_name))
         ax.fill(angles, scores_for_plot2, color='#57F287', alpha=0.2)
         
         ax.set_ylim(0, 10)
@@ -155,7 +163,6 @@ def create_comparison_radar_chart(product1_name: str, product2_name: str) -> str
             
         output_dir = "charts"
         os.makedirs(output_dir, exist_ok=True)
-        # On utilise time.time() pour s'assurer que le nom de fichier est unique
         filename = f"{output_dir}/comparison_chart_{int(time.time())}.png"
         plt.savefig(filename, bbox_inches='tight', dpi=120, transparent=True)
         plt.close(fig)
