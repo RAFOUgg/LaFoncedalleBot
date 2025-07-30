@@ -804,7 +804,7 @@ async def on_ready():
     except Exception as e:
         Logger.error(f"Échec critique du chargement de la vue persistante : {e}")
     try:
-        bot.add_view(commands.UnsubscribeButton(user_id=0, order_id="", bot=bot)) 
+        bot.add_view(UnsubscribeButton(user_id=0, order_id="", bot=bot)) 
         Logger.success("Vue persistante 'UnsubscribeButton' ré-enregistrée avec succès.")
     except Exception as e:
         Logger.error(f"Échec critique du chargement de la vue persistante 'UnsubscribeButton': {e}")
