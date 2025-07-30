@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Étape 4: Copier et installer les dépendances Python (pour optimiser le cache)
 COPY requirements.txt .
-RUN pip install --no-cache-dir --force-reinstall --no-binary Pillow -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Étape 5: Copier tout le reste du code de l'application
 COPY . .
