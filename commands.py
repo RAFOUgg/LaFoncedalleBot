@@ -50,9 +50,8 @@ class CompareView(discord.ui.View):
 
         chart_path = None
         try:
+            # On prépare les données pour la fonction de graphique
             db_name1 = self.p1_rating_data['name']
-            # [CORRECTION FINALE] On utilise "or 0" pour se protéger contre les None ou les clés manquantes.
-            # C'est une double sécurité.
             scores1 = np.array([
                 self.p1_rating_data['details'].get('Visuel') or 0,
                 self.p1_rating_data['details'].get('Odeur') or 0,
@@ -70,6 +69,7 @@ class CompareView(discord.ui.View):
                 self.p2_rating_data['details'].get('Effets') or 0,
             ])
             
+            # On appelle la fonction de graphique en lui donnant directement les données
             chart_path = await asyncio.to_thread(
                 create_comparison_radar_chart, db_name1, scores1, db_name2, scores2
             )
@@ -2509,8 +2509,6 @@ class SlashCommands(commands.Cog):
             p1_rating_data = next(({"name": name, **data} for name, data in api_data.items() if p1_full_name.lower() in name.lower()), None)
             p2_rating_data = next(({"name": name, **data} for name, data in api_data.items() if p2_full_name.lower() in name.lower()), None)
 
-            # --- Le reste de la fonction est quasi identique ---
-            
             description_text = "Voici un résumé des caractéristiques et des notes moyennes."
             embed = create_styled_embed(title=f"⚔️ Comparaison : {p1_data['name']} vs {p2_data['name']}", description=description_text, color=discord.Color.orange())
 
@@ -2531,15 +2529,15 @@ class SlashCommands(commands.Cog):
             embed.add_field(name=f"1️⃣ {p1_data['name']}", value=format_product_field(p1_data, p1_rating_data), inline=True)
             embed.add_field(name=f"2️⃣ {p2_data['name']}", value=format_product_field(p2_data, p2_rating_data), inline=True)
 
-            def format_scores_details(scores_dict):
-                if not scores_dict: return "*Pas de notes détaillées*"
-                # On s'assure d'afficher dans le bon ordre
+            def format_scores_details(rating_data):
+                if not rating_data or not rating_data.get('details'): return "Pas de notes détaillées"
+                scores_dict = rating_data['details']
                 cats = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
                 return "\n".join([f"**{cat} :** `{scores_dict.get(cat, 0):.2f}/10`" for cat in cats])
 
             embed.add_field(name="\u200b", value="\u200b", inline=False)
-            embed.add_field(name=f"Notes Détaillées - {p1_data['name']}", value=format_scores_details(p1_rating_data['details'] if p1_rating_data else None), inline=True)
-            embed.add_field(name=f"Notes Détaillées - {p2_data['name']}", value=format_scores_details(p2_rating_data['details'] if p2_rating_data else None), inline=True)
+            embed.add_field(name=f"Notes Détaillées - {p1_data['name']}", value=format_scores_details(p1_rating_data), inline=True)
+            embed.add_field(name=f"Notes Détaillées - {p2_data['name']}", value=format_scores_details(p2_rating_data), inline=True)
             
             # On passe les dictionnaires de notes COMPLETES à la vue
             view = CompareView(p1_rating_data, p2_rating_data)

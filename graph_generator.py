@@ -96,7 +96,6 @@ def create_comparison_radar_chart(db_name1: str, scores1: np.ndarray, db_name2: 
     font_props_title = FontProperties(fname=FONT_PATH, size=16)
 
     try:
-        # Il n'y a PLUS de connexion à la base de données ici. C'est beaucoup plus propre.
         categories = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
         angles = np.linspace(0, 2 * np.pi, len(categories), endpoint=False).tolist()
         angles += angles[:1]
