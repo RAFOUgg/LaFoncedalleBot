@@ -791,7 +791,7 @@ async def on_ready():
         Logger.error(f"Échec critique du chargement de la vue persistante : {e}")
 
     activity = discord.Activity(
-        type=discord.ActivityType.playing, # Exemples : playing, streaming, listening, watching
+        type=discord.ActivityType.streaming, # Exemples : playing, streaming, listening, watching
         name="[La boutique ! 🚀](https://la-foncedalle.fr/)",
         state="👅 Déguste depuis LaFoncedalle.fr", # Le texte principal, "STATE" (ex: "D")
         details="🍭 CBD Gustatif", # Les détails, "DETAILS" (ex: "Competitive")
