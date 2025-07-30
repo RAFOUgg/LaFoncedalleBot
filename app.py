@@ -550,9 +550,6 @@ def get_comparison_data():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # [CORRECTION FINALE] On revient à LIKE pour gérer les variations de noms (emojis, etc.)
-        # C'est la solution la plus robuste pour ce cas d'usage.
-        # On garde COALESCE pour se protéger des notes NULL.
         query = """
             SELECT product_name, 
                    COUNT(id) as count,
@@ -566,15 +563,13 @@ def get_comparison_data():
             WHERE product_name LIKE ? OR product_name LIKE ?
             GROUP BY product_name
         """
-        # On prépare les chaînes pour la recherche LIKE
         cursor.execute(query, (f'%{p1_name_query}%', f'%{p2_name_query}%'))
         results = cursor.fetchall()
         conn.close()
 
         data_map = {}
         for row in results:
-            # On s'assure que les données sont complètes avant de les ajouter
-            if all(row): # Vérifie qu'aucune colonne n'est None (COALESCE s'en charge)
+            if all(row):
                 data_map[row[0]] = {
                     "count": row[1],
                     "avg_total": row[2],
