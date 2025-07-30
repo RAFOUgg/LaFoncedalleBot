@@ -101,10 +101,12 @@ query getFiles($ids: [ID!]!) {
 
 # Dans catalogue_final.py
 
+# DANS LE FICHIER catalogue_final.py
+
 def get_site_data_from_graphql():
     """
     Récupère toutes les données du site en une seule requête GraphQL.
-    [VERSION 4.0 - Gère les PDF et résout les GID]
+    [VERSION 4.1 - Correction de la logique de catégorisation]
     """
     Logger.info("Démarrage de la récupération via GraphQL Shopify...")
     try:
@@ -120,25 +122,31 @@ def get_site_data_from_graphql():
         result_json = client.execute(PRODUCTS_WITH_METAFIELDS_QUERY)
         result = json.loads(result_json)
         
-        # [AJOUT] On va collecter tous les GID de fichiers ici
         gids_to_resolve = set()
-        raw_products_data = [] # On stocke temporairement les produits ici
+        raw_products_data = []
 
-        tags = prod.get('tags', [])
-        tag_category_found = False
-        for tag in tags:
-            if tag.startswith("categorie:"):
-                category = tag.split(":", 1)[1]
-                tag_category_found = True # On note qu'on a trouvé un tag
-                break
-            category = "accessoire"
-            collection_titles = [c['node']['title'].lower() for c in prod.get('collections', {}).get('edges', [])]
+        for product_edge in result.get('data', {}).get('products', {}).get('edges', []):
+            prod = product_edge['node']
+            
+            # --- DÉBUT DE LA LOGIQUE DE CATÉGORISATION CORRIGÉE ---
+            tags = prod.get('tags', [])
+            tag_category_found = False
+            category = "accessoire" # On initialise la catégorie par défaut ici
+
+            # 1. On cherche d'abord un tag de catégorie
+            for tag in tags:
+                if tag.startswith("categorie:"):
+                    category = tag.split(":", 1)[1]
+                    tag_category_found = True
+                    break
+            
+            # 2. Si aucun tag n'est trouvé, on utilise l'ancienne logique comme fallback
             if not tag_category_found:
-                category = "accessoire"
                 collection_titles = [c['node']['title'].lower() for c in prod.get('collections', {}).get('edges', [])]
                 if any("box" in title for title in collection_titles): category = "box"
                 elif any("weed" in title for title in collection_titles): category = "weed"
                 elif any("hash" in title for title in collection_titles): category = "hash"
+            # --- FIN DE LA LOGIQUE DE CATÉGORISATION CORRIGÉE ---
             
             images_edges = prod.get('images', {}).get('edges', [])
             image_url = images_edges[0].get('node', {}).get('url') if images_edges else None
@@ -172,7 +180,6 @@ def get_site_data_from_graphql():
                 value = str(meta.get('value', ''))
 
                 if category == 'box' and full_key == 'custom.box_description':
-                    # ... (la logique pour le contenu des box est correcte)
                     all_lines = [line.strip() for line in value.split('\n') if line.strip()]
                     current_section = "Général"
                     product_data['box_contents'][current_section] = []
@@ -187,7 +194,6 @@ def get_site_data_from_graphql():
                     if full_key == 'custom.effet_tag': product_data['stats']['Effet'] = value
                     elif full_key == 'custom.gout_tag': product_data['stats']['Goût'] = value
                 
-                # [CORRECTION] On capture TOUS les PDFs et on collecte leurs GID
                 if 'pdf' in full_key.lower() and value.startswith("gid://shopify/"):
                     key_formatted = meta.get('key').replace('_', ' ').capitalize()
                     product_data['stats'][key_formatted] = value
@@ -195,7 +201,7 @@ def get_site_data_from_graphql():
 
             raw_products_data.append(product_data)
         
-        # [AJOUT] Étape de résolution des GID en URL
+        # Le reste de la fonction est correct
         gid_url_map = {}
         if gids_to_resolve:
             Logger.info(f"Résolution de {len(gids_to_resolve)} GIDs de fichiers...")
@@ -205,7 +211,6 @@ def get_site_data_from_graphql():
                 if node and node.get('id') and node.get('url'):
                     gid_url_map[node['id']] = node['url']
 
-        # [AJOUT] Étape finale : remplacer les GID par les URL dans les produits
         final_products = []
         for product_data in raw_products_data:
             for key, value in product_data['stats'].items():
