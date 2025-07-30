@@ -2505,7 +2505,7 @@ class SlashCommands(commands.Cog):
                         raise Exception(f"Erreur de l'API {response.status}: {await response.text()}")
                     api_data = await response.json()
             
-            # On trouve les données de notes correspondantes et on leur ajoute le nom
+            # On trouve les données de notes correspondantes et on leur ajoute le nom du produit
             p1_rating_data = next(({"name": name, **data} for name, data in api_data.items() if p1_full_name.lower() in name.lower()), None)
             p2_rating_data = next(({"name": name, **data} for name, data in api_data.items() if p2_full_name.lower() in name.lower()), None)
 
@@ -2518,7 +2518,8 @@ class SlashCommands(commands.Cog):
                 elif p_data.get('is_promo'): price_text = f"🏷️ **{p_data.get('price')}** ~~{p_data.get('original_price')}~~"
                 
                 note_text = "⭐ **Note :** N/A"
-                if p_rating: note_text = f"⭐ **Note :** **{p_rating['avg_total']:.2f}/10** ({p_rating['count']} avis)"
+                if p_rating and p_rating.get('count', 0) > 0:
+                    note_text = f"⭐ **Note :** **{p_rating['avg_total']:.2f}/10** ({p_rating['count']} avis)"
                 
                 stats = p_data.get('stats', {})
                 gout = stats.get('Goût', "N/A")
@@ -2530,7 +2531,8 @@ class SlashCommands(commands.Cog):
             embed.add_field(name=f"2️⃣ {p2_data['name']}", value=format_product_field(p2_data, p2_rating_data), inline=True)
 
             def format_scores_details(rating_data):
-                if not rating_data or not rating_data.get('details'): return "Pas de notes détaillées"
+                if not rating_data or not rating_data.get('details') or rating_data.get('count', 0) == 0:
+                    return "Pas de notes détaillées"
                 scores_dict = rating_data['details']
                 cats = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
                 return "\n".join([f"**{cat} :** `{scores_dict.get(cat, 0):.2f}/10`" for cat in cats])
