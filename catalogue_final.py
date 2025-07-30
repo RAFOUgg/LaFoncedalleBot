@@ -34,6 +34,7 @@ from graph_generator import create_radar_chart
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
+intents.presences = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 bot.product_cache = {}
 
@@ -754,7 +755,7 @@ async def on_ready():
     # Initialisation de la base de données
     await asyncio.to_thread(initialize_database)
     async def initial_update_task():
-        await asyncio.sleep(5) 
+        await asyncio.sleep(5) # Attendre un peu pour que Discord soit bien prêt
         Logger.info("Lancement de la vérification initiale différée...")
         await check_for_updates(bot, force_publish=False)
     asyncio.create_task(initial_update_task())
@@ -770,9 +771,9 @@ async def on_ready():
         name="[💎 Boutique 🚀]",
         state="👅 Déguste depuis LaFoncedalle.fr",
         details="🍭 CBD Gustatif",
-        large_image=lafoncedallelogo,
+        large_image="lafoncedallelogo",
         large_text="La-Froncedalle.fr", # Texte au survol de la grande image
-        small_image=shopify, # Clé de l'image petite
+        small_image="shopify", # Clé de l'image petite
         small_text="Propulsé par shopify", # Texte au survol de la petite image
     )
 
