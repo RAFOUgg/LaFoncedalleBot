@@ -511,55 +511,57 @@ def get_comparison_data():
     if not p1_name or not p2_name:
         return jsonify({"error": "Noms de produits manquants."}), 400
 
+    def _get_data_for_product(cursor, product_name):
+        """
+        Helper function to run a simple, robust query for a single product.
+        It finds all matching ratings (e.g., with emojis) and aggregates them.
+        """
+        query = """
+            SELECT
+                -- Use a subquery to get the most recent "real" name for display
+                (SELECT r2.product_name FROM ratings r2 WHERE LOWER(TRIM(r2.product_name)) LIKE ? ORDER BY r2.rating_timestamp DESC LIMIT 1) as display_name,
+                COUNT(r1.id) as count,
+                COALESCE(AVG((COALESCE(r1.visual_score,0)+COALESCE(r1.smell_score,0)+COALESCE(r1.touch_score,0)+COALESCE(r1.taste_score,0)+COALESCE(r1.effects_score,0))/5.0), 0) as avg_total,
+                COALESCE(AVG(r1.visual_score), 0) as visuel,
+                COALESCE(AVG(r1.smell_score), 0) as odeur,
+                COALESCE(AVG(r1.touch_score), 0) as toucher,
+                COALESCE(AVG(r1.taste_score), 0) as gout,
+                COALESCE(AVG(r1.effects_score), 0) as effets
+            FROM ratings r1
+            WHERE LOWER(TRIM(r1.product_name)) LIKE ?
+        """
+        like_param = f"%{product_name.lower().strip()}%"
+        cursor.execute(query, (like_param, like_param))
+        return cursor.fetchone()
+
     try:
         conn = get_db_connection()
-        conn.row_factory = sqlite3.Row 
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        
-        # La requête LIKE est correcte pour trouver les données
-        query = """
-            SELECT 
-                   product_name, 
-                   COUNT(id) as count,
-                   COALESCE(AVG((COALESCE(visual_score,0)+COALESCE(smell_score,0)+COALESCE(touch_score,0)+COALESCE(taste_score,0)+COALESCE(effects_score,0))/5.0), 0) as avg_total,
-                   COALESCE(AVG(visual_score), 0) as visuel, 
-                   COALESCE(AVG(smell_score), 0) as odeur, 
-                   COALESCE(AVG(touch_score), 0) as toucher, 
-                   COALESCE(AVG(taste_score), 0) as gout, 
-                   COALESCE(AVG(effects_score), 0) as effets
-            FROM ratings
-            WHERE LOWER(TRIM(product_name)) LIKE ? OR LOWER(TRIM(product_name)) LIKE ?
-            GROUP BY product_name
-        """
-        
-        p1_like = f"%{p1_name.lower().strip()}%"
-        p2_like = f"%{p2_name.lower().strip()}%"
-        
-        cursor.execute(query, (p1_like, p2_like))
-        results = cursor.fetchall()
-        conn.close()
 
         data_map = {}
-        for row in results:
-            row_data = {
-                "name": row['product_name'],
-                "count": row['count'],
-                "avg_total": row['avg_total'],
-                "details": {
-                    'Visuel': row['visuel'], 'Odeur': row['odeur'], 'Toucher': row['toucher'],
-                    'Goût': row['gout'], 'Effets': row['effets']
-                }
+        
+        # Run query for product 1
+        p1_result = _get_data_for_product(cursor, p1_name)
+        if p1_result and p1_result['count'] > 0:
+            data_map[p1_name.lower().strip()] = {
+                "name": p1_result['display_name'],
+                "count": p1_result['count'],
+                "avg_total": p1_result['avg_total'],
+                "details": { 'Visuel': p1_result['visuel'], 'Odeur': p1_result['odeur'], 'Toucher': p1_result['toucher'], 'Goût': p1_result['gout'], 'Effets': p1_result['effets'] }
             }
-            
-            # --- CORRECTION FINALE ET DÉFINITIVE ---
-            # On vérifie à quel produit d'origine cette ligne correspond
-            # et on utilise le nom D'ORIGINE (envoyé par le bot) comme clé.
-            row_name_norm = row['product_name'].lower().strip()
-            if p1_name.lower().strip() in row_name_norm:
-                data_map[p1_name.lower().strip()] = row_data
-            elif p2_name.lower().strip() in row_name_norm:
-                data_map[p2_name.lower().strip()] = row_data
 
+        # Run query for product 2
+        p2_result = _get_data_for_product(cursor, p2_name)
+        if p2_result and p2_result['count'] > 0:
+            data_map[p2_name.lower().strip()] = {
+                "name": p2_result['display_name'],
+                "count": p2_result['count'],
+                "avg_total": p2_result['avg_total'],
+                "details": { 'Visuel': p2_result['visuel'], 'Odeur': p2_result['odeur'], 'Toucher': p2_result['toucher'], 'Goût': p2_result['gout'], 'Effets': p2_result['effets'] }
+            }
+
+        conn.close()
         return jsonify(data_map), 200
 
     except Exception as e:
