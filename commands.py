@@ -2476,15 +2476,17 @@ class SlashCommands(commands.Cog):
                 return await interaction.followup.send("❌ Veuillez choisir deux produits différents.", ephemeral=True)
 
             product_map = {p['name'].lower().strip(): p for p in self.bot.product_cache.get('products', [])}
-            p1_full_name = next((name for name in product_map if produit1.lower() in name.lower()), None)
-            p2_full_name = next((name for name in product_map if produit2.lower() in name.lower()), None)
+            
+            # On cherche les noms complets pour récupérer les données de base (prix, etc.)
+            p1_full_name = next((p['name'] for name_key, p in product_map.items() if produit1.lower() in name_key), None)
+            p2_full_name = next((p['name'] for name_key, p in product_map.items() if produit2.lower() in name_key), None)
             
             if not p1_full_name or not p2_full_name:
                 missing = f"'{produit1 if not p1_full_name else produit2}'"
                 return await interaction.followup.send(f"😕 Impossible de trouver les informations pour {missing}.", ephemeral=True)
 
-            p1_data = product_map.get(p1_full_name.lower())
-            p2_data = product_map.get(p2_full_name.lower())
+            p1_data = product_map.get(p1_full_name.lower().strip())
+            p2_data = product_map.get(p2_full_name.lower().strip())
 
             import aiohttp
             api_url = f"{APP_URL}/api/get_comparison_data"
@@ -2497,9 +2499,12 @@ class SlashCommands(commands.Cog):
                         raise Exception(f"Erreur de l'API {response.status}: {await response.text()}")
                     api_data = await response.json()
             
-            p1_rating_data = next(({"name": name, **data} for name, data in api_data.items() if p1_full_name.lower() in name.lower()), None)
-            p2_rating_data = next(({"name": name, **data} for name, data in api_data.items() if p2_full_name.lower() in name.lower()), None)
+            # --- LOGIQUE DE RÉCUPÉRATION CORRIGÉE ---
+            # On utilise une recherche par clé normalisée, beaucoup plus fiable
+            p1_rating_data = api_data.get(p1_full_name.lower().strip())
+            p2_rating_data = api_data.get(p2_full_name.lower().strip())
 
+            # ... Le reste du code pour créer l'embed reste identique ...
             description_text = "Voici un résumé des caractéristiques et des notes moyennes."
             embed = create_styled_embed(title=f"⚔️ Comparaison : {p1_data['name']} vs {p2_data['name']}", description=description_text, color=discord.Color.orange())
 

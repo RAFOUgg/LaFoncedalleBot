@@ -502,6 +502,8 @@ def get_shop_stats():
         "monthly_order_count": monthly_order_count
     })
 
+# Dans app.py
+
 @app.route('/api/get_comparison_data', methods=['POST'])
 def get_comparison_data():
     data = request.json
@@ -513,11 +515,15 @@ def get_comparison_data():
 
     try:
         conn = get_db_connection()
+        # Important : permet d'accéder aux colonnes par leur nom
+        conn.row_factory = sqlite3.Row 
         cursor = conn.cursor()
         
-        # --- REQUÊTE AMÉLIORÉE ET FIABILISÉE ---
+        # --- REQUÊTE SQL ROBUSTE ---
+        # On normalise les données des deux côtés (dans la DB et en entrée)
         query = """
-            SELECT product_name, 
+            SELECT 
+                   product_name, 
                    COUNT(id) as count,
                    COALESCE(AVG((COALESCE(visual_score,0)+COALESCE(smell_score,0)+COALESCE(touch_score,0)+COALESCE(taste_score,0)+COALESCE(effects_score,0))/5.0), 0) as avg_total,
                    COALESCE(AVG(visual_score), 0) as visuel, 
@@ -526,18 +532,19 @@ def get_comparison_data():
                    COALESCE(AVG(taste_score), 0) as gout, 
                    COALESCE(AVG(effects_score), 0) as effets
             FROM ratings
-            WHERE product_name = ? OR product_name = ?
-            GROUP BY product_name
+            WHERE LOWER(TRIM(product_name)) IN (?, ?)
+            GROUP BY LOWER(TRIM(product_name))
         """
-        # On utilise les noms exacts au lieu de LIKE
-        cursor.execute(query, (p1_name, p2_name))
+        # On normalise les noms reçus avant de les passer à la requête
+        cursor.execute(query, (p1_name.lower().strip(), p2_name.lower().strip()))
         results = cursor.fetchall()
         conn.close()
 
         data_map = {}
         for row in results:
-            # On utilise les alias de la requête pour plus de clarté
-            data_map[row['product_name']] = {
+            # On stocke les résultats avec une clé normalisée pour que le bot puisse les trouver
+            data_map[row['product_name'].lower().strip()] = {
+                "name": row['product_name'], # On garde le nom original pour l'affichage
                 "count": row['count'],
                 "avg_total": row['avg_total'],
                 "details": {
