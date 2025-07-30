@@ -52,10 +52,11 @@ class CompareView(discord.ui.View):
         try:
             # On prépare les données pour la fonction de graphique
             db_name1 = self.p1_rating_data['name']
-            scores1 = np.array(list(self.p1_rating_data['details'].values()))
+            # On récupère les scores dans le bon ordre (celui des catégories du graphique)
+            scores1 = np.array([self.p1_rating_data['details'].get(cat, 0) for cat in ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']])
             
             db_name2 = self.p2_rating_data['name']
-            scores2 = np.array(list(self.p2_rating_data['details'].values()))
+            scores2 = np.array([self.p2_rating_data['details'].get(cat, 0) for cat in ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']])
             
             # On appelle la fonction de graphique en lui donnant directement les données
             chart_path = await asyncio.to_thread(
@@ -2471,9 +2472,7 @@ class SlashCommands(commands.Cog):
             if produit1.lower() == produit2.lower():
                 return await interaction.followup.send("❌ Veuillez choisir deux produits différents.", ephemeral=True)
 
-            # 1. On récupère les données des produits depuis le cache (caractéristiques, prix, etc.)
             product_map = {p['name'].lower().strip(): p for p in self.bot.product_cache.get('products', [])}
-            # On cherche les noms complets pour être plus précis
             p1_full_name = next((name for name in product_map if produit1.lower() in name.lower()), None)
             p2_full_name = next((name for name in product_map if produit2.lower() in name.lower()), None)
             
@@ -2484,9 +2483,7 @@ class SlashCommands(commands.Cog):
             p1_data = product_map.get(p1_full_name.lower())
             p2_data = product_map.get(p2_full_name.lower())
 
-            # 2. On appelle la BONNE route API pour obtenir les notes
             import aiohttp
-            # [CORRECTION] On utilise la route qui existe dans app.py
             api_url = f"{APP_URL}/api/get_comparison_data"
             payload = {"product1_name": p1_full_name, "product2_name": p2_full_name}
             
@@ -2497,30 +2494,23 @@ class SlashCommands(commands.Cog):
                         raise Exception(f"Erreur de l'API {response.status}: {await response.text()}")
                     api_data = await response.json()
             
-            # On trouve les données de notes correspondantes dans la réponse de l'API
+            # On trouve les données de notes correspondantes et on leur ajoute le nom
             p1_rating_data = next(({"name": name, **data} for name, data in api_data.items() if p1_full_name.lower() in name.lower()), None)
             p2_rating_data = next(({"name": name, **data} for name, data in api_data.items() if p2_full_name.lower() in name.lower()), None)
 
-            # 3. On construit l'embed de comparaison textuelle
+            # --- Le reste de la fonction est quasi identique ---
+            
             description_text = "Voici un résumé des caractéristiques et des notes moyennes."
             embed = create_styled_embed(title=f"⚔️ Comparaison : {p1_data['name']} vs {p2_data['name']}", description=description_text, color=discord.Color.orange())
 
-            # Fonction interne pour formater chaque champ
             def format_product_field(p_data, p_rating):
-                # Prix
-                if p_data.get('is_sold_out'):
-                    price_text = "❌ **Épuisé**"
-                elif p_data.get('is_promo'):
-                    price_text = f"🏷️ **{p_data.get('price')}** ~~{p_data.get('original_price')}~~"
-                else:
-                    price_text = f"💰 **{p_data.get('price', 'N/A')}**"
+                price_text = f"💰 **{p_data.get('price', 'N/A')}**"
+                if p_data.get('is_sold_out'): price_text = "❌ **Épuisé**"
+                elif p_data.get('is_promo'): price_text = f"🏷️ **{p_data.get('price')}** ~~{p_data.get('original_price')}~~"
                 
-                # Note
-                note_text = "⭐ **Note :** N/A (pas encore noté)"
-                if p_rating:
-                    note_text = f"⭐ **Note :** **{p_rating['avg_total']:.2f}/10** ({p_rating['count']} avis)"
+                note_text = "⭐ **Note :** N/A"
+                if p_rating: note_text = f"⭐ **Note :** **{p_rating['avg_total']:.2f}/10** ({p_rating['count']} avis)"
                 
-                # Caractéristiques
                 stats = p_data.get('stats', {})
                 gout = stats.get('Goût', "N/A")
                 effet = stats.get('Effet', "N/A")
@@ -2530,16 +2520,17 @@ class SlashCommands(commands.Cog):
             embed.add_field(name=f"1️⃣ {p1_data['name']}", value=format_product_field(p1_data, p1_rating_data), inline=True)
             embed.add_field(name=f"2️⃣ {p2_data['name']}", value=format_product_field(p2_data, p2_rating_data), inline=True)
 
-            # On ajoute le détail des notes moyennes sous l'embed
             def format_scores_details(scores_dict):
                 if not scores_dict: return "*Pas de notes détaillées*"
-                return "\n".join([f"**{cat} :** `{score:.2f}/10`" for cat, score in scores_dict.items() if score is not None])
+                # On s'assure d'afficher dans le bon ordre
+                cats = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
+                return "\n".join([f"**{cat} :** `{scores_dict.get(cat, 0):.2f}/10`" for cat in cats])
 
-            embed.add_field(name="\u200b", value="\u200b", inline=False) # Separateur
+            embed.add_field(name="\u200b", value="\u200b", inline=False)
             embed.add_field(name=f"Notes Détaillées - {p1_data['name']}", value=format_scores_details(p1_rating_data['details'] if p1_rating_data else None), inline=True)
             embed.add_field(name=f"Notes Détaillées - {p2_data['name']}", value=format_scores_details(p2_rating_data['details'] if p2_rating_data else None), inline=True)
             
-            # 4. On envoie l'embed avec le bouton pour le graphique
+            # On passe les dictionnaires de notes COMPLETES à la vue
             view = CompareView(p1_rating_data, p2_rating_data)
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
