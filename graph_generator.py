@@ -10,6 +10,7 @@ import traceback
 import re # <-- Importé pour les regex
 from typing import Dict, Any, List
 from shared_utils import Logger, DB_FILE
+import time
 
 FONT_PATH = os.path.join(os.path.dirname(__file__), 'assets', 'Gobold-Bold.otf')
 

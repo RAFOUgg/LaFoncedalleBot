@@ -33,34 +33,45 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
 # --- VUES ET MODALES ---
 
 class CompareView(discord.ui.View):
-    # [MODIFIÉ] La vue stocke maintenant les données détaillées complètes
-    def __init__(self, p1_data: dict, p2_data: dict):
+    def __init__(self, product1_name: str, product2_name: str):
         super().__init__(timeout=300)
-        self.p1_data = p1_data
-        self.p2_data = p2_data
+        self.product1_name = product1_name
+        self.product2_name = product2_name
 
-    @discord.ui.button(label="📊 Comparer les Notes Détaillées", style=discord.ButtonStyle.secondary)
-    async def compare_notes_detailed(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Plus besoin d'appel API, les données sont déjà là !
-        await interaction.response.defer(ephemeral=True)
-        
+    @discord.ui.button(label="📊 Comparer les notes", style=discord.ButtonStyle.secondary)
+    async def compare_graph(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True, thinking=True)
         button.disabled = True
         await interaction.message.edit(view=self)
 
-        embed = create_styled_embed(
-            title="📊 Comparaison des Notes Détaillées",
-            description="Voici les notes moyennes pour chaque critère.",
-            show_logo=False,
-            color=discord.Color.teal()
-        )
+        chart_path = None
+        try:
+            # On appelle directement la fonction de génération de graphique
+            chart_path = await asyncio.to_thread(
+                create_comparison_radar_chart, self.product1_name, self.product2_name
+            )
 
-        def format_scores(scores_dict):
-            return "\n".join([f"**{cat} :** `{score:.2f}/10`" for cat, score in scores_dict.items() if score is not None])
+            if chart_path:
+                file = discord.File(chart_path, filename="comparison_radar_chart.png")
+                embed = discord.Embed(
+                    title="Comparaison Radar des Notes",
+                    description="Ce graphique représente la moyenne des notes de la communauté pour chaque produit.",
+                    color=discord.Color.blue()
+                ).set_image(url="attachment://comparison_radar_chart.png")
+                await interaction.followup.send(embed=embed, file=file, ephemeral=True)
+            else:
+                await interaction.followup.send("😕 Impossible de générer le graphique, il manque des notes pour l'un des produits.", ephemeral=True)
 
-        embed.add_field(name=f"1️⃣ {self.p1_data['name']}", value=format_scores(self.p1_data['rating']['details']), inline=True)
-        embed.add_field(name=f"2️⃣ {self.p2_data['name']}", value=format_scores(self.p2_data['rating']['details']), inline=True)
-
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as e:
+            Logger.error(f"Échec de la génération du graphique de comparaison : {e}")
+            traceback.print_exc()
+            await interaction.followup.send("❌ Oups ! Une erreur est survenue lors de la création du graphique.", ephemeral=True)
+        finally:
+            if chart_path and os.path.exists(chart_path):
+                try:
+                    os.remove(chart_path)
+                except OSError as e:
+                    Logger.error(f"Impossible de supprimer le fichier de graphique {chart_path}: {e}")
 
 class HelpView(discord.ui.View):
     def __init__(self, cog_instance):
@@ -2442,7 +2453,10 @@ class SlashCommands(commands.Cog):
 
     @app_commands.command(name="comparer", description="Compare deux produits côte à côte.")
     @app_commands.autocomplete(produit1=product_autocomplete, produit2=product_autocomplete)
-    @app_commands.describe(produit1="Le premier produit à comparer.", produit2="Le second produit à comparer.")
+    @app_commands.describe(
+        produit1="Le premier produit à comparer.",
+        produit2="Le second produit à comparer."
+    )
     async def comparer(self, interaction: discord.Interaction, produit1: str, produit2: str):
         await interaction.response.defer(ephemeral=True)
 
@@ -2450,54 +2464,76 @@ class SlashCommands(commands.Cog):
             if produit1.lower() == produit2.lower():
                 return await interaction.followup.send("❌ Veuillez choisir deux produits différents.", ephemeral=True)
 
-            product_map = {p['name'].lower(): p for p in self.bot.product_cache.get('products', [])}
-            p1_data = next((p for p_name, p in product_map.items() if produit1 in p_name), None)
-            p2_data = next((p for p_name, p in product_map.items() if produit2 in p_name), None)
-
-            if not p1_data or not p2_data:
-                return await interaction.followup.send("😕 Impossible de trouver les informations pour un des produits.", ephemeral=True)
-
-            import aiohttp
-            api_url = f"{APP_URL}/api/get_comparison_data"
-            payload = {"product1_name": produit1, "product2_name": produit2}
+            # 1. On récupère les données des produits depuis le cache (caractéristiques, prix, etc.)
+            product_map = {p['name'].lower().strip(): p for p in self.bot.product_cache.get('products', [])}
+            # On cherche les noms complets pour être plus précis
+            p1_full_name = next((name for name in product_map if produit1.lower() in name.lower()), None)
+            p2_full_name = next((name for name in product_map if produit2.lower() in name.lower()), None)
             
+            if not p1_full_name or not p2_full_name:
+                missing = f"'{produit1 if not p1_full_name else produit2}'"
+                return await interaction.followup.send(f"😕 Impossible de trouver les informations pour {missing}.", ephemeral=True)
+
+            p1_data = product_map.get(p1_full_name.lower())
+            p2_data = product_map.get(p2_full_name.lower())
+
+            # 2. On appelle la BONNE route API pour obtenir les notes
+            import aiohttp
+            # [CORRECTION] On utilise la route qui existe dans app.py
+            api_url = f"{APP_URL}/api/get_comparison_data"
+            payload = {"product1_name": p1_full_name, "product2_name": p2_full_name}
+            
+            api_data = {}
             async with aiohttp.ClientSession() as session:
                 async with session.post(api_url, json=payload) as response:
                     if not response.ok:
-                        raise Exception(f"API Error {response.status}: {await response.text()}")
+                        raise Exception(f"Erreur de l'API {response.status}: {await response.text()}")
                     api_data = await response.json()
             
-            p1_rating = next((data for name, data in api_data.items() if produit1 in name), None)
-            p2_rating = next((data for name, data in api_data.items() if produit2 in name), None)
+            # On trouve les données de notes correspondantes dans la réponse de l'API
+            p1_rating = next((data for name, data in api_data.items() if p1_full_name.lower() in name.lower()), None)
+            p2_rating = next((data for name, data in api_data.items() if p2_full_name.lower() in name.lower()), None)
 
-            summary_lines = []
-            if p1_rating and p2_rating:
-                if p1_rating['avg_total'] > p2_rating['avg_total']:
-                    summary_lines.append(f"⭐ **Mieux noté :** {p1_data['name']}")
-                else:
-                    summary_lines.append(f"⭐ **Mieux noté :** {p2_data['name']}")
-            
-            description_text = f"Voici un résumé des caractéristiques.\n\n**En bref :**\n" + "\n".join(summary_lines) if summary_lines else "Voici un résumé des caractéristiques."
+            # 3. On construit l'embed de comparaison textuelle
+            description_text = "Voici un résumé des caractéristiques et des notes moyennes."
             embed = create_styled_embed(title=f"⚔️ Comparaison : {p1_data['name']} vs {p2_data['name']}", description=description_text, color=discord.Color.orange())
 
+            # Fonction interne pour formater chaque champ
             def format_product_field(p_data, p_rating):
-                price_text = f"💰 **Prix :** {p_data.get('price', 'N/A')}"
-                note_text = "⭐ **Note :** N/A"
+                # Prix
+                if p_data.get('is_sold_out'):
+                    price_text = "❌ **Épuisé**"
+                elif p_data.get('is_promo'):
+                    price_text = f"🏷️ **{p_data.get('price')}** ~~{p_data.get('original_price')}~~"
+                else:
+                    price_text = f"💰 **{p_data.get('price', 'N/A')}**"
+                
+                # Note
+                note_text = "⭐ **Note :** N/A (pas encore noté)"
                 if p_rating:
                     note_text = f"⭐ **Note :** **{p_rating['avg_total']:.2f}/10** ({p_rating['count']} avis)"
+                
+                # Caractéristiques
                 stats = p_data.get('stats', {})
-                gout = next((v for k, v in stats.items() if k.lower() in ['goût', 'gout']), "N/A")
+                gout = stats.get('Goût', "N/A")
                 effet = stats.get('Effet', "N/A")
-                return f"{price_text}\n{note_text}\n\n👅 **Goût :** {gout}\n🧠 **Effet :** {effet}"
+
+                return f"{price_text}\n{note_text}\n\n👅 **Goût :** `{gout}`\n🧠 **Effet :** `{effet}`"
 
             embed.add_field(name=f"1️⃣ {p1_data['name']}", value=format_product_field(p1_data, p1_rating), inline=True)
             embed.add_field(name=f"2️⃣ {p2_data['name']}", value=format_product_field(p2_data, p2_rating), inline=True)
+
+            # On ajoute le détail des notes moyennes sous l'embed
+            def format_scores_details(scores_dict):
+                if not scores_dict: return "*Pas de notes détaillées*"
+                return "\n".join([f"**{cat} :** `{score:.2f}/10`" for cat, score in scores_dict.items() if score is not None])
+
+            embed.add_field(name="\u200b", value="\u200b", inline=False) # Separateur
+            embed.add_field(name=f"Notes Détaillées - {p1_data['name']}", value=format_scores_details(p1_rating['details'] if p1_rating else None), inline=True)
+            embed.add_field(name=f"Notes Détaillées - {p2_data['name']}", value=format_scores_details(p2_rating['details'] if p2_rating else None), inline=True)
             
-            # On stocke toutes les données pour la vue
-            p1_full_data = {"name": p1_data['name'], "rating": p1_rating}
-            p2_full_data = {"name": p2_data['name'], "rating": p2_rating}
-            
-            view = CompareView(p1_full_data, p2_full_data)
+            # 4. On envoie l'embed avec le bouton pour le graphique
+            view = CompareView(p1_data['name'], p2_data['name'])
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
         except Exception as e:
