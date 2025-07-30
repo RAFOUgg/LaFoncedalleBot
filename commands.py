@@ -33,47 +33,52 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
 # --- VUES ET MODALES ---
 
 class CompareView(discord.ui.View):
-    def __init__(self, product1_name: str, product2_name: str):
+    # On initialise la vue avec les données de notes complètes
+    def __init__(self, p1_rating_data: dict, p2_rating_data: dict):
         super().__init__(timeout=300)
-        self.product1_name = product1_name
-        self.product2_name = product2_name
+        self.p1_rating_data = p1_rating_data
+        self.p2_rating_data = p2_rating_data
+        # On désactive le bouton si l'un des produits n'a pas de notes
+        if not p1_rating_data or not p2_rating_data:
+            self.compare_graph.disabled = True
 
     @discord.ui.button(label="📊 Afficher le Graphique Radar", style=discord.ButtonStyle.secondary)
     async def compare_graph(self, interaction: discord.Interaction, button: discord.ui.Button):
-        Logger.action(f"Clic sur bouton graphique. Envoi des noms: P1='{self.product1_name}', P2='{self.product2_name}'")
         await interaction.response.defer(ephemeral=True, thinking=True)
         button.disabled = True
         await interaction.message.edit(view=self)
 
         chart_path = None
         try:
-            # On appelle directement la fonction Python qui génère le graphique
+            # On prépare les données pour la fonction de graphique
+            db_name1 = self.p1_rating_data['name']
+            scores1 = np.array(list(self.p1_rating_data['details'].values()))
+            
+            db_name2 = self.p2_rating_data['name']
+            scores2 = np.array(list(self.p2_rating_data['details'].values()))
+            
+            # On appelle la fonction de graphique en lui donnant directement les données
             chart_path = await asyncio.to_thread(
-                create_comparison_radar_chart, self.product1_name, self.product2_name
+                create_comparison_radar_chart, db_name1, scores1, db_name2, scores2
             )
 
             if chart_path:
                 file = discord.File(chart_path, filename="comparison_radar_chart.png")
                 embed = discord.Embed(
                     title="Comparaison Radar des Notes",
-                    description="Ce graphique représente la moyenne des notes de la communauté pour chaque produit.",
                     color=discord.Color.blue()
                 ).set_image(url="attachment://comparison_radar_chart.png")
                 await interaction.followup.send(embed=embed, file=file, ephemeral=True)
             else:
-                await interaction.followup.send("😕 Impossible de générer le graphique, il manque des notes pour l'un des produits.", ephemeral=True)
+                await interaction.followup.send("😕 Une erreur est survenue lors de la création du graphique.", ephemeral=True)
 
         except Exception as e:
             Logger.error(f"Échec de la génération du graphique de comparaison : {e}")
             traceback.print_exc()
-            await interaction.followup.send("❌ Oups ! Une erreur est survenue lors de la création du graphique.", ephemeral=True)
+            await interaction.followup.send("❌ Oups ! Une erreur critique est survenue.", ephemeral=True)
         finally:
-            # On s'assure de supprimer le fichier temporaire après l'envoi
             if chart_path and os.path.exists(chart_path):
-                try:
-                    os.remove(chart_path)
-                except OSError as e:
-                    Logger.error(f"Impossible de supprimer le fichier de graphique {chart_path}: {e}")
+                os.remove(chart_path)
 
 class HelpView(discord.ui.View):
     def __init__(self, cog_instance):
@@ -2493,8 +2498,8 @@ class SlashCommands(commands.Cog):
                     api_data = await response.json()
             
             # On trouve les données de notes correspondantes dans la réponse de l'API
-            p1_rating = next((data for name, data in api_data.items() if p1_full_name.lower() in name.lower()), None)
-            p2_rating = next((data for name, data in api_data.items() if p2_full_name.lower() in name.lower()), None)
+            p1_rating_data = next(({"name": name, **data} for name, data in api_data.items() if p1_full_name.lower() in name.lower()), None)
+            p2_rating_data = next(({"name": name, **data} for name, data in api_data.items() if p2_full_name.lower() in name.lower()), None)
 
             # 3. On construit l'embed de comparaison textuelle
             description_text = "Voici un résumé des caractéristiques et des notes moyennes."
@@ -2522,8 +2527,8 @@ class SlashCommands(commands.Cog):
 
                 return f"{price_text}\n{note_text}\n\n👅 **Goût :** `{gout}`\n🧠 **Effet :** `{effet}`"
 
-            embed.add_field(name=f"1️⃣ {p1_data['name']}", value=format_product_field(p1_data, p1_rating), inline=True)
-            embed.add_field(name=f"2️⃣ {p2_data['name']}", value=format_product_field(p2_data, p2_rating), inline=True)
+            embed.add_field(name=f"1️⃣ {p1_data['name']}", value=format_product_field(p1_data, p1_rating_data), inline=True)
+            embed.add_field(name=f"2️⃣ {p2_data['name']}", value=format_product_field(p2_data, p2_rating_data), inline=True)
 
             # On ajoute le détail des notes moyennes sous l'embed
             def format_scores_details(scores_dict):
@@ -2531,11 +2536,11 @@ class SlashCommands(commands.Cog):
                 return "\n".join([f"**{cat} :** `{score:.2f}/10`" for cat, score in scores_dict.items() if score is not None])
 
             embed.add_field(name="\u200b", value="\u200b", inline=False) # Separateur
-            embed.add_field(name=f"Notes Détaillées - {p1_data['name']}", value=format_scores_details(p1_rating['details'] if p1_rating else None), inline=True)
-            embed.add_field(name=f"Notes Détaillées - {p2_data['name']}", value=format_scores_details(p2_rating['details'] if p2_rating else None), inline=True)
+            embed.add_field(name=f"Notes Détaillées - {p1_data['name']}", value=format_scores_details(p1_rating_data['details'] if p1_rating_data else None), inline=True)
+            embed.add_field(name=f"Notes Détaillées - {p2_data['name']}", value=format_scores_details(p2_rating_data['details'] if p2_rating_data else None), inline=True)
             
             # 4. On envoie l'embed avec le bouton pour le graphique
-            view = CompareView(p1_data['name'], p2_data['name'])
+            view = CompareView(p1_rating_data, p2_rating_data)
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
         except Exception as e:

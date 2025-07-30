@@ -84,68 +84,18 @@ def create_radar_chart(product_name: str) -> str | None:
         if conn:
             conn.close()
 
-def create_comparison_radar_chart(product1_name: str, product2_name: str) -> str | None:
-    Logger.info(f"[GraphCompare] Début de la génération pour P1='{product1_name}' et P2='{product2_name}'.")
+def create_comparison_radar_chart(db_name1: str, scores1: np.ndarray, db_name2: str, scores2: np.ndarray) -> str | None:
+    Logger.info(f"[GraphCompare] Génération à partir des données fournies pour '{db_name1}' et '{db_name2}'.")
 
     if not os.path.exists(FONT_PATH):
-        Logger.error(f"[GraphCompare] CRITIQUE: Police introuvable à '{FONT_PATH}'.")
+        Logger.error(f"CRITIQUE: Fichier de police introuvable à '{FONT_PATH}'.")
         return None
     
     font_props = FontProperties(fname=FONT_PATH, size=12)
     font_props_legend = FontProperties(fname=FONT_PATH, size=11)
     font_props_title = FontProperties(fname=FONT_PATH, size=16)
-    conn = None
-    
+
     try:
-        # [CORRECTION FINALE - Étape 1] Nettoyer les noms d'entrée pour la recherche DB
-        # On enlève les emojis et les espaces superflus. C'est la clé.
-        p1_search_term = remove_emojis(product1_name).strip()
-        p2_search_term = remove_emojis(product2_name).strip()
-
-        Logger.info(f"[GraphCompare] Termes de recherche nettoyés: P1='{p1_search_term}', P2='{p2_search_term}'")
-
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # [CORRECTION FINALE - Étape 2] Utiliser LIKE pour une recherche robuste
-        query = """
-            SELECT product_name, 
-                   AVG(visual_score), AVG(smell_score), AVG(touch_score), 
-                   AVG(taste_score), AVG(effects_score) 
-            FROM ratings 
-            WHERE product_name LIKE ? OR product_name LIKE ? 
-            GROUP BY product_name
-        """
-        # Le '%' permet de trouver le produit même si le nom en DB a des variations
-        cursor.execute(query, (f'%{p1_search_term}%', f'%{p2_search_term}%'))
-        results = cursor.fetchall()
-        
-        Logger.info(f"[GraphCompare] {len(results)} résultat(s) trouvé(s) dans la DB: {[row[0] for row in results]}")
-
-        if len(results) < 2:
-            Logger.warning(f"[GraphCompare] Données insuffisantes pour la comparaison.")
-            return None
-
-        # [CORRECTION FINALE - Étape 3] Assigner les scores aux bons produits sans se fier à l'ordre SQL
-        scores1, scores2 = None, None
-        db_name1, db_name2 = None, None
-
-        for row in results:
-            db_name = row[0]
-            scores = np.nan_to_num(np.array(row[1:], dtype=float))
-            # On vérifie si le nom trouvé en DB correspond à notre terme de recherche initial
-            if p1_search_term.lower() in db_name.lower() and scores1 is None:
-                scores1, db_name1 = scores, db_name
-            elif p2_search_term.lower() in db_name.lower() and scores2 is None:
-                scores2, db_name2 = scores, db_name
-        
-        Logger.info(f"[GraphCompare] Assignation: P1 ('{p1_search_term}') trouvé comme '{db_name1}'. P2 ('{p2_search_term}') trouvé comme '{db_name2}'.")
-
-        if scores1 is None or scores2 is None:
-            Logger.error("[GraphCompare] N'a pas pu assigner les scores aux deux produits après la recherche. Abandon.")
-            return None
-
-        # --- Génération du graphique (le reste du code est bon) ---
         categories = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
         angles = np.linspace(0, 2 * np.pi, len(categories), endpoint=False).tolist()
         angles += angles[:1]
@@ -153,14 +103,16 @@ def create_comparison_radar_chart(product1_name: str, product2_name: str) -> str
         fig.patch.set_facecolor('#2f3136')
         ax.set_facecolor('#2f3136')
         
+        # Tracé pour le produit 1
         scores_for_plot1 = np.concatenate((scores1, [scores1[0]]))
         ax.plot(angles, scores_for_plot1, color='#5865F2', linewidth=2, label=remove_emojis(db_name1))
         ax.fill(angles, scores_for_plot1, color='#5865F2', alpha=0.2)
         
+        # Tracé pour le produit 2
         scores_for_plot2 = np.concatenate((scores2, [scores2[0]]))
         ax.plot(angles, scores_for_plot2, color='#57F287', linewidth=2, label=remove_emojis(db_name2))
         ax.fill(angles, scores_for_plot2, color='#57F287', alpha=0.2)
-        
+                
         ax.set_ylim(0, 10)
         ax.set_rgrids([2, 4, 6, 8], angle=90)
         ax.grid(color="gray", linestyle='--', linewidth=0.5)
@@ -173,7 +125,6 @@ def create_comparison_radar_chart(product1_name: str, product2_name: str) -> str
         for label in ax.get_yticklabels():
             label.set_fontproperties(FontProperties(fname=FONT_PATH, size=10))
             label.set_color('darkgrey')
-            
         ax.spines['polar'].set_color('gray')
         ax.set_title('Comparaison des Profils de Saveur\n', fontproperties=font_props_title, color='white')
         legend = ax.legend(loc='upper right', bbox_to_anchor=(1.4, 1.1))
@@ -186,14 +137,11 @@ def create_comparison_radar_chart(product1_name: str, product2_name: str) -> str
         filename = f"{output_dir}/comparison_chart_{int(time.time())}.png"
         plt.savefig(filename, bbox_inches='tight', dpi=120, transparent=True)
         plt.close(fig)
-
+        
         Logger.success(f"[GraphCompare] Graphique généré avec succès: {filename}")
         return filename
         
     except Exception as e:
-        Logger.error(f"[GraphCompare] Erreur inattendue: {e}")
+        Logger.error(f"Erreur inattendue dans create_comparison_radar_chart : {e}")
         traceback.print_exc()
         return None
-    finally:
-        if conn:
-            conn.close()
