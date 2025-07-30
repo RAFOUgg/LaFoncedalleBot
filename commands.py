@@ -38,7 +38,7 @@ class CompareView(discord.ui.View):
         self.product1_name = product1_name
         self.product2_name = product2_name
 
-    @discord.ui.button(label="📊 Comparer les notes", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="📊 Afficher le Graphique Radar", style=discord.ButtonStyle.secondary)
     async def compare_graph(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
         button.disabled = True
@@ -46,7 +46,7 @@ class CompareView(discord.ui.View):
 
         chart_path = None
         try:
-            # On appelle directement la fonction de génération de graphique
+            # On appelle directement la fonction Python qui génère le graphique
             chart_path = await asyncio.to_thread(
                 create_comparison_radar_chart, self.product1_name, self.product2_name
             )
@@ -67,6 +67,7 @@ class CompareView(discord.ui.View):
             traceback.print_exc()
             await interaction.followup.send("❌ Oups ! Une erreur est survenue lors de la création du graphique.", ephemeral=True)
         finally:
+            # On s'assure de supprimer le fichier temporaire après l'envoi
             if chart_path and os.path.exists(chart_path):
                 try:
                     os.remove(chart_path)
