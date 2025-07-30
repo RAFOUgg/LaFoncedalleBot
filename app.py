@@ -550,22 +550,26 @@ def get_comparison_data():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Une seule requête qui calcule tout ce dont nous avons besoin
+        # [CORRECTION FINALE] On utilise COALESCE(AVG(...), 0) pour remplacer les NULL par 0
+        # C'est la correction la plus importante de toutes.
         query = """
             SELECT product_name, 
                    COUNT(id) as count,
-                   AVG((COALESCE(visual_score,0)+COALESCE(smell_score,0)+COALESCE(touch_score,0)+COALESCE(taste_score,0)+COALESCE(effects_score,0))/5.0) as avg_total,
-                   AVG(visual_score), AVG(smell_score), AVG(touch_score), 
-                   AVG(taste_score), AVG(effects_score)
+                   COALESCE(AVG((COALESCE(visual_score,0)+COALESCE(smell_score,0)+COALESCE(touch_score,0)+COALESCE(taste_score,0)+COALESCE(effects_score,0))/5.0), 0) as avg_total,
+                   COALESCE(AVG(visual_score), 0), 
+                   COALESCE(AVG(smell_score), 0), 
+                   COALESCE(AVG(touch_score), 0), 
+                   COALESCE(AVG(taste_score), 0), 
+                   COALESCE(AVG(effects_score), 0)
             FROM ratings
-            WHERE product_name LIKE ? OR product_name LIKE ?
+            WHERE product_name = ? OR product_name = ?
             GROUP BY product_name
         """
-        cursor.execute(query, (f'%{p1_name_query}%', f'%{p2_name_query}%'))
+        # On utilise la correspondance exacte pour plus de fiabilité
+        cursor.execute(query, (p1_name_query, p2_name_query))
         results = cursor.fetchall()
         conn.close()
 
-        # Transformer les résultats en un dictionnaire facile à utiliser
         data_map = {}
         for row in results:
             data_map[row[0]] = {

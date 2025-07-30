@@ -50,15 +50,26 @@ class CompareView(discord.ui.View):
 
         chart_path = None
         try:
-            # On prépare les données pour la fonction de graphique
             db_name1 = self.p1_rating_data['name']
-            # On récupère les scores dans le bon ordre (celui des catégories du graphique)
-            scores1 = np.array([self.p1_rating_data['details'].get(cat, 0) for cat in ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']])
+            # [CORRECTION FINALE] On utilise "or 0" pour se protéger contre les None ou les clés manquantes.
+            # C'est une double sécurité.
+            scores1 = np.array([
+                self.p1_rating_data['details'].get('Visuel') or 0,
+                self.p1_rating_data['details'].get('Odeur') or 0,
+                self.p1_rating_data['details'].get('Toucher') or 0,
+                self.p1_rating_data['details'].get('Goût') or 0,
+                self.p1_rating_data['details'].get('Effets') or 0,
+            ])
             
             db_name2 = self.p2_rating_data['name']
-            scores2 = np.array([self.p2_rating_data['details'].get(cat, 0) for cat in ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']])
+            scores2 = np.array([
+                self.p2_rating_data['details'].get('Visuel') or 0,
+                self.p2_rating_data['details'].get('Odeur') or 0,
+                self.p2_rating_data['details'].get('Toucher') or 0,
+                self.p2_rating_data['details'].get('Goût') or 0,
+                self.p2_rating_data['details'].get('Effets') or 0,
+            ])
             
-            # On appelle la fonction de graphique en lui donnant directement les données
             chart_path = await asyncio.to_thread(
                 create_comparison_radar_chart, db_name1, scores1, db_name2, scores2
             )
