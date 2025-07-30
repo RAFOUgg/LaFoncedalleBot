@@ -159,7 +159,7 @@ def create_comparison_radar_chart(db_name1: str, scores1: np.ndarray, db_name2: 
         plt.close(fig) # Très important pour libérer la mémoire !
 
         Logger.success("[GraphCompare] Graphique généré avec succès en mémoire.")
-        return buf
+        return buf.getvalue()
 
     except Exception as e:
         Logger.error(f"Erreur inattendue dans create_comparison_radar_chart : {e}")
