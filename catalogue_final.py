@@ -738,8 +738,31 @@ async def daily_role_sync():
     await sync_all_loyalty_roles(bot)
 
 
+
+command_help = "`/aide`"
+command_profile = "`/profil`"
+command_note = "`/noter`" # Ajout d'une autre commande utile
+
+# --- CHOIX DE L'ACTIVITÉ : Type 'playing' ---
+activity = discord.Activity(
+    type=discord.ActivityType.playing,
+    name="La Boutique ! 🚀",  # Nom principal de l'activité
+    
+    # --- C'est ici que tu structures les informations pour qu'elles ressemblent à l'exemple ---
+    state=f"👀 Regarde {command_help} ou {command_profile}", # La première ligne sous le nom du jeu
+    details=f"Visite: {CATALOG_URL} & Notes: {command_note}", # La deuxième ligne sous le state
+    
+    large_image="lafoncedallelogo",
+    large_text=f"Accès rapide à {CATALOG_URL}", # Texte au survol de la grande image
+    
+    small_image="shopify",
+    small_text="Tes avis comptent !", # Texte au survol de la petite image
+)
+
 @bot.event
 async def on_ready():
+    Logger.info("Le bot est prêt.")
+
     # --- DÉBUT DU BLOC DE SYNCHRONISATION FORCÉE ---
     try:
         if GUILD_ID:
@@ -752,44 +775,39 @@ async def on_ready():
         Logger.success(f"Synchronisation globale terminée : {len(synced)} commandes enregistrées.")
     except Exception as e:
         Logger.error(f"Échec de la synchronisation des commandes : {e}")
+    # --- FIN DU BLOC DE SYNCHRONISATION ---
+
     # Initialisation de la base de données
     await asyncio.to_thread(initialize_database)
+
+    # Lancement de la vérification initiale des mises à jour (différée)
     async def initial_update_task():
         await asyncio.sleep(5) # Attendre un peu pour que Discord soit bien prêt
         Logger.info("Lancement de la vérification initiale différée...")
         await check_for_updates(bot, force_publish=False)
     asyncio.create_task(initial_update_task())
+
+    # Chargement de la vue persistante
     try:
         bot.add_view(MenuView())
         Logger.success("Vue de menu persistante ré-enregistrée avec succès.")
     except Exception as e:
         Logger.error(f"Échec critique du chargement de la vue persistante : {e}")
 
-    activity = discord.Activity(
-        type=discord.ActivityType.streaming, # Exemples : playing, streaming, listening, watching
-        url="https://la-foncedalle.fr/",
-        name="[💎 Boutique 🚀]",
-        state="👅 Déguste depuis LaFoncedalle.fr",
-        details="🍭 CBD Gustatif",
-        large_image="lafoncedallelogo",
-        large_text="La-Froncedalle.fr", # Texte au survol de la grande image
-        small_image="shopify", # Clé de l'image petite
-        small_text="Propulsé par shopify", # Texte au survol de la petite image
-    )
-
+    # --- Application de la présence ---
     try:
-        await bot.change_presence(activity=activity)
+        await bot.change_presence(activity=activity) # Utilise l'objet 'activity' défini ci-dessus
         Logger.success("Présence du bot définie avec succès.")
     except Exception as e:
         Logger.error(f"Erreur lors de la définition de la présence : {e}")
 
+    # --- DÉMARRAGE DES TÂCHES PROGRAMMÉES ---
     if not scheduled_check.is_running(): scheduled_check.start()
     if not post_weekly_ranking.is_running(): post_weekly_ranking.start()
     if not scheduled_selection.is_running(): scheduled_selection.start()
     if not daily_role_sync.is_running(): daily_role_sync.start()
-    if not scheduled_db_export.is_running(): scheduled_db_export.start(bot) # [AJOUT] Démarrage de la nouvelle tâche
+    if not scheduled_db_export.is_running(): scheduled_db_export.start(bot)
     if not scheduled_reengagement_check.is_running(): scheduled_reengagement_check.start()
-    if not change_bot_status.is_running(): change_bot_status.start()
     Logger.success("Toutes les tâches programmées ont démarré.")
 
 # --- FIX STARTS HERE: ROBUST ERROR HANDLER ---
