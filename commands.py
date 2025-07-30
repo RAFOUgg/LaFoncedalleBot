@@ -33,12 +33,11 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
 # --- VUES ET MODALES ---
 
 class CompareView(discord.ui.View):
-    # On initialise la vue avec les données de notes complètes
     def __init__(self, p1_rating_data: dict, p2_rating_data: dict):
         super().__init__(timeout=300)
         self.p1_rating_data = p1_rating_data
         self.p2_rating_data = p2_rating_data
-        # On désactive le bouton si l'un des produits n'a pas de notes
+        
         if not p1_rating_data or not p2_rating_data:
             self.compare_graph.disabled = True
 
@@ -50,26 +49,27 @@ class CompareView(discord.ui.View):
 
         chart_path = None
         try:
-            # On prépare les données pour la fonction de graphique
             db_name1 = self.p1_rating_data['name']
+            details1 = self.p1_rating_data['details']
+            # [CORRECTION FINALE] Syntaxe .get('clé') corrigée et code simplifié
             scores1 = np.array([
-                self.p1_rating_data['details'].get('Visuel') or 0,
-                self.p1_rating_data['details'].get('Odeur') or 0,
-                self.p1_rating_data['details'].get('Toucher') or 0,
-                self.p1_rating_data['details'].get('Goût') or 0,
-                self.p1_rating_data['details'].get('Effets') or 0,
+                details1.get('Visuel', 0),
+                details1.get('Odeur', 0),
+                details1.get('Toucher', 0),
+                details1.get('Goût', 0),
+                details1.get('Effets', 0),
             ])
             
             db_name2 = self.p2_rating_data['name']
+            details2 = self.p2_rating_data['details']
             scores2 = np.array([
-                self.p2_rating_data['details'].get('Visuel') or 0,
-                self.p2_rating_data['details'].get('Odeur') or 0,
-                self.p2_rating_data['details'].get('Toucher') or 0,
-                self.p2_rating_data['details'].get('Goût') or 0,
-                self.p2_rating_data['details'].get('Effets') or 0,
+                details2.get('Visuel', 0),
+                details2.get('Odeur', 0),
+                details2.get('Toucher', 0),
+                details2.get('Goût', 0),
+                details2.get('Effets', 0),
             ])
             
-            # On appelle la fonction de graphique en lui donnant directement les données
             chart_path = await asyncio.to_thread(
                 create_comparison_radar_chart, db_name1, scores1, db_name2, scores2
             )
@@ -82,7 +82,7 @@ class CompareView(discord.ui.View):
                 ).set_image(url="attachment://comparison_radar_chart.png")
                 await interaction.followup.send(embed=embed, file=file, ephemeral=True)
             else:
-                await interaction.followup.send("😕 Une erreur est survenue lors de la création du graphique.", ephemeral=True)
+                await interaction.followup.send("😕 Une erreur est survenue lors de la création du graphique. Vérifiez les logs.", ephemeral=True)
 
         except Exception as e:
             Logger.error(f"Échec de la génération du graphique de comparaison : {e}")
@@ -2505,7 +2505,6 @@ class SlashCommands(commands.Cog):
                         raise Exception(f"Erreur de l'API {response.status}: {await response.text()}")
                     api_data = await response.json()
             
-            # On trouve les données de notes correspondantes et on leur ajoute le nom du produit
             p1_rating_data = next(({"name": name, **data} for name, data in api_data.items() if p1_full_name.lower() in name.lower()), None)
             p2_rating_data = next(({"name": name, **data} for name, data in api_data.items() if p2_full_name.lower() in name.lower()), None)
 
@@ -2541,7 +2540,6 @@ class SlashCommands(commands.Cog):
             embed.add_field(name=f"Notes Détaillées - {p1_data['name']}", value=format_scores_details(p1_rating_data), inline=True)
             embed.add_field(name=f"Notes Détaillées - {p2_data['name']}", value=format_scores_details(p2_rating_data), inline=True)
             
-            # On passe les dictionnaires de notes COMPLETES à la vue
             view = CompareView(p1_rating_data, p2_rating_data)
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
