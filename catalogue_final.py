@@ -21,7 +21,7 @@ from bs4 import BeautifulSoup
 
 
 # Imports depuis vos fichiers de projet
-from commands import MenuView
+from commands import MenuView, UnsubscribeButton
 from shared_utils import (
     TOKEN, CHANNEL_ID, ROLE_ID_TO_MENTION, CATALOG_URL,
     Logger, executor, paris_tz, initialize_database, config_manager,
@@ -100,11 +100,6 @@ query getFiles($ids: [ID!]!) {
   }
 }
 """
-# Dans catalogue_final.py
-
-# Dans catalogue_final.py
-
-# DANS LE FICHIER catalogue_final.py
 
 def get_site_data_from_graphql():
     """
@@ -358,7 +353,6 @@ async def post_weekly_selection(bot_instance: commands.Bot, guild_id_to_run: Opt
         for guild_id in configured_guilds:
             await run_for_guild(guild_id)
 
-# Dans catalogue_final.py
 
 def get_smart_promotions_from_api():
     """
@@ -610,10 +604,12 @@ async def scheduled_reengagement_check():
     await bot.wait_until_ready()
     Logger.info("TÂCHE: Lancement de la vérification de ré-engagement...")
 
-    api_url = f"{APP_URL}/api/get_users_to_notify"
+    api_url_get_users = f"{APP_URL}/api/get_users_to_notify"
+    api_url_is_blacklisted = f"{APP_URL}/api/is_user_blacklisted" # --- NOUVEL ENDPOINT ---
+
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(api_url, timeout=60) as response:
+            async with session.get(api_url_get_users, timeout=60) as response:
                 if not response.ok:
                     Logger.error(f"Erreur API lors de la récupération des utilisateurs à notifier: {response.status}")
                     return
@@ -632,11 +628,23 @@ async def scheduled_reengagement_check():
             user_id = int(user_data['discord_id'])
             order_id = user_data['order_id']
             unrated_products = user_data['unrated_products']
-            
+
             try:
+                # --- NOUVELLE VÉRIFICATION : L'utilisateur est-il blacklisté ? ---
+                is_blacklisted = False
+                async with aiohttp.ClientSession() as session_check:
+                    async with session_check.post(api_url_is_blacklisted, json={"discord_id": str(user_id)}, timeout=10) as blacklist_response:
+                        if blacklist_response.ok:
+                            blacklist_data = await blacklist_response.json()
+                            is_blacklisted = blacklist_data.get("blacklisted", False)
+                        else:
+                            Logger.error(f"API Error: Impossible de vérifier le statut de blacklist pour {user_id} (Code: {blacklist_response.status}).")
+                            # On continue pour l'instant, mais c'est un signe de problème API.
+                if is_blacklisted:
+                    Logger.info(f"TÂCHE: L'utilisateur {user_id} est blacklisté, on saute le rappel.")
+                    continue # On passe à l'utilisateur suivant si blacklisté
                 user = await bot.fetch_user(user_id)
                 if not user: continue
-
                 product_list = "\n".join([f"• {p}" for p in unrated_products])
                 
                 embed = create_styled_embed(
@@ -650,19 +658,21 @@ async def scheduled_reengagement_check():
                     ),
                     color=discord.Color.gold()
                 )
+                # --- AJOUT DU BOUTON DE DÉSINCRIPTION ---
+                view = UnsubscribeButton(user_id=user_id, order_id=order_id, bot=bot)
                 
-                await user.send(embed=embed)
+                await user.send(embed=embed, view=view) # On passe la vue au message DM
                 Logger.success(f"TÂCHE: Rappel envoyé avec succès à {user.name} ({user_id}).")
 
             except discord.Forbidden:
                 Logger.warning(f"TÂCHE: Impossible d'envoyer un MP à {user_id} (DMs fermés).")
             except Exception as e:
                 Logger.error(f"TÂCHE: Erreur lors de l'envoi du rappel à {user_id}: {e}")
+                traceback.print_exc() # Pour un meilleur débogage
             finally:
-                # Quoi qu'il arrive, on marque le rappel comme envoyé pour ne pas spammer
-                async with aiohttp.ClientSession() as session:
-                    await session.post(f"{APP_URL}/api/mark_reminder_sent", 
-                                       json={"discord_id": str(user_id), "order_id": order_id})
+                async with aiohttp.ClientSession() as session_mark:
+                    await session_mark.post(f"{APP_URL}/api/mark_reminder_sent", 
+                                            json={"discord_id": str(user_id), "order_id": order_id})
                 await asyncio.sleep(1) # Petit délai pour ne pas surcharger l'API
 
     except Exception as e:
@@ -793,6 +803,12 @@ async def on_ready():
         Logger.success("Vue de menu persistante ré-enregistrée avec succès.")
     except Exception as e:
         Logger.error(f"Échec critique du chargement de la vue persistante : {e}")
+    try:
+        bot.add_view(commands.UnsubscribeButton(user_id=0, order_id="", bot=bot)) 
+        Logger.success("Vue persistante 'UnsubscribeButton' ré-enregistrée avec succès.")
+    except Exception as e:
+        Logger.error(f"Échec critique du chargement de la vue persistante 'UnsubscribeButton': {e}")
+        traceback.print_exc()
 
     # --- Application de la présence ---
     try:
@@ -807,6 +823,7 @@ async def on_ready():
     if not scheduled_selection.is_running(): scheduled_selection.start()
     if not daily_role_sync.is_running(): daily_role_sync.start()
     if not scheduled_db_export.is_running(): scheduled_db_export.start(bot)
+    if not scheduled_reengagement_check.is_running(): scheduled_reengagement_check.start()
     if not scheduled_reengagement_check.is_running(): scheduled_reengagement_check.start()
     Logger.success("Toutes les tâches programmées ont démarré.")
 

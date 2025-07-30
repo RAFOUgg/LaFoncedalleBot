@@ -50,23 +50,30 @@ WELCOME_CODES_FILE = os.path.join(BASE_DIR, "welcome_codes.txt")
 # Dans app.py
 
 def initialize_db():
-    """Initialise les tables pour la liaison de comptes dans la DB partagée."""
-    print(f"INFO: Initialisation des tables de liaison dans la base de données: {DB_FILE}")
+    """Initialise les tables pour la liaison de comptes, les rappels et la liste noire dans la DB partagée."""
+    print(f"INFO: Initialisation des tables dans la base de données: {DB_FILE}")
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Tables existantes (ne pas toucher)
+    # Tables existantes
     cursor.execute("CREATE TABLE IF NOT EXISTS user_links (discord_id TEXT PRIMARY KEY, user_email TEXT NOT NULL UNIQUE);")
     cursor.execute("CREATE TABLE IF NOT EXISTS verification_codes (discord_id TEXT PRIMARY KEY, user_email TEXT NOT NULL, code TEXT NOT NULL, expires_at INTEGER NOT NULL);")
     
-    # --- NOUVELLE TABLE À AJOUTER ---
-    # Pour suivre les rappels envoyés et ne pas spammer
+    # Table pour suivre les rappels envoyés
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS reminders (
             discord_id TEXT NOT NULL,
             order_id INTEGER NOT NULL,
             notified_at TEXT NOT NULL,
             PRIMARY KEY (discord_id, order_id)
+        );
+    """)
+    
+    # --- NOUVELLE TABLE POUR LA LISTE NOIRE ---
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS reminder_blacklist (
+            discord_id TEXT PRIMARY KEY,
+            blacklisted_at TEXT NOT NULL
         );
     """)
     
@@ -132,6 +139,52 @@ def start_verification():
     conn.commit(); conn.close()
     return jsonify({"success": True}), 200
 
+@app.route('/api/blacklist_user_for_reminders', methods=['POST'])
+def blacklist_user_for_reminders():
+    """Ajoute un utilisateur à la liste noire pour les rappels."""
+    data = request.json
+    discord_id = data.get('discord_id')
+
+    if not discord_id:
+        return jsonify({"error": "L'ID Discord est manquant."}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # On insère ou on remplace s'il existe déjà (ce qui ne devrait pas arriver avec un custom_id unique)
+        cursor.execute("INSERT OR REPLACE INTO reminder_blacklist (discord_id, blacklisted_at) VALUES (?, ?)",
+                       (discord_id, datetime.utcnow().isoformat()))
+        conn.commit()
+        Logger.success(f"API: L'utilisateur {discord_id} a été ajouté à la liste noire des rappels.")
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        Logger.error(f"API DB Error dans blacklist_user_for_reminders: {e}")
+        return jsonify({"error": "Erreur interne lors de l'ajout à la liste noire."}), 500
+    finally:
+        conn.close()
+
+@app.route('/api/is_user_blacklisted', methods=['POST'])
+def is_user_blacklisted():
+    """Vérifie si un utilisateur est sur la liste noire pour les rappels."""
+    data = request.json
+    discord_id = data.get('discord_id')
+
+    if not discord_id:
+        return jsonify({"error": "L'ID Discord est manquant."}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT 1 FROM reminder_blacklist WHERE discord_id = ?", (discord_id,))
+        is_blacklisted = cursor.fetchone() is not None
+        Logger.info(f"API: Vérification liste noire pour {discord_id}. Résultat: {is_blacklisted}")
+        return jsonify({"blacklisted": is_blacklisted}), 200
+    except Exception as e:
+        Logger.error(f"API DB Error dans is_user_blacklisted: {e}")
+        return jsonify({"error": "Erreur interne lors de la vérification de la liste noire."}), 500
+    finally:
+        conn.close()
+        
 @app.route('/api/test-email', methods=['POST'])
 def test_email():
     # --- LOG DE DIAGNOSTIC ---
@@ -671,6 +724,6 @@ def mark_reminder_sent():
         return jsonify({"error": "Erreur interne du serveur."}), 500
     finally:
         conn.close()
-        
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

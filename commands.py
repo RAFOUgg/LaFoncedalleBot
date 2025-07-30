@@ -31,6 +31,43 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
    
 # --- VUES ET MODALES ---
 
+class UnsubscribeButton(discord.ui.View):
+    def __init__(self, user_id: int, order_id: str, bot):
+        super().__init__(timeout=None)  # Le timeout est mis à None pour que les vues soient persistantes
+        self.user_id = user_id
+        self.order_id = order_id
+        self.bot = bot
+
+    @discord.ui.button(label="Je ne veux plus de rappels", style=discord.ButtonStyle.secondary, custom_id="unsubscribe_reminder")
+    async def unsubscribe_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True, thinking=True) # Répond à l'interaction pour montrer que quelque chose se passe
+        
+        # --- Appel de l'API pour ajouter à la liste noire ---
+        api_url_blacklist = f"{APP_URL}/api/blacklist_user_for_reminders"
+        payload = {"discord_id": str(self.user_id)}
+
+        try:
+            import aiohttp # Assurez-vous que aiohttp est importé en haut de votre fichier commands.py
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(api_url_blacklist, json=payload, timeout=10) as response:
+                    if response.ok:
+                        Logger.success(f"Utilisateur {self.user_id} ajouté à la liste noire via le bouton.")
+                        await interaction.followup.send("Vous ne recevrez plus de rappels de notation. Si vous changez d'avis, utilisez la commande `/settings` (si vous l'implémentez).", ephemeral=True)
+                        
+                        # Désactiver le bouton une fois utilisé
+                        button.disabled = True
+                        await interaction.message.edit(view=self) # Mettre à jour le message avec le bouton désactivé
+
+                    else:
+                        Logger.error(f"Erreur API lors de la désinscription de {self.user_id}: {response.status}")
+                        await interaction.followup.send("Une erreur est survenue lors de la désinscription. Veuillez réessayer.", ephemeral=True)
+        
+        except Exception as e:
+            Logger.error(f"Erreur lors du traitement du bouton de désinscription pour {self.user_id}: {e}")
+            traceback.print_exc()
+            await interaction.followup.send("Une erreur critique est survenue. Contactez un administrateur.", ephemeral=True)
+
 class ConfirmResetLoyaltyView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=60)
