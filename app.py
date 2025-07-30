@@ -67,41 +67,6 @@ initialize_db()
 def health_check():
     return "L'application pont Shopify-Discord est en ligne.", 200
 
-
-@app.route('/debug-filesystem')
-def debug_filesystem():
-    """
-    Endpoint temporaire pour diagnostiquer l'état du système de fichiers
-    à l'intérieur du conteneur Render.
-    """
-    base_path = '/app'
-    assets_path = os.path.join(base_path, 'assets')
-    font_path = os.path.join(assets_path, 'Gobold-Bold.ttf') # On teste avec une police
-
-    results = {
-        "1_current_working_directory": os.getcwd(),
-        "2_base_path_contents": [],
-        "3_assets_dir_exists": os.path.exists(assets_path),
-        "4_assets_dir_contents": [],
-        "5_font_file_exists": os.path.exists(font_path),
-        "6_font_file_readable": False,
-        "7_error_log": None
-    }
-
-    try:
-        results["2_base_path_contents"] = os.listdir(base_path)
-        if results["3_assets_dir_exists"]:
-            results["4_assets_dir_contents"] = os.listdir(assets_path)
-        if results["5_font_file_exists"]:
-            with open(font_path, 'rb') as f:
-                results["6_font_file_readable"] = True # Si on arrive ici, le fichier est lisible
-    except Exception as e:
-        results["7_error_log"] = traceback.format_exc()
-
-    return jsonify(results)
-
-
-
 @app.route('/api/start-verification', methods=['POST'])
 def start_verification():
     force = request.args.get('force', 'false').lower() == 'true'
@@ -586,5 +551,57 @@ def get_comparison_data():
         traceback.print_exc()
         return jsonify({"error": "Erreur interne du serveur."}), 500
     
+@app.route('/api/get_last_order/<discord_id>')
+def get_last_order(discord_id):
+    # 1. Récupérer l'email de l'utilisateur
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_email FROM user_links WHERE discord_id = ?", (discord_id,))
+    result = cursor.fetchone()
+    conn.close()
+
+    if not result:
+        return jsonify({"error": "Votre compte Discord n'est pas lié. Utilisez d'abord `/lier_compte`."}), 404
+
+    user_email = result[0]
+    
+    # 2. Interroger l'API Shopify
+    session = shopify.Session(SHOP_URL, SHOPIFY_API_VERSION, SHOPIFY_ADMIN_ACCESS_TOKEN)
+    shopify.ShopifyResource.activate_session(session)
+    
+    try:
+        # On récupère LA dernière commande
+        orders = shopify.Order.find(email=user_email, status='any', limit=1, order='created_at DESC')
+        
+        if not orders:
+            return jsonify({"error": "Aucune commande trouvée pour cet e-mail."}), 404
+            
+        last_order = orders[0]
+        
+        # 3. Traduire les statuts
+        payment_status_map = {"paid": "✅ Payé", "pending": "⏳ En attente", "refunded": "remboursé"}
+        fulfillment_status_map = {"fulfilled": "✅ Expédiée", "unfulfilled": "⏳ En préparation", "partial": "partiellement expédiée"}
+
+        # 4. Formater la réponse pour le bot
+        response_data = {
+            "order": {
+                "name": last_order.name, # Le numéro de commande comme #1001
+                "date": datetime.fromisoformat(last_order.created_at).astimezone(paris_tz).strftime('%d/%m/%Y à %H:%M'),
+                "total_price": last_order.total_price,
+                "payment_status_fr": payment_status_map.get(last_order.financial_status, last_order.financial_status),
+                "fulfillment_status_fr": fulfillment_status_map.get(last_order.fulfillment_status, last_order.fulfillment_status or "En préparation"),
+                "tracking_url": last_order.fulfillments[0].tracking_url if last_order.fulfillments and last_order.fulfillments[0].tracking_url else None,
+                "line_items": [{"title": item.title, "quantity": item.quantity} for item in last_order.line_items]
+            }
+        }
+        
+        return jsonify(response_data), 200
+
+    except Exception as e:
+        Logger.error(f"Erreur API Shopify dans get_last_order: {e}")
+        return jsonify({"error": "Erreur lors de la récupération de la commande."}), 500
+    finally:
+        shopify.ShopifyResource.clear_session()
+        
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

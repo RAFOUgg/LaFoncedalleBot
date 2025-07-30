@@ -8,8 +8,6 @@ from typing import List, Optional, Union
 from discord.app_commands import Choice
 from profil_image_generator import create_profile_card
 from shared_utils import *
-import dotenv
-import shopify
 from graph_generator import create_radar_chart, create_comparison_radar_chart
 import re
 
@@ -1115,18 +1113,12 @@ class RatingModal(discord.ui.Modal):
         payload = {"user_id": self.user.id, "user_name": str(self.user), "product_name": self.product_name, "scores": scores, "comment": None}
         
         try:
-            import requests
-            response = await asyncio.to_thread(requests.post, api_url, json=payload, timeout=10)
-            response.raise_for_status()
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.post(api_url, json=payload, timeout=10) as response:
+                    response.raise_for_status()
             avg_score = sum(scores.values()) / len(scores)
             await self.cog_instance._update_all_user_roles(interaction.guild, interaction.user)
-            view = AddCommentView(self.product_name, self.user)
-            await interaction.followup.send(
-                f"✅ Merci ! Votre note de **{avg_score:.2f}/10** pour **{self.product_name}** a été enregistrée.",
-                view=view, ephemeral=True
-            )
-
-
             view = AddCommentView(self.product_name, self.user)
             await interaction.followup.send(
                 f"✅ Merci ! Votre note de **{avg_score:.2f}/10** pour **{self.product_name}** a été enregistrée.",
@@ -2547,7 +2539,52 @@ class SlashCommands(commands.Cog):
             Logger.error(f"Erreur majeure dans la commande /comparer : {e}")
             traceback.print_exc()
             await interaction.followup.send("❌ Oups, une erreur critique est survenue. Le staff a été notifié.", ephemeral=True)
+    
+    @app_commands.command(name="ma_commande", description="Affiche le statut de votre dernière commande.")
+    async def ma_commande(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await log_user_action(interaction, "a demandé le statut de sa dernière commande.")
+
+        api_url = f"{APP_URL}/api/get_last_order/{interaction.user.id}"
         
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_url, timeout=15) as response:
+                    data = await response.json()
+                    
+                    if not response.ok:
+                        # Gérer les erreurs de l'API (compte non lié, etc.)
+                        await interaction.followup.send(f"❌ {data.get('error', 'Une erreur est survenue.')}", ephemeral=True)
+                        return
+
+                    # Si tout est OK, on crée un bel embed
+                    order = data.get("order")
+                    embed = create_styled_embed(
+                        title=f"📦 Statut de votre commande #{order.get('name')}",
+                        description=f"Voici les détails de votre dernière commande passée le {order.get('date')}.",
+                        color=discord.Color.blue()
+                    )
+                    embed.add_field(name="Statut du Paiement", value=order.get('payment_status_fr'), inline=True)
+                    embed.add_field(name="Statut de l'Expédition", value=order.get('fulfillment_status_fr'), inline=True)
+                    embed.add_field(name="Montant Total", value=f"**{order.get('total_price')} €**", inline=True)
+
+                    # Ajouter les produits
+                    items_text = ""
+                    for item in order.get('line_items', []):
+                        items_text += f"• {item.get('quantity')}x {item.get('title')}\n"
+                    
+                    if items_text:
+                        embed.add_field(name="📝 Contenu de la commande", value=items_text, inline=False)
+
+                    if order.get('tracking_url'):
+                        embed.add_field(name="🚚 Suivi du colis", value=f"**[Cliquez ici pour suivre votre colis]({order.get('tracking_url')})**", inline=False)
+
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as e:
+            Logger.error(f"Erreur dans /ma_commande : {e}")
+            await interaction.followup.send("❌ Oups, une erreur critique est survenue.", ephemeral=True)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SlashCommands(bot))

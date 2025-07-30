@@ -7,7 +7,6 @@ import hashlib
 import asyncio
 import traceback
 import time
-import time as a_time
 from datetime import time as dt_time, datetime, timedelta
 from typing import List, Optional
 import sqlite3
@@ -19,6 +18,7 @@ import discord
 from discord.ext import commands, tasks # <--- CORRECTION : 'commands' et 'tasks' importés ici
 from discord import app_commands
 from bs4 import BeautifulSoup
+
 
 # Imports depuis vos fichiers de projet
 from commands import MenuView
@@ -50,6 +50,7 @@ query getProductsWithMetafields {
       node {
         id
         title
+        tags
         handle
         bodyHtml
         images(first: 1) {
@@ -123,14 +124,21 @@ def get_site_data_from_graphql():
         gids_to_resolve = set()
         raw_products_data = [] # On stocke temporairement les produits ici
 
-        for product_edge in result.get('data', {}).get('products', {}).get('edges', []):
-            prod = product_edge['node']
-            
+        tags = prod.get('tags', [])
+        tag_category_found = False
+        for tag in tags:
+            if tag.startswith("categorie:"):
+                category = tag.split(":", 1)[1]
+                tag_category_found = True # On note qu'on a trouvé un tag
+                break
             category = "accessoire"
             collection_titles = [c['node']['title'].lower() for c in prod.get('collections', {}).get('edges', [])]
-            if any("box" in title for title in collection_titles): category = "box"
-            elif any("weed" in title for title in collection_titles): category = "weed"
-            elif any("hash" in title for title in collection_titles): category = "hash"
+            if not tag_category_found:
+                category = "accessoire"
+                collection_titles = [c['node']['title'].lower() for c in prod.get('collections', {}).get('edges', [])]
+                if any("box" in title for title in collection_titles): category = "box"
+                elif any("weed" in title for title in collection_titles): category = "weed"
+                elif any("hash" in title for title in collection_titles): category = "hash"
             
             images_edges = prod.get('images', {}).get('edges', [])
             image_url = images_edges[0].get('node', {}).get('url') if images_edges else None
