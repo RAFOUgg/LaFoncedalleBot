@@ -52,7 +52,6 @@ async def compare_graph(self, interaction: discord.Interaction, button: discord.
     try:
         db_name1 = self.p1_rating_data['name']
         details1 = self.p1_rating_data['details']
-        # --- MODIFICATION CLÉ : On crée une LISTE, pas un np.array ---
         scores1_list = [details1.get(k, 0) for k in ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']]
         
         db_name2 = self.p2_rating_data['name']
@@ -65,7 +64,6 @@ async def compare_graph(self, interaction: discord.Interaction, button: discord.
             loop.run_in_executor(
                 process_executor,
                 create_comparison_radar_chart, 
-                # On envoie les listes simples
                 db_name1, scores1_list, db_name2, scores2_list
             ),
             timeout=20.0
@@ -2494,8 +2492,6 @@ class SlashCommands(commands.Cog):
             api_data = {}
             async with aiohttp.ClientSession() as session:
                 async with session.post(api_url, json=payload) as response:
-                    if not response.ok:
-                        raise Exception(f"Erreur de l'API {response.status}: {await response.text()}")
                     api_data = await response.json()
             
             # --- LOGIQUE DE RÉCUPÉRATION CORRIGÉE ---
