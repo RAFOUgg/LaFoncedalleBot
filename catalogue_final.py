@@ -11,7 +11,7 @@ from datetime import time as dt_time, datetime, timedelta
 from typing import List, Optional
 import sqlite3
 import re
-import asyncio # Assurez-vous qu'il est bien importé
+import aiohttp
 # Imports des librairies nécessaires
 import shopify
 import discord
@@ -42,6 +42,7 @@ update_time = dt_time(hour=8, minute=0, tzinfo=paris_tz)
 ranking_time = dt_time(hour=16, minute=0, tzinfo=paris_tz)
 selection_time = dt_time(hour=12, minute=0, tzinfo=paris_tz)
 role_sync_time = dt_time(hour=8, minute=5, tzinfo=paris_tz)
+reengagement_time = dt_time(hour=10, minute=0, tzinfo=paris_tz)
 
 PRODUCTS_WITH_METAFIELDS_QUERY = """
 query getProductsWithMetafields {
@@ -602,6 +603,70 @@ async def sync_all_loyalty_roles(bot_instance: commands.Bot):
         Logger.error(f"Erreur critique lors de la synchronisation des rôles : {e}")
         traceback.print_exc()
 
+@tasks.loop(time=reengagement_time)
+async def scheduled_reengagement_check():
+    await bot.wait_until_ready()
+    Logger.info("TÂCHE: Lancement de la vérification de ré-engagement...")
+
+    api_url = f"{APP_URL}/api/get_users_to_notify"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(api_url, timeout=60) as response:
+                if not response.ok:
+                    Logger.error(f"Erreur API lors de la récupération des utilisateurs à notifier: {response.status}")
+                    return
+                users_to_notify = await response.json()
+
+        if not users_to_notify:
+            Logger.info("TÂCHE: Aucun utilisateur à notifier aujourd'hui.")
+            return
+
+        # On récupère l'ID de la commande /noter pour la rendre cliquable
+        app_commands = await bot.tree.fetch_commands()
+        noter_cmd_id = next((cmd.id for cmd in app_commands if cmd.name == "noter"), 0)
+        noter_mention = f"</noter:{noter_cmd_id}>" if noter_cmd_id else "`/noter`"
+
+        for user_data in users_to_notify:
+            user_id = int(user_data['discord_id'])
+            order_id = user_data['order_id']
+            unrated_products = user_data['unrated_products']
+            
+            try:
+                user = await bot.fetch_user(user_id)
+                if not user: continue
+
+                product_list = "\n".join([f"• {p}" for p in unrated_products])
+                
+                embed = create_styled_embed(
+                    title="👋 Un avis sur votre dernière commande ?",
+                    description=(
+                        f"Bonjour {user.display_name} !\n\n"
+                        f"Nous avons remarqué que vous n'avez pas encore noté les produits de votre commande récente. "
+                        f"Votre avis est précieux pour nous et pour la communauté !\n\n"
+                        f"**Produits à noter :**\n{product_list}\n\n"
+                        f"Utilisez la commande {noter_mention} pour laisser votre avis et gagner des points de fidélité !"
+                    ),
+                    color=discord.Color.gold()
+                )
+                
+                await user.send(embed=embed)
+                Logger.success(f"TÂCHE: Rappel envoyé avec succès à {user.name} ({user_id}).")
+
+            except discord.Forbidden:
+                Logger.warning(f"TÂCHE: Impossible d'envoyer un MP à {user_id} (DMs fermés).")
+            except Exception as e:
+                Logger.error(f"TÂCHE: Erreur lors de l'envoi du rappel à {user_id}: {e}")
+            finally:
+                # Quoi qu'il arrive, on marque le rappel comme envoyé pour ne pas spammer
+                async with aiohttp.ClientSession() as session:
+                    await session.post(f"{APP_URL}/api/mark_reminder_sent", 
+                                       json={"discord_id": str(user_id), "order_id": order_id})
+                await asyncio.sleep(1) # Petit délai pour ne pas surcharger l'API
+
+    except Exception as e:
+        Logger.error(f"Erreur critique dans la tâche de ré-engagement: {e}")
+        traceback.print_exc()
+
 @tasks.loop(hours=504) # S'exécute toutes les 3 semaines
 async def scheduled_db_export(bot_instance: commands.Bot):
     """
@@ -707,6 +772,7 @@ async def on_ready():
     if not scheduled_selection.is_running(): scheduled_selection.start()
     if not daily_role_sync.is_running(): daily_role_sync.start()
     if not scheduled_db_export.is_running(): scheduled_db_export.start(bot) # [AJOUT] Démarrage de la nouvelle tâche
+    if not scheduled_reengagement_check.is_running(): scheduled_reengagement_check.start()
     Logger.success("Toutes les tâches programmées ont démarré.")
 
 

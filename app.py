@@ -47,14 +47,29 @@ CLAIMED_WELCOME_CODES_FILE = os.path.join(BASE_DIR, "claimed_welcome_codes.json"
 WELCOME_CODES_FILE = os.path.join(BASE_DIR, "welcome_codes.txt")
 
 # --- Initialisation de la Base de Données ---
+# Dans app.py
+
 def initialize_db():
     """Initialise les tables pour la liaison de comptes dans la DB partagée."""
     print(f"INFO: Initialisation des tables de liaison dans la base de données: {DB_FILE}")
-    conn = get_db_connection() # [CORRECTION] Utilise la DB partagée
+    conn = get_db_connection()
     cursor = conn.cursor()
-    # Ces tables seront ajoutées à ratings.db si elles n'existent pas
+    
+    # Tables existantes (ne pas toucher)
     cursor.execute("CREATE TABLE IF NOT EXISTS user_links (discord_id TEXT PRIMARY KEY, user_email TEXT NOT NULL UNIQUE);")
     cursor.execute("CREATE TABLE IF NOT EXISTS verification_codes (discord_id TEXT PRIMARY KEY, user_email TEXT NOT NULL, code TEXT NOT NULL, expires_at INTEGER NOT NULL);")
+    
+    # --- NOUVELLE TABLE À AJOUTER ---
+    # Pour suivre les rappels envoyés et ne pas spammer
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS reminders (
+            discord_id TEXT NOT NULL,
+            order_id INTEGER NOT NULL,
+            notified_at TEXT NOT NULL,
+            PRIMARY KEY (discord_id, order_id)
+        );
+    """)
+    
     conn.commit()
     conn.close()
 
@@ -554,5 +569,108 @@ def get_last_order(discord_id):
     finally:
         shopify.ShopifyResource.clear_session()
 
+@app.route('/api/get_users_to_notify')
+def get_users_to_notify():
+    """
+    Scanne tous les utilisateurs liés pour trouver ceux éligibles à un rappel de notation.
+    Un utilisateur est éligible si sa dernière commande a été expédiée il y a entre 3 et 30 jours,
+    et qu'il n'a ni noté les produits de cette commande, ni reçu de rappel pour celle-ci.
+    """
+    Logger.info("API: Recherche des utilisateurs à notifier pour un rappel de notation.")
+    conn = get_db_connection()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT discord_id, user_email FROM user_links")
+    linked_users = cursor.fetchall()
+
+    session = shopify.Session(SHOP_URL, SHOPIFY_API_VERSION, SHOPIFY_ADMIN_ACCESS_TOKEN)
+    shopify.ShopifyResource.activate_session(session)
+
+    users_to_notify = []
+    
+    try:
+        for user in linked_users:
+            # 1. Trouver la dernière commande de l'utilisateur
+            orders = shopify.Order.find(email=user['user_email'], status='any', limit=1, order='created_at DESC')
+            if not orders:
+                continue
+
+            last_order = orders[0]
+            
+            # 2. Vérifier les conditions d'éligibilité
+            # a) La commande doit être payée et expédiée
+            if last_order.financial_status != 'paid' or last_order.fulfillment_status != 'fulfilled':
+                continue
+
+            # b) La commande doit avoir été passée il y a entre 3 et 30 jours
+            three_days_ago = datetime.now(timezone.utc) - timedelta(days=3)
+            thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+            order_date = datetime.fromisoformat(last_order.created_at)
+
+            if not (thirty_days_ago < order_date < three_days_ago):
+                continue
+            
+            # c) Vérifier si un rappel a déjà été envoyé pour cette commande
+            cursor.execute("SELECT 1 FROM reminders WHERE discord_id = ? AND order_id = ?", (user['discord_id'], last_order.id))
+            if cursor.fetchone():
+                continue
+
+            # d) Vérifier quels produits de cette commande n'ont pas encore été notés
+            product_titles_in_order = {item.title for item in last_order.line_items}
+            
+            placeholders = ','.join('?' for _ in product_titles_in_order)
+            cursor.execute(f"""
+                SELECT product_name FROM ratings 
+                WHERE user_id = ? AND product_name IN ({placeholders})
+            """, (user['discord_id'], *product_titles_in_order))
+            
+            rated_products = {row['product_name'] for row in cursor.fetchall()}
+            unrated_products = list(product_titles_in_order - rated_products)
+
+            if unrated_products:
+                users_to_notify.append({
+                    "discord_id": user['discord_id'],
+                    "order_id": last_order.id,
+                    "unrated_products": unrated_products
+                })
+    except Exception as e:
+        Logger.error(f"Erreur API Shopify dans get_users_to_notify: {e}")
+        traceback.print_exc()
+    finally:
+        shopify.ShopifyResource.clear_session()
+        conn.close()
+
+    Logger.success(f"API: Trouvé {len(users_to_notify)} utilisateur(s) à notifier.")
+    return jsonify(users_to_notify)
+
+
+@app.route('/api/mark_reminder_sent', methods=['POST'])
+def mark_reminder_sent():
+    """Marque dans la DB qu'un rappel a été envoyé pour une commande spécifique à un utilisateur."""
+    data = request.json
+    discord_id = data.get('discord_id')
+    order_id = data.get('order_id')
+
+    if not discord_id or not order_id:
+        return jsonify({"error": "Données manquantes."}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO reminders (discord_id, order_id, notified_at) VALUES (?, ?, ?)",
+                       (discord_id, order_id, datetime.utcnow().isoformat()))
+        conn.commit()
+        Logger.info(f"API: Rappel marqué comme envoyé pour l'utilisateur {discord_id}, commande {order_id}.")
+        return jsonify({"success": True}), 200
+    except sqlite3.IntegrityError:
+        # Le rappel existait déjà, ce qui est ok.
+        return jsonify({"success": True, "message": "Rappel déjà existant."}), 200
+    except Exception as e:
+        Logger.error(f"Erreur DB dans mark_reminder_sent: {e}")
+        return jsonify({"error": "Erreur interne du serveur."}), 500
+    finally:
+        conn.close()
+        
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
