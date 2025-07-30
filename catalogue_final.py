@@ -764,20 +764,17 @@ async def daily_role_sync():
 async def on_ready():
     # --- DÉBUT DU BLOC DE SYNCHRONISATION FORCÉE ---
     try:
-        # ÉTAPE 1 : On vide les commandes pour le serveur de test (si GUILD_ID est défini)
-        # Cela force Discord à oublier l'ancienne structure.
         if GUILD_ID:
             guild_obj = discord.Object(id=GUILD_ID)
-            # Cette ligne est la plus importante, elle dit à Discord "Oublie tout pour ce serveur"
             bot.tree.clear_commands(guild=guild_obj)
             await bot.tree.sync(guild=guild_obj)
             Logger.warning(f"Commandes vidées pour le serveur de test (ID: {GUILD_ID}).")
-        # Ensuite on synchronise globalement
+        
         synced = await bot.tree.sync()
         Logger.success(f"Synchronisation globale terminée : {len(synced)} commandes enregistrées.")
     except Exception as e:
         Logger.error(f"Échec de la synchronisation des commandes : {e}")
-    # --- FIN DU BLOC DE SYNCHRONISATION ---
+    # Initialisation de la base de données
     await asyncio.to_thread(initialize_database)
     async def initial_update_task():
         await asyncio.sleep(5) 
@@ -792,18 +789,14 @@ async def on_ready():
 
     activity = discord.Activity(
         type=discord.ActivityType.streaming, # Exemples : playing, streaming, listening, watching
-        url="[La boutique ! 🚀](https://la-foncedalle.fr/)",
-        name="[Boutique ! 🚀]",
-        state="👅 Déguste depuis LaFoncedalle.fr", # Le texte principal, "STATE" (ex: "D")
-        details="🍭 CBD Gustatif", # Les détails, "DETAILS" (ex: "Competitive")
-        large_image=lafoncedallelogo, # Clé de l'image grande
+        url="https://la-foncedalle.fr/",
+        name="[💎 Boutique 🚀]",
+        state="👅 Déguste depuis LaFoncedalle.fr",
+        details="🍭 CBD Gustatif",
+        large_image=lafoncedallelogo,
         large_text="La-Froncedalle.fr", # Texte au survol de la grande image
         small_image=shopify, # Clé de l'image petite
         small_text="Propulsé par shopify", # Texte au survol de la petite image
-        party_id="https://la-foncedalle.fr/", # Identifiant de la party
-        party_size=420, # Taille actuelle de la party
-        party_max=710, # Taille maximale de la party
-        join_secret="https://la-foncedalle.fr/" # Secret pour rejoindre (généré par ton app)
     )
 
     await bot.change_presence(activity=activity)
