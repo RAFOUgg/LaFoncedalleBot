@@ -30,63 +30,6 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
 
    
 # --- VUES ET MODALES ---
-
-class CompareView(discord.ui.View):
-    def __init__(self, p1_rating_data: dict, p2_rating_data: dict):
-        super().__init__(timeout=300)
-        self.p1_rating_data = p1_rating_data
-        self.p2_rating_data = p2_rating_data
-        
-        if not p1_rating_data or not p2_rating_data:
-            self.compare_graph.disabled = True
-
-    # Dans commands.py -> class CompareView
-
-@discord.ui.button(label="📊 Afficher le Graphique Radar", style=discord.ButtonStyle.secondary)
-async def compare_graph(self, interaction: discord.Interaction, button: discord.ui.Button):
-    await interaction.response.defer(ephemeral=True, thinking=True)
-    button.disabled = True
-    await interaction.message.edit(view=self)
-
-    chart_buffer = None
-    try:
-        db_name1 = self.p1_rating_data['name']
-        details1 = self.p1_rating_data['details']
-        scores1_list = [details1.get(k, 0) for k in ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']]
-        
-        db_name2 = self.p2_rating_data['name']
-        details2 = self.p2_rating_data['details']
-        # --- MODIFICATION CLÉ : On crée une LISTE, pas un np.array ---
-        scores2_list = [details2.get(k, 0) for k in ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']]
-        
-        loop = asyncio.get_running_loop()
-        chart_buffer = await asyncio.wait_for(
-            loop.run_in_executor(
-                process_executor,
-                create_comparison_radar_chart, 
-                db_name1, scores1_list, db_name2, scores2_list
-            ),
-            timeout=20.0
-        )
-
-        if chart_buffer:
-            file = discord.File(fp=io.BytesIO(chart_buffer), filename="comparison_radar_chart.png")
-            embed = discord.Embed(
-                title="Comparaison Radar des Notes",
-                color=discord.Color.blue()
-            ).set_image(url="attachment://comparison_radar_chart.png")
-            await interaction.followup.send(embed=embed, file=file, ephemeral=True)
-        else:
-            await interaction.followup.send("😕 La génération du graphique a échoué. Vérifiez les logs du bot.", ephemeral=True)
-
-    except asyncio.TimeoutError:
-        Logger.error("[CompareGraph] TIMEOUT: La génération du graphique a dépassé 20 secondes.")
-        await interaction.followup.send("⏳ Oups ! La génération du graphique a pris trop de temps et a été annulée.", ephemeral=True)
-    except Exception as e:
-        Logger.error(f"Échec critique de la génération du graphique de comparaison : {e}")
-        traceback.print_exc()
-        await interaction.followup.send("❌ Oups ! Une erreur critique est survenue.", ephemeral=True)
-
 class HelpView(discord.ui.View):
     def __init__(self, cog_instance):
         super().__init__(timeout=None)
@@ -2532,8 +2475,7 @@ class SlashCommands(commands.Cog):
             embed.add_field(name=f"Notes Détaillées - {p1_data['name']}", value=format_scores_details(p1_rating_data), inline=True)
             embed.add_field(name=f"Notes Détaillées - {p2_data['name']}", value=format_scores_details(p2_rating_data), inline=True)
             
-            view = CompareView(p1_rating_data, p2_rating_data)
-            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
         except Exception as e:
             Logger.error(f"Erreur majeure dans la commande /comparer : {e}")

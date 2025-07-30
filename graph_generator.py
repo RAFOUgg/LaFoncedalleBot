@@ -7,11 +7,10 @@ import numpy as np
 import os
 import sqlite3
 import traceback
-import re # <-- Importé pour les regex
+import re
 from typing import Dict, Any, List
 from shared_utils import Logger, DB_FILE
 import time
-import io
 
 FONT_PATH = os.path.join(os.path.dirname(__file__), 'assets', 'Gobold-Bold.otf')
 
@@ -84,84 +83,3 @@ def create_radar_chart(product_name: str) -> str | None:
     finally:
         if conn:
             conn.close()
-
-DEBUG_LOG_FILE = os.path.join(os.path.dirname(__file__), 'graph_debug.log')
-
-def _log_debug(step_message):
-    """Fonction helper pour écrire dans notre fichier de log de manière fiable."""
-    try:
-        with open(DEBUG_LOG_FILE, 'a') as f:
-            f.write(f"[{datetime.now().isoformat()}] {step_message}\n")
-    except Exception:
-        # Si même ça échoue, on ne peut rien faire, mais c'est très improbable.
-        pass
-
-def create_comparison_radar_chart(db_name1: str, scores1: list, db_name2: str, scores2: list) -> bytes | None:
-    # On change la signature pour accepter des listes (list)
-    _log_debug("--- NEW GRAPH GENERATION (Process) ---")
-    _log_debug(f"START: Reçu pour '{db_name1}' et '{db_name2}'.")
-    
-    try:
-        # --- MODIFICATION CLÉ : Conversion en np.array À L'INTÉRIEUR du processus ---
-        _log_debug("STEP 0: Converting lists to NumPy arrays...")
-        scores1_np = np.array(scores1)
-        scores2_np = np.array(scores2)
-        _log_debug("STEP 0.1: Conversion successful.")
-
-        # Le reste de la fonction est identique, mais utilise les nouvelles variables scores1_np et scores2_np
-        
-        _log_debug("STEP 1.1: Checking for font file...")
-        if not os.path.exists(FONT_PATH):
-            _log_debug(f"CRITICAL: Font file not found at '{FONT_PATH}'. Aborting.")
-            return None
-        _log_debug("STEP 1.2: Font file found.")
-        
-        labels = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
-        angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
-        angles += angles[:1]
-        
-        # On utilise les versions NumPy créées ici
-        scores1_closed = np.concatenate((scores1_np, [scores1_np[0]]))
-        scores2_closed = np.concatenate((scores2_np, [scores2_np[0]]))
-
-        _log_debug("STEP 2.1: Calling plt.subplots()...")
-        fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
-        _log_debug("STEP 2.2: plt.subplots() successful.")
-        
-        # ... (le reste de la fonction est absolument identique à la version de débogage précédente) ...
-        # ... assurez-vous juste que le code de tracé, de personnalisation et de sauvegarde est là ...
-        fig.patch.set_facecolor('#2f3136')
-        ax.set_facecolor('#2f3136')
-
-        ax.plot(angles, scores1_closed, color='#5865F2', linewidth=2, label=remove_emojis(db_name1))
-        ax.fill(angles, scores1_closed, color='#5865F2', alpha=0.25)
-
-        ax.plot(angles, scores2_closed, color='#57F287', linewidth=2, label=remove_emojis(db_name2))
-        ax.fill(angles, scores2_closed, color='#57F287', alpha=0.25)
-
-        ax.set_ylim(0, 10)
-        ax.set_thetagrids(np.degrees(angles[:-1]), labels)
-        ax.set_yticklabels([])
-        ax.spines['polar'].set_color('gray')
-        ax.set_title('Comparaison des Profils', size=20, pad=25)
-        ax.legend(loc='upper right', bbox_to_anchor=(1.4, 1.1))
-
-        buf = io.BytesIO()
-        _log_debug("STEP 5.1: Preparing to save figure to buffer with plt.savefig()...")
-        plt.savefig(buf, format='png', bbox_inches='tight', transparent=True, dpi=120)
-        _log_debug("STEP 5.2: plt.savefig() successful.")
-        buf.seek(0)
-        
-        _log_debug("STEP 6.1: Closing figure with plt.close()...")
-        plt.close(fig)
-        _log_debug("STEP 6.2: Figure closed.")
-
-        _log_debug("SUCCESS: Graph generated. Returning bytes.")
-        return buf.getvalue()
-
-    except Exception as e:
-        _log_debug(f"ERROR: An exception occurred: {e}")
-        with open(DEBUG_LOG_FILE, 'a') as f:
-            traceback.print_exc(file=f)
-        plt.close('all')
-        return None

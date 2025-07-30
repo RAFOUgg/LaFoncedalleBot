@@ -24,7 +24,7 @@ from bs4 import BeautifulSoup
 from commands import MenuView
 from shared_utils import (
     TOKEN, CHANNEL_ID, ROLE_ID_TO_MENTION, CATALOG_URL,
-    Logger, executor, process_executor, paris_tz, initialize_database, config_manager,
+    Logger, executor, paris_tz, initialize_database, config_manager,
     CACHE_FILE, RANKING_CHANNEL_ID, DB_FILE, THUMBNAIL_LOGO_URL,
     create_styled_embed, get_product_counts, GUILD_ID, SELECTION_CHANNEL_ID, 
 )
@@ -784,11 +784,6 @@ async def main():
 if __name__ == "__main__":
     # Ce bloc n'est plus le point d'entrée principal, mais peut servir pour des tests directs.
     if TOKEN and CHANNEL_ID:
-        # On doit aussi initialiser l'exécuteur ici au cas où ce fichier est lancé directement
-        if process_executor is None:
-            from concurrent.futures import ProcessPoolExecutor
-            process_executor = ProcessPoolExecutor(max_workers=2)
-
         try: 
             asyncio.run(main())
         except KeyboardInterrupt: 
@@ -798,11 +793,5 @@ if __name__ == "__main__":
                 Logger.info("Fermeture de l'exécuteur de threads...")
                 executor.shutdown(wait=True)
                 Logger.success("Exécuteur de threads fermé.")
-            
-            # On vérifie si l'exécuteur a été créé avant de le fermer
-            if process_executor and not process_executor._shutdown:
-                Logger.info("Fermeture de l'exécuteur de processus...")
-                process_executor.shutdown(wait=True)
-                Logger.success("Exécuteur de processus fermé.")
     else: 
         Logger.error("Le DISCORD_TOKEN ou le CHANNEL_ID ne sont pas définis dans le fichier .env")
