@@ -547,7 +547,17 @@ class ConfigMenuView(discord.ui.View):
                 embed.add_field(name=f"{data.get('emoji', '')} {data.get('name', 'N/A')}", value=value_str, inline=False)
         
         await interaction.edit_original_response(embed=embed, view=self)
-
+    @discord.ui.button(label="Reset Rôles Fidélité", style=discord.ButtonStyle.danger, row=2, emoji="🗑️")
+    async def reset_loyalty_config(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = ConfirmResetLoyaltyView()
+        await interaction.response.send_message(
+            "⚠️ **Êtes-vous absolument certain ?**\n"
+            "Cette action va supprimer **toute** la configuration des rôles de fidélité et de succès. "
+            "Vous devrez les recréer un par un avec la commande `/config loyalty set`.\n\n"
+            "Cette action est **irréversible**.",
+            view=view,
+            ephemeral=True
+        )
     @discord.ui.button(label="⬅️ Retour", style=discord.ButtonStyle.secondary, row=1)
     async def go_back(self, interaction: discord.Interaction, button: discord.ui.Button):
         # On recrée la vue de debug originale et on remet l'embed d'origine
@@ -616,18 +626,6 @@ class DebugView(discord.ui.View):
         embed = create_styled_embed("🔧 Menu de Configuration", "Choisissez une catégorie à afficher.")
         view = ConfigMenuView(self.bot, self.author, interaction.message.embeds[0])
         await interaction.response.edit_message(embed=embed, view=view)
-    
-    @discord.ui.button(label="Reset Rôles Fidélité", style=discord.ButtonStyle.danger, row=2, emoji="🗑️")
-    async def reset_loyalty_config(self, interaction: discord.Interaction, button: discord.ui.Button):
-        view = ConfirmResetLoyaltyView()
-        await interaction.response.send_message(
-            "⚠️ **Êtes-vous absolument certain ?**\n"
-            "Cette action va supprimer **toute** la configuration des rôles de fidélité et de succès. "
-            "Vous devrez les recréer un par un avec la commande `/config loyalty set`.\n\n"
-            "Cette action est **irréversible**.",
-            view=view,
-            ephemeral=True
-        )
         
     # --- Ligne 3 : Actions de Maintenance ---
     @discord.ui.button(label="🗑️ Vider Cache", style=discord.ButtonStyle.secondary, row=3)
