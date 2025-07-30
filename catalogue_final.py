@@ -54,8 +54,7 @@ ranking_time = dt_time(hour=16, minute=0, tzinfo=paris_tz)
 selection_time = dt_time(hour=12, minute=0, tzinfo=paris_tz)
 role_sync_time = dt_time(hour=8, minute=5, tzinfo=paris_tz)
 reengagement_time = dt_time(hour=10, minute=0, tzinfo=paris_tz)
-start_timestamp_unix = int(start_timestamp_dt.timestamp())
-end_timestamp_unix = int(end_timestamp_dt.timestamp())
+
 
 PRODUCTS_WITH_METAFIELDS_QUERY = """
 query getProductsWithMetafields {
