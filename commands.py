@@ -49,27 +49,18 @@ class CompareView(discord.ui.View):
         try:
             db_name1 = self.p1_rating_data['name']
             details1 = self.p1_rating_data['details']
-            # [CORRECTION FINALE] Syntaxe .get('clé') corrigée et code simplifié
-            scores1 = np.array([
-                details1.get('Visuel', 0),
-                details1.get('Odeur', 0),
-                details1.get('Toucher', 0),
-                details1.get('Goût', 0),
-                details1.get('Effets', 0),
-            ])
+            scores1 = np.array([details1.get(k, 0) for k in ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']])
             
             db_name2 = self.p2_rating_data['name']
             details2 = self.p2_rating_data['details']
-            scores2 = np.array([
-                details2.get('Visuel', 0),
-                details2.get('Odeur', 0),
-                details2.get('Toucher', 0),
-                details2.get('Goût', 0),
-                details2.get('Effets', 0),
-            ])
+            scores2 = np.array([details2.get(k, 0) for k in ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']])
             
-            chart_path = await asyncio.to_thread(
-                create_comparison_radar_chart, db_name1, scores1, db_name2, scores2
+            # --- AJOUT D'UN TIMEOUT POUR EMPÊCHER LE BLOCAGE INDÉFINI ---
+            chart_path = await asyncio.wait_for(
+                asyncio.to_thread(
+                    create_comparison_radar_chart, db_name1, scores1, db_name2, scores2
+                ),
+                timeout=15.0  # On abandonne après 15 secondes
             )
 
             if chart_path:
@@ -80,12 +71,15 @@ class CompareView(discord.ui.View):
                 ).set_image(url="attachment://comparison_radar_chart.png")
                 await interaction.followup.send(embed=embed, file=file, ephemeral=True)
             else:
-                await interaction.followup.send("😕 Une erreur est survenue lors de la création du graphique. Vérifiez les logs.", ephemeral=True)
+                await interaction.followup.send("😕 La génération du graphique a échoué (la fonction a retourné None). Vérifiez les logs du bot.", ephemeral=True)
 
+        except asyncio.TimeoutError:
+            Logger.error("[CompareGraph] TIMEOUT: La génération du graphique a dépassé 15 secondes. Probablement un blocage de Matplotlib.")
+            await interaction.followup.send("⏳ Oups ! La génération du graphique a pris trop de temps et a été annulée. Le staff a été notifié.", ephemeral=True)
         except Exception as e:
-            Logger.error(f"Échec de la génération du graphique de comparaison : {e}")
+            Logger.error(f"Échec critique de la génération du graphique de comparaison : {e}")
             traceback.print_exc()
-            await interaction.followup.send("❌ Oups ! Une erreur critique est survenue.", ephemeral=True)
+            await interaction.followup.send("❌ Oups ! Une erreur critique est survenue lors de la génération du graphique.", ephemeral=True)
         finally:
             if chart_path and os.path.exists(chart_path):
                 os.remove(chart_path)

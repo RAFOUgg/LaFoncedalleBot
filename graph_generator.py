@@ -85,24 +85,18 @@ def create_radar_chart(product_name: str) -> str | None:
             conn.close()
 
 def create_comparison_radar_chart(db_name1: str, scores1: np.ndarray, db_name2: str, scores2: np.ndarray) -> str | None:
-    # --- LOG DE DIAGNOSTIC ---
-    Logger.info(f"[GraphCompare] Génération pour '{db_name1}' (scores: {scores1}) vs '{db_name2}' (scores: {scores2}).")
-    if scores1.shape != (5,) or scores2.shape != (5,):
-        Logger.error(f"[GraphCompare] ERREUR: Les tableaux de scores n'ont pas la bonne taille. P1: {scores1.shape}, P2: {scores2.shape}")
-        return None
-
-    if not os.path.exists(FONT_PATH):
-        Logger.error(f"CRITIQUE: Fichier de police introuvable à '{FONT_PATH}'.")
-        return None
-    
-    font_props = FontProperties(family="Gobold", weight='bold', size=12)
-    font_props_legend = FontProperties(family="Gobold", weight='bold', size=11)
-    font_props_title = FontProperties(family="Gobold", weight='bold', size=16)
-
+    Logger.info(f"[GraphCompare] START: Génération pour '{db_name1}' vs '{db_name2}'.")
     try:
-        categories = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
+        if not os.path.exists(FONT_PATH):
+            Logger.error(f"[GraphCompare] CRITICAL: Fichier de police introuvable à '{FONT_PATH}'.")
+            return None
         
-        # Angles pour les 5 axes + 1 pour boucler
+        Logger.info("[GraphCompare] STEP 1: Initialisation de Matplotlib...")
+        font_props = FontProperties(family="Gobold", weight='bold', size=12)
+        font_props_legend = FontProperties(family="Gobold", weight='bold', size=11)
+        font_props_title = FontProperties(family="Gobold", weight='bold', size=16)
+
+        categories = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
         angles = np.linspace(0, 2 * np.pi, len(categories), endpoint=False).tolist()
         angles += angles[:1]
 
@@ -110,55 +104,42 @@ def create_comparison_radar_chart(db_name1: str, scores1: np.ndarray, db_name2: 
         fig.patch.set_facecolor('#2f3136')
         ax.set_facecolor('#2f3136')
         
-        # Données pour le produit 1 (5 scores + 1 pour boucler)
+        Logger.info("[GraphCompare] STEP 2: Tracé des données...")
         scores_for_plot1 = np.concatenate((scores1, [scores1[0]]))
         ax.plot(angles, scores_for_plot1, color='#5865F2', linewidth=2, label=remove_emojis(db_name1))
         ax.fill(angles, scores_for_plot1, color='#5865F2', alpha=0.2)
         
-        # Données pour le produit 2 (5 scores + 1 pour boucler)
         scores_for_plot2 = np.concatenate((scores2, [scores2[0]]))
         ax.plot(angles, scores_for_plot2, color='#57F287', linewidth=2, label=remove_emojis(db_name2))
         ax.fill(angles, scores_for_plot2, color='#57F287', alpha=0.2)
                 
+        Logger.info("[GraphCompare] STEP 3: Configuration des axes et de la légende...")
         ax.set_ylim(0, 10)
-        ax.set_rgrids([2, 4, 6, 8], angle=90)
-        ax.grid(color="gray", linestyle='--', linewidth=0.5)
-        
-        # On utilise les 5 premiers angles pour les 5 étiquettes
         ax.set_thetagrids(np.degrees(angles[:-1]), categories)
-        
         for label in ax.get_xticklabels():
             label.set_fontproperties(font_props)
             label.set_color('white')
-            label.set_y(label.get_position()[1] * 1.1) # Ajustement pour éviter chevauchement
-        for label in ax.get_yticklabels():
-            label.set_fontproperties(FontProperties(family="Gobold", weight='regular', size=10))
-            label.set_color('darkgrey')
-            
-        ax.spines['polar'].set_color('gray')
-        ax.set_title('Comparaison des Profils de Saveur\n', fontproperties=font_props_title, color='white')
+            label.set_y(label.get_position()[1] * 1.1)
         
-        # Gestion de la légende
         legend = ax.legend(loc='upper right', bbox_to_anchor=(1.4, 1.1))
         for text in legend.get_texts():
             text.set_fontproperties(font_props_legend)
             text.set_color('white')
-        legend.get_frame().set_facecolor('#40444B')
-        legend.get_frame().set_edgecolor('#2f3136')
             
         output_dir = "charts"
         os.makedirs(output_dir, exist_ok=True)
-        # Nom de fichier unique pour éviter les conflits
         filename = f"{output_dir}/comparison_chart_{int(time.time())}.png"
         
-        # bbox_inches='tight' est crucial pour inclure la légende externe
+        Logger.info(f"[GraphCompare] STEP 4: Sauvegarde du graphique vers '{filename}'...")
         plt.savefig(filename, bbox_inches='tight', dpi=120, transparent=True)
+        
+        Logger.info("[GraphCompare] STEP 5: Sauvegarde terminée. Fermeture de la figure.")
         plt.close(fig)
         
-        Logger.success(f"[GraphCompare] Graphique généré avec succès: {filename}")
+        Logger.success(f"[GraphCompare] FIN: Graphique généré avec succès: {filename}")
         return filename
         
     except Exception as e:
-        Logger.error(f"Erreur inattendue dans create_comparison_radar_chart : {e}")
+        Logger.error(f"[GraphCompare] ERREUR: Une exception a été interceptée: {e}")
         traceback.print_exc()
         return None
