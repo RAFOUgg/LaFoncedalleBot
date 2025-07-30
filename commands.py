@@ -35,84 +35,123 @@ class HelpView(discord.ui.View):
         super().__init__(timeout=None)
         self.cog = cog_instance
         self.main_embed = self.create_main_embed()
+        # On pré-charge les IDs des commandes pour les rendre cliquables
+        self.cmd_map = {}
+
+    async def _get_cmd_map(self):
+        """Charge la map des commandes si elle n'existe pas déjà."""
+        if not self.cmd_map:
+            app_commands = await self.cog.bot.tree.fetch_commands()
+            self.cmd_map = {cmd.name: cmd.id for cmd in app_commands}
+        return self.cmd_map
+
+    def format_cmd(self, name):
+        """Formate une commande pour la rendre cliquable dans un embed."""
+        return f"</{name}:{self.cmd_map.get(name, 0)}>"
 
     def create_main_embed(self) -> discord.Embed:
         return create_styled_embed(
             title="👋 Centre d'Aide de LaFoncedalleBot",
             description=(
-                "Bienvenue ! Que souhaites-tu découvrir ?\n\n"
-                "• **Tu es nouveau ?** Commence par ici pour un tour du propriétaire.\n"
-                "• **Commandes** : Découvre tout ce que le bot peut faire pour toi.\n"
-                "• **Fidélité** : Comprends comment tes notes te récompensent.\n"
+                "Bienvenue ! Ce bot est là pour enrichir ton expérience sur le serveur.\n"
+                "Utilise les boutons ci-dessous pour explorer toutes ses fonctionnalités."
             )
         )
 
-    @discord.ui.button(label="Tu es nouveau ?", style=discord.ButtonStyle.success, emoji="🚀", row=0)
-    async def new_user_guide(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # On récupère les IDs des salons pour CE serveur spécifique
-        guild_id = interaction.guild.id
-        menu_id = await config_manager.get_state(guild_id, 'menu_channel_id')
-        selection_id = await config_manager.get_state(guild_id, 'selection_channel_id')
-        
-        # On formate les mentions. Si l'ID n'est pas configuré, on met un texte par défaut.
-        menu_ch = f"<#{menu_id}>" if menu_id else "#menu (non configuré)"
-        selection_ch = f"<#{selection_id}>" if selection_id else "#sélection (non configuré)"
-        # Pour "Nouveautés", on suppose que c'est le même que le salon menu.
-        nouveautes_ch = menu_ch 
-
+    @discord.ui.button(label="🚀 Pour Bien Démarrer", style=discord.ButtonStyle.success, row=0)
+    async def start_guide(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._get_cmd_map()
         embed = create_styled_embed(
-            title="🚀 Guide du Nouveau Membre",
-            description=(
-                "Bienvenue sur le serveur ! Voici les bases pour bien démarrer :\n\n"
-                f"**1. Menu Interactif & Nouveautés**\n"
-                f"Le cœur du serveur ! Consulte le salon {menu_ch} pour voir tous nos produits. Tu peux naviguer par catégorie grâce aux boutons.\n\n"
-                f"**2. Sélection de la Semaine**\n"
-                f"Chaque semaine, découvre les produits les mieux notés par la communauté dans {selection_ch}.\n\n"
-            )
+            title="🚀 Guide de Démarrage Rapide",
+            description="Voici le parcours idéal pour profiter de toutes les fonctionnalités :"
+        )
+        embed.add_field(
+            name="1️⃣ Lie ton compte",
+            value=f"C'est l'étape **essentielle** ! Utilise {self.format_cmd('lier_compte')} avec l'e-mail de tes commandes. Tu recevras un code à valider avec {self.format_cmd('verifier')}. Cela te permettra de noter les produits que tu as achetés.",
+            inline=False
+        )
+        embed.add_field(
+            name="2️⃣ Explore le menu",
+            value=f"La commande {self.format_cmd('menu')} t'ouvre les portes de notre catalogue interactif. Navigue par catégorie, consulte les fiches produits détaillées et découvre les nouveautés.",
+            inline=False
+        )
+        embed.add_field(
+            name="3️⃣ Donne ton avis",
+            value=f"Une fois un produit testé, utilise {self.format_cmd('noter')} pour lui donner une note sur plusieurs critères. Chaque note te fait gagner des points pour le système de fidélité !",
+            inline=False
         )
         await interaction.response.edit_message(embed=embed, view=HelpNavigateView(self))
 
-    @discord.ui.button(label="Commandes", style=discord.ButtonStyle.primary, emoji="🤖", row=0)
-    async def commands_guide(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = create_styled_embed("🤖 Guide des Commandes", "Voici les commandes essentielles à connaître. Tu peux cliquer sur leur nom pour les utiliser !")
+    @discord.ui.button(label="🤖 Commandes Principales", style=discord.ButtonStyle.primary, row=0)
+    async def main_commands_guide(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._get_cmd_map()
+        embed = create_styled_embed("🤖 Commandes Principales", "Les commandes que tu utiliseras le plus souvent.")
         
-        # Pour rendre les commandes cliquables, nous devons récupérer leurs IDs.
-        # C'est une méthode avancée mais qui offre une bien meilleure expérience.
-        app_commands = await self.cog.bot.tree.fetch_commands()
-        cmd_map = {cmd.name: cmd.id for cmd in app_commands}
-
-        def format_cmd(name):
-            return f"</{name}:{cmd_map.get(name, 0)}>"
-
-        embed.add_field(name=format_cmd("lier_compte"), value="Lie ton compte Discord à ton e-mail de commande. **C'est la première chose à faire !**", inline=False)
-        embed.add_field(name=format_cmd("menu"), value="Affiche le menu interactif pour explorer tous nos produits.", inline=False)
-        embed.add_field(name=format_cmd("noter"), value="Donne une note détaillée à un produit que tu as acheté pour gagner des points de fidélité.", inline=False)
-        embed.add_field(name=format_cmd("profil"), value="Affiche ton profil, tes statistiques de notes, tes commandes et ton badge de fidélité.", inline=False)
-        embed.add_field(name=format_cmd("promos"), value="Affiche toutes les promotions et avantages en cours sur la boutique.", inline=False)
-        embed.add_field(name=format_cmd("top_noteurs"), value="Consulte le classement des membres les plus actifs.", inline=False)
-        embed.add_field(name=format_cmd("classement_produits"), value="Découvre les produits préférés de la communauté.", inline=False)
+        embed.add_field(name=self.format_cmd("profil"), value="Affiche ton profil complet : statistiques, badge de fidélité, historique de notes, et infos de commandes.", inline=False)
+        embed.add_field(name=self.format_cmd("promos"), value="Consulte toutes les promotions et avantages en cours sur la boutique.", inline=False)
+        embed.add_field(name=self.format_cmd("top_noteurs"), value="Découvre le classement des membres les plus actifs et experts de la communauté.", inline=False)
+        embed.add_field(name=self.format_cmd("classement_produits"), value="Consulte le top des produits les mieux notés par l'ensemble des membres.", inline=False)
+        embed.add_field(name=self.format_cmd("contacts"), value="Retrouve tous nos liens utiles (boutique, réseaux sociaux).", inline=False)
         
         await interaction.response.edit_message(embed=embed, view=HelpNavigateView(self))
 
-    @discord.ui.button(label="Système de Fidélité", style=discord.ButtonStyle.primary, emoji="🏆", row=1)
+    @discord.ui.button(label="🛠️ Outils & Utilitaires", style=discord.ButtonStyle.primary, row=1)
+    async def tools_guide(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._get_cmd_map()
+        embed = create_styled_embed("🛠️ Outils & Utilitaires", "Des commandes pratiques pour aller plus loin.")
+        
+        embed.add_field(name=self.format_cmd("comparer"), value="Compare deux produits côte à côte : prix, caractéristiques et notes moyennes de la communauté.", inline=False)
+        embed.add_field(name=self.format_cmd("ma_commande"), value="Affiche le statut de ta dernière commande (paiement, expédition, suivi de colis).", inline=False)
+        embed.add_field(name=self.format_cmd("delier_compte"), value="Supprime la liaison entre ton Discord et ton e-mail, si tu souhaites en changer.", inline=False)
+        embed.add_field(name=self.format_cmd("nitro_gift"), value="Si tu boostes le serveur, utilise cette commande pour réclamer ta récompense !", inline=False)
+
+        await interaction.response.edit_message(embed=embed, view=HelpNavigateView(self))
+
+    @discord.ui.button(label="🏆 Fidélité & Succès", style=discord.ButtonStyle.primary, row=1)
     async def loyalty_guide(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = create_styled_embed("🏆 Le Système de Fidélité", "Chaque note que tu donnes est récompensée !")
-        embed.description += (
-            "\n\nEn notant les produits que tu achètes, tu gagnes en expérience et débloques des rôles exclusifs qui montrent ton statut d'expert au sein de la communauté.\n\n"
-            "**Voici les paliers actuels :**"
-        )
+        embed = create_styled_embed("🏆 Le Système de Fidélité & Succès", "Chaque note que tu donnes est récompensée !")
+        
         loyalty_config = config_manager.get_config("loyalty_roles", {})
-        if not loyalty_config:
-            embed.add_field(name="Paliers", value="Aucun palier n'est configuré pour le moment.")
-        else:
-            sorted_roles = sorted(loyalty_config.values(), key=lambda item: item.get('threshold', 0))
-            for role_data in sorted_roles:
+        
+        # Séparer les rôles par type
+        tiered_roles = sorted([v for v in loyalty_config.values() if v.get('type') == 'threshold'], key=lambda i: i.get('threshold', 0))
+        achievement_roles = [v for v in loyalty_config.values() if v.get('type') != 'threshold']
+
+        if tiered_roles:
+            embed.add_field(
+                name="\nPaliers de Fidélité",
+                value="Débloque ces rôles exclusifs en accumulant les notes. Seul ton plus haut palier est affiché.",
+                inline=False
+            )
+            for role_data in tiered_roles:
                 embed.add_field(
                     name=f"{role_data.get('emoji', '⭐')} {role_data.get('name', 'N/A')}",
-                    value=f"Se débloque à **{role_data.get('threshold', 0)}** notes.",
+                    value=f"**{role_data.get('threshold', 0)}** notes",
                     inline=True
                 )
+        
+        if achievement_roles:
+            embed.add_field(
+                name="\nSuccès à Débloquer",
+                value="Accomplis des défis spécifiques pour gagner ces badges uniques. Ils sont cumulables !",
+                inline=False
+            )
+            for role_data in achievement_roles:
+                type_desc = "Condition inconnue"
+                if role_data.get('type') == 'explorer': type_desc = "Noter 1 produit de chaque catégorie principale."
+                elif role_data.get('type') == 'specialist': type_desc = "Noter 5 produits dans une même catégorie."
+                
+                embed.add_field(
+                    name=f"{role_data.get('emoji', '🏆')} {role_data.get('name', 'N/A')}",
+                    value=type_desc,
+                    inline=False
+                )
+
+        if not loyalty_config:
+            embed.description += "\n\nAucun palier ou succès n'est configuré pour le moment."
+
         await interaction.response.edit_message(embed=embed, view=HelpNavigateView(self))
+        
 class HelpNavigateView(discord.ui.View):
     def __init__(self, main_view: HelpView):
         super().__init__(timeout=None)
