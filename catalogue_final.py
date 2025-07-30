@@ -799,8 +799,11 @@ async def on_ready():
         small_text="Propulsé par shopify", # Texte au survol de la petite image
     )
 
-    await bot.change_presence(activity=activity)
-    Logger.success("Présence du bot définie avec succès.")
+    try:
+        await bot.change_presence(activity=activity)
+        Logger.success("Présence du bot définie avec succès.")
+    except Exception as e:
+        Logger.error(f"Erreur lors de la définition de la présence : {e}")
 
     if not scheduled_check.is_running(): scheduled_check.start()
     if not post_weekly_ranking.is_running(): post_weekly_ranking.start()
@@ -810,7 +813,6 @@ async def on_ready():
     if not scheduled_reengagement_check.is_running(): scheduled_reengagement_check.start()
     if not change_bot_status.is_running(): change_bot_status.start()
     Logger.success("Toutes les tâches programmées ont démarré.")
-
 
 # --- FIX STARTS HERE: ROBUST ERROR HANDLER ---
 @bot.tree.error
