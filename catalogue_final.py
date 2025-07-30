@@ -792,7 +792,8 @@ async def on_ready():
 
     activity = discord.Activity(
         type=discord.ActivityType.streaming, # Exemples : playing, streaming, listening, watching
-        name="[La boutique ! 🚀](https://la-foncedalle.fr/)",
+        url="[La boutique ! 🚀](https://la-foncedalle.fr/)",
+        name="[Boutique ! 🚀]",
         state="👅 Déguste depuis LaFoncedalle.fr", # Le texte principal, "STATE" (ex: "D")
         details="🍭 CBD Gustatif", # Les détails, "DETAILS" (ex: "Competitive")
         large_image=lafoncedallelogo, # Clé de l'image grande
