@@ -40,53 +40,54 @@ class CompareView(discord.ui.View):
         if not p1_rating_data or not p2_rating_data:
             self.compare_graph.disabled = True
 
-    @discord.ui.button(label="📊 Afficher le Graphique Radar", style=discord.ButtonStyle.secondary)
-    async def compare_graph(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        button.disabled = True
-        await interaction.message.edit(view=self)
+    # Dans commands.py -> class CompareView
 
-        # La variable contiendra maintenant un buffer, pas un chemin
-        chart_buffer = None
-        try:
-            db_name1 = self.p1_rating_data['name']
-            details1 = self.p1_rating_data['details']
-            scores1 = np.array([details1.get(k, 0) for k in ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']])
-            
-            db_name2 = self.p2_rating_data['name']
-            details2 = self.p2_rating_data['details']
-            scores2 = np.array([details2.get(k, 0) for k in ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']])
-            
-            # On utilise toujours le process_executor pour isoler Matplotlib
-            loop = asyncio.get_running_loop()
-            chart_buffer = await asyncio.wait_for(
-                loop.run_in_executor(
-                    process_executor, # C'est le point clé
-                    create_comparison_radar_chart, 
-                    db_name1, scores1, db_name2, scores2
-                ),
-                timeout=20.0
-            )
+@discord.ui.button(label="📊 Afficher le Graphique Radar", style=discord.ButtonStyle.secondary)
+async def compare_graph(self, interaction: discord.Interaction, button: discord.ui.Button):
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    button.disabled = True
+    await interaction.message.edit(view=self)
 
-            if chart_buffer:
-                # --- MODIFICATION CLÉ : ON UTILISE LE BUFFER DIRECTEMENT ---
-                file = discord.File(fp=chart_buffer, filename="comparison_radar_chart.png")
-                embed = discord.Embed(
-                    title="Comparaison Radar des Notes",
-                    color=discord.Color.blue()
-                ).set_image(url="attachment://comparison_radar_chart.png")
-                await interaction.followup.send(embed=embed, file=file, ephemeral=True)
-            else:
-                await interaction.followup.send("😕 La génération du graphique a échoué. Vérifiez les logs du bot.", ephemeral=True)
+    chart_buffer = None
+    try:
+        db_name1 = self.p1_rating_data['name']
+        details1 = self.p1_rating_data['details']
+        # --- MODIFICATION CLÉ : On crée une LISTE, pas un np.array ---
+        scores1_list = [details1.get(k, 0) for k in ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']]
+        
+        db_name2 = self.p2_rating_data['name']
+        details2 = self.p2_rating_data['details']
+        # --- MODIFICATION CLÉ : On crée une LISTE, pas un np.array ---
+        scores2_list = [details2.get(k, 0) for k in ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']]
+        
+        loop = asyncio.get_running_loop()
+        chart_buffer = await asyncio.wait_for(
+            loop.run_in_executor(
+                process_executor,
+                create_comparison_radar_chart, 
+                # On envoie les listes simples
+                db_name1, scores1_list, db_name2, scores2_list
+            ),
+            timeout=20.0
+        )
 
-        except asyncio.TimeoutError:
-            Logger.error("[CompareGraph] TIMEOUT: La génération du graphique a dépassé 20 secondes.")
-            await interaction.followup.send("⏳ Oups ! La génération du graphique a pris trop de temps et a été annulée.", ephemeral=True)
-        except Exception as e:
-            Logger.error(f"Échec critique de la génération du graphique de comparaison : {e}")
-            traceback.print_exc()
-            await interaction.followup.send("❌ Oups ! Une erreur critique est survenue.", ephemeral=True)
-        # Le bloc finally n'est plus nécessaire car il n'y a plus de fichier à supprimer
+        if chart_buffer:
+            file = discord.File(fp=io.BytesIO(chart_buffer), filename="comparison_radar_chart.png")
+            embed = discord.Embed(
+                title="Comparaison Radar des Notes",
+                color=discord.Color.blue()
+            ).set_image(url="attachment://comparison_radar_chart.png")
+            await interaction.followup.send(embed=embed, file=file, ephemeral=True)
+        else:
+            await interaction.followup.send("😕 La génération du graphique a échoué. Vérifiez les logs du bot.", ephemeral=True)
+
+    except asyncio.TimeoutError:
+        Logger.error("[CompareGraph] TIMEOUT: La génération du graphique a dépassé 20 secondes.")
+        await interaction.followup.send("⏳ Oups ! La génération du graphique a pris trop de temps et a été annulée.", ephemeral=True)
+    except Exception as e:
+        Logger.error(f"Échec critique de la génération du graphique de comparaison : {e}")
+        traceback.print_exc()
+        await interaction.followup.send("❌ Oups ! Une erreur critique est survenue.", ephemeral=True)
 
 class HelpView(discord.ui.View):
     def __init__(self, cog_instance):
