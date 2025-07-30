@@ -1975,7 +1975,7 @@ class SlashCommands(commands.Cog):
         # --- 2. Tâches Programmées (NOUVELLE SECTION) ---
         tasks_text = ""
         # Accéder aux tâches enregistrées dans le fichier principal du bot
-        from catalogue_final import scheduled_check, post_weekly_ranking, scheduled_selection, daily_role_sync, scheduled_db_export
+        from catalogue_final import scheduled_check, post_weekly_ranking, scheduled_selection, daily_role_sync, scheduled_db_export, scheduled_reengagement_check
 
         tasks_to_check = {
             "Vérification Menu": scheduled_check,
@@ -1983,6 +1983,7 @@ class SlashCommands(commands.Cog):
             "Sélection Semaine": scheduled_selection,
             "Synchro Rôles": daily_role_sync,
             "Sauvegarde DB": scheduled_db_export,
+            "Rappel Notations" : scheduled_reengagement_check,
         }
 
         for name, task in tasks_to_check.items():
