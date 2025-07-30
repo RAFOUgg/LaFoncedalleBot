@@ -54,6 +54,8 @@ ranking_time = dt_time(hour=16, minute=0, tzinfo=paris_tz)
 selection_time = dt_time(hour=12, minute=0, tzinfo=paris_tz)
 role_sync_time = dt_time(hour=8, minute=5, tzinfo=paris_tz)
 reengagement_time = dt_time(hour=10, minute=0, tzinfo=paris_tz)
+start_timestamp_unix = int(start_timestamp_dt.timestamp())
+end_timestamp_unix = int(end_timestamp_dt.timestamp())
 
 PRODUCTS_WITH_METAFIELDS_QUERY = """
 query getProductsWithMetafields {
@@ -788,6 +790,24 @@ async def on_ready():
         Logger.success("Vue de menu persistante ré-enregistrée avec succès.")
     except Exception as e:
         Logger.error(f"Échec critique du chargement de la vue persistante : {e}")
+
+    activity = discord.Activity(
+        type=discord.ActivityType.playing, # Exemples : playing, streaming, listening, watching
+        name="[La boutique ! 🚀](https://la-foncedalle.fr/)"
+        state="👅 Déguste depuis LaFoncedalle.fr", # Le texte principal, "STATE" (ex: "D")
+        details="🍭 CBD Gustatif", # Les détails, "DETAILS" (ex: "Competitive")
+        large_image=lafoncedallelogo, # Clé de l'image grande
+        large_text="La-Froncedalle.fr", # Texte au survol de la grande image
+        small_image=shopify, # Clé de l'image petite
+        small_text="Propulsé par shopify", # Texte au survol de la petite image
+        party_id="https://la-foncedalle.fr/", # Identifiant de la party
+        party_size=420, # Taille actuelle de la party
+        party_max=710, # Taille maximale de la party
+        join_secret="https://la-foncedalle.fr/" # Secret pour rejoindre (généré par ton app)
+    )
+
+    await bot.change_presence(activity=activity)
+    Logger.success("Présence du bot définie avec succès.")
 
     if not scheduled_check.is_running(): scheduled_check.start()
     if not post_weekly_ranking.is_running(): post_weekly_ranking.start()
