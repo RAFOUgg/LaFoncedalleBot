@@ -2411,13 +2411,48 @@ class SlashCommands(commands.Cog):
     async def comparer(self, interaction: discord.Interaction, produit1: str, produit2: str):
         await interaction.response.defer(ephemeral=True)
 
+        # --- NOUVELLE FONCTION INTERNE POUR ACCÉDER À LA DB ---
+        def _fetch_comparison_data_sync(p1_name: str, p2_name: str) -> dict:
+            """Récupère les données de notation agrégées directement depuis la DB."""
+            conn = get_db_connection()
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            data_map = {}
+
+            for name in [p1_name, p2_name]:
+                query = """
+                    SELECT 
+                        (SELECT r2.product_name FROM ratings r2 WHERE LOWER(TRIM(r2.product_name)) LIKE ? ORDER BY r2.rating_timestamp DESC LIMIT 1) as display_name,
+                        COUNT(r1.id) as count,
+                        COALESCE(AVG((COALESCE(r1.visual_score,0)+COALESCE(r1.smell_score,0)+COALESCE(r1.touch_score,0)+COALESCE(r1.taste_score,0)+COALESCE(r1.effects_score,0))/5.0), 0) as avg_total,
+                        COALESCE(AVG(r1.visual_score), 0) as visuel,
+                        COALESCE(AVG(r1.smell_score), 0) as odeur,
+                        COALESCE(AVG(r1.touch_score), 0) as toucher,
+                        COALESCE(AVG(r1.taste_score), 0) as gout,
+                        COALESCE(AVG(r1.effects_score), 0) as effets
+                    FROM ratings r1
+                    WHERE LOWER(TRIM(r1.product_name)) LIKE ?
+                """
+                like_param = f"%{name.lower().strip()}%"
+                cursor.execute(query, (like_param, like_param))
+                result = cursor.fetchone()
+                
+                if result and result['count'] > 0:
+                    data_map[name.lower().strip()] = {
+                        "name": result['display_name'],
+                        "count": result['count'],
+                        "avg_total": result['avg_total'],
+                        "details": { 'Visuel': result['visuel'], 'Odeur': result['odeur'], 'Toucher': result['toucher'], 'Goût': result['gout'], 'Effets': result['effets'] }
+                    }
+            conn.close()
+            return data_map
+
         try:
             if produit1.lower() == produit2.lower():
                 return await interaction.followup.send("❌ Veuillez choisir deux produits différents.", ephemeral=True)
 
             product_map = {p['name'].lower().strip(): p for p in self.bot.product_cache.get('products', [])}
             
-            # On cherche les noms complets pour récupérer les données de base (prix, etc.)
             p1_full_name = next((p['name'] for name_key, p in product_map.items() if produit1.lower() in name_key), None)
             p2_full_name = next((p['name'] for name_key, p in product_map.items() if produit2.lower() in name_key), None)
             
@@ -2428,23 +2463,13 @@ class SlashCommands(commands.Cog):
             p1_data = product_map.get(p1_full_name.lower().strip())
             p2_data = product_map.get(p2_full_name.lower().strip())
 
-            import aiohttp
-            api_url = f"{APP_URL}/api/get_comparison_data"
-            payload = {"product1_name": p1_full_name, "product2_name": p2_full_name}
+            # --- On appelle la fonction de DB locale, plus d'appel API ---
+            rating_data_map = await asyncio.to_thread(_fetch_comparison_data_sync, p1_full_name, p2_full_name)
             
-            api_data = {}
-            async with aiohttp.ClientSession() as session:
-                async with session.post(api_url, json=payload) as response:
-                    api_data = await response.json()
-            
-            # --- LOGIQUE DE RÉCUPÉRATION CORRIGÉE ---
-            # On utilise une recherche par clé normalisée, beaucoup plus fiable
-            p1_rating_data = api_data.get(p1_full_name.lower().strip())
-            p2_rating_data = api_data.get(p2_full_name.lower().strip())
+            p1_rating_data = rating_data_map.get(p1_full_name.lower().strip())
+            p2_rating_data = rating_data_map.get(p2_full_name.lower().strip())
 
-            # ... Le reste du code pour créer l'embed reste identique ...
-            description_text = "Voici un résumé des caractéristiques et des notes moyennes."
-            embed = create_styled_embed(title=f"⚔️ Comparaison : {p1_data['name']} vs {p2_data['name']}", description=description_text, color=discord.Color.orange())
+            embed = create_styled_embed(title=f"⚔️ Comparaison : {p1_data['name']} vs {p2_data['name']}", description="Voici un résumé des caractéristiques et des notes moyennes.", color=discord.Color.orange())
 
             def format_product_field(p_data, p_rating):
                 price_text = f"💰 **{p_data.get('price', 'N/A')}**"
