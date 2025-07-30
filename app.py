@@ -505,44 +505,46 @@ def get_shop_stats():
 @app.route('/api/get_comparison_data', methods=['POST'])
 def get_comparison_data():
     data = request.json
-    p1_name_query = data.get('product1_name')
-    p2_name_query = data.get('product2_name')
+    p1_name = data.get('product1_name')
+    p2_name = data.get('product2_name')
 
-    if not p1_name_query or not p2_name_query:
+    if not p1_name or not p2_name:
         return jsonify({"error": "Noms de produits manquants."}), 400
 
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # --- REQUÊTE AMÉLIORÉE ET FIABILISÉE ---
         query = """
             SELECT product_name, 
                    COUNT(id) as count,
                    COALESCE(AVG((COALESCE(visual_score,0)+COALESCE(smell_score,0)+COALESCE(touch_score,0)+COALESCE(taste_score,0)+COALESCE(effects_score,0))/5.0), 0) as avg_total,
-                   COALESCE(AVG(visual_score), 0), 
-                   COALESCE(AVG(smell_score), 0), 
-                   COALESCE(AVG(touch_score), 0), 
-                   COALESCE(AVG(taste_score), 0), 
-                   COALESCE(AVG(effects_score), 0)
+                   COALESCE(AVG(visual_score), 0) as visuel, 
+                   COALESCE(AVG(smell_score), 0) as odeur, 
+                   COALESCE(AVG(touch_score), 0) as toucher, 
+                   COALESCE(AVG(taste_score), 0) as gout, 
+                   COALESCE(AVG(effects_score), 0) as effets
             FROM ratings
-            WHERE product_name LIKE ? OR product_name LIKE ?
+            WHERE product_name = ? OR product_name = ?
             GROUP BY product_name
         """
-        cursor.execute(query, (f'%{p1_name_query}%', f'%{p2_name_query}%'))
+        # On utilise les noms exacts au lieu de LIKE
+        cursor.execute(query, (p1_name, p2_name))
         results = cursor.fetchall()
         conn.close()
 
         data_map = {}
         for row in results:
-            if all(row):
-                data_map[row[0]] = {
-                    "count": row[1],
-                    "avg_total": row[2],
-                    "details": {
-                        'Visuel': row[3], 'Odeur': row[4], 'Toucher': row[5],
-                        'Goût': row[6], 'Effets': row[7]
-                    }
+            # On utilise les alias de la requête pour plus de clarté
+            data_map[row['product_name']] = {
+                "count": row['count'],
+                "avg_total": row['avg_total'],
+                "details": {
+                    'Visuel': row['visuel'], 'Odeur': row['odeur'], 'Toucher': row['toucher'],
+                    'Goût': row['gout'], 'Effets': row['effets']
                 }
+            }
 
         return jsonify(data_map), 200
 
@@ -602,6 +604,6 @@ def get_last_order(discord_id):
         return jsonify({"error": "Erreur lors de la récupération de la commande."}), 500
     finally:
         shopify.ShopifyResource.clear_session()
-        
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

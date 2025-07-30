@@ -85,7 +85,11 @@ def create_radar_chart(product_name: str) -> str | None:
             conn.close()
 
 def create_comparison_radar_chart(db_name1: str, scores1: np.ndarray, db_name2: str, scores2: np.ndarray) -> str | None:
-    Logger.info(f"[GraphCompare] Génération à partir des données fournies pour '{db_name1}' et '{db_name2}'.")
+    # --- LOG DE DIAGNOSTIC ---
+    Logger.info(f"[GraphCompare] Génération pour '{db_name1}' (scores: {scores1}) vs '{db_name2}' (scores: {scores2}).")
+    if scores1.shape != (5,) or scores2.shape != (5,):
+        Logger.error(f"[GraphCompare] ERREUR: Les tableaux de scores n'ont pas la bonne taille. P1: {scores1.shape}, P2: {scores2.shape}")
+        return None
 
     if not os.path.exists(FONT_PATH):
         Logger.error(f"CRITIQUE: Fichier de police introuvable à '{FONT_PATH}'.")
@@ -97,18 +101,21 @@ def create_comparison_radar_chart(db_name1: str, scores1: np.ndarray, db_name2: 
 
     try:
         categories = ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']
+        
+        # Angles pour les 5 axes + 1 pour boucler
         angles = np.linspace(0, 2 * np.pi, len(categories), endpoint=False).tolist()
         angles += angles[:1]
+
         fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
         fig.patch.set_facecolor('#2f3136')
         ax.set_facecolor('#2f3136')
         
-        # Tracé pour le produit 1
+        # Données pour le produit 1 (5 scores + 1 pour boucler)
         scores_for_plot1 = np.concatenate((scores1, [scores1[0]]))
         ax.plot(angles, scores_for_plot1, color='#5865F2', linewidth=2, label=remove_emojis(db_name1))
         ax.fill(angles, scores_for_plot1, color='#5865F2', alpha=0.2)
         
-        # Tracé pour le produit 2
+        # Données pour le produit 2 (5 scores + 1 pour boucler)
         scores_for_plot2 = np.concatenate((scores2, [scores2[0]]))
         ax.plot(angles, scores_for_plot2, color='#57F287', linewidth=2, label=remove_emojis(db_name2))
         ax.fill(angles, scores_for_plot2, color='#57F287', alpha=0.2)
@@ -116,25 +123,35 @@ def create_comparison_radar_chart(db_name1: str, scores1: np.ndarray, db_name2: 
         ax.set_ylim(0, 10)
         ax.set_rgrids([2, 4, 6, 8], angle=90)
         ax.grid(color="gray", linestyle='--', linewidth=0.5)
+        
+        # On utilise les 5 premiers angles pour les 5 étiquettes
         ax.set_thetagrids(np.degrees(angles[:-1]), categories)
         
         for label in ax.get_xticklabels():
             label.set_fontproperties(font_props)
             label.set_color('white')
-            label.set_y(label.get_position()[1] * 1.1)
+            label.set_y(label.get_position()[1] * 1.1) # Ajustement pour éviter chevauchement
         for label in ax.get_yticklabels():
             label.set_fontproperties(FontProperties(family="Gobold", weight='regular', size=10))
             label.set_color('darkgrey')
+            
         ax.spines['polar'].set_color('gray')
         ax.set_title('Comparaison des Profils de Saveur\n', fontproperties=font_props_title, color='white')
+        
+        # Gestion de la légende
         legend = ax.legend(loc='upper right', bbox_to_anchor=(1.4, 1.1))
         for text in legend.get_texts():
             text.set_fontproperties(font_props_legend)
             text.set_color('white')
+        legend.get_frame().set_facecolor('#40444B')
+        legend.get_frame().set_edgecolor('#2f3136')
             
         output_dir = "charts"
         os.makedirs(output_dir, exist_ok=True)
+        # Nom de fichier unique pour éviter les conflits
         filename = f"{output_dir}/comparison_chart_{int(time.time())}.png"
+        
+        # bbox_inches='tight' est crucial pour inclure la légende externe
         plt.savefig(filename, bbox_inches='tight', dpi=120, transparent=True)
         plt.close(fig)
         
