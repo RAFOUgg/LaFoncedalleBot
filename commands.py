@@ -30,6 +30,31 @@ async def is_staff_or_owner(interaction: discord.Interaction) -> bool:
 
    
 # --- VUES ET MODALES ---
+
+class ConfirmResetLoyaltyView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=60)
+
+    @discord.ui.button(label="Oui, tout supprimer", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        # Réinitialise la configuration en la remplaçant par un dictionnaire vide
+        await config_manager.update_config("loyalty_roles", {})
+        
+        Logger.warning(f"L'administrateur {interaction.user} a réinitialisé la configuration des rôles de fidélité.")
+        await interaction.followup.send(
+            "✅ La configuration des rôles de fidélité a été entièrement réinitialisée.",
+            ephemeral=True
+        )
+        # On désactive les boutons du message de confirmation
+        await interaction.edit_original_response(view=None)
+        self.stop()
+
+    @discord.ui.button(label="Annuler", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Opération annulée.", view=None)
+        self.stop()
+
 class HelpView(discord.ui.View):
     def __init__(self, cog_instance):
         super().__init__(timeout=None)
@@ -591,6 +616,18 @@ class DebugView(discord.ui.View):
         embed = create_styled_embed("🔧 Menu de Configuration", "Choisissez une catégorie à afficher.")
         view = ConfigMenuView(self.bot, self.author, interaction.message.embeds[0])
         await interaction.response.edit_message(embed=embed, view=view)
+    
+    @discord.ui.button(label="Reset Rôles Fidélité", style=discord.ButtonStyle.danger, row=2, emoji="🗑️")
+    async def reset_loyalty_config(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = ConfirmResetLoyaltyView()
+        await interaction.response.send_message(
+            "⚠️ **Êtes-vous absolument certain ?**\n"
+            "Cette action va supprimer **toute** la configuration des rôles de fidélité et de succès. "
+            "Vous devrez les recréer un par un avec la commande `/config loyalty set`.\n\n"
+            "Cette action est **irréversible**.",
+            view=view,
+            ephemeral=True
+        )
         
     # --- Ligne 3 : Actions de Maintenance ---
     @discord.ui.button(label="🗑️ Vider Cache", style=discord.ButtonStyle.secondary, row=3)
