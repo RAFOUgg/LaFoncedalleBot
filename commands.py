@@ -40,6 +40,7 @@ class CompareView(discord.ui.View):
 
     @discord.ui.button(label="📊 Afficher le Graphique Radar", style=discord.ButtonStyle.secondary)
     async def compare_graph(self, interaction: discord.Interaction, button: discord.ui.Button):
+        Logger.action(f"Clic sur bouton graphique. Envoi des noms: P1='{self.product1_name}', P2='{self.product2_name}'")
         await interaction.response.defer(ephemeral=True, thinking=True)
         button.disabled = True
         await interaction.message.edit(view=self)
