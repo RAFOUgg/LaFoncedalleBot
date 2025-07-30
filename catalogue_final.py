@@ -782,19 +782,27 @@ async def main():
         await bot.start(TOKEN)
 
 if __name__ == "__main__":
+    # Ce bloc n'est plus le point d'entrée principal, mais peut servir pour des tests directs.
     if TOKEN and CHANNEL_ID:
-        try: asyncio.run(main())
-        except KeyboardInterrupt: Logger.warning("Arrêt du bot demandé.")
+        # On doit aussi initialiser l'exécuteur ici au cas où ce fichier est lancé directement
+        if process_executor is None:
+            from concurrent.futures import ProcessPoolExecutor
+            process_executor = ProcessPoolExecutor(max_workers=2)
+
+        try: 
+            asyncio.run(main())
+        except KeyboardInterrupt: 
+            Logger.warning("Arrêt du bot demandé.")
         finally:
-            # --- BLOC D'ARRÊT MODIFIÉ ---
             if not executor._shutdown:
                 Logger.info("Fermeture de l'exécuteur de threads...")
                 executor.shutdown(wait=True)
                 Logger.success("Exécuteur de threads fermé.")
             
-            # AJOUTEZ CE BLOC
-            if not process_executor._shutdown:
+            # On vérifie si l'exécuteur a été créé avant de le fermer
+            if process_executor and not process_executor._shutdown:
                 Logger.info("Fermeture de l'exécuteur de processus...")
                 process_executor.shutdown(wait=True)
                 Logger.success("Exécuteur de processus fermé.")
-    else: Logger.error("Le DISCORD_TOKEN ou le CHANNEL_ID ne sont pas définis dans le fichier .env")
+    else: 
+        Logger.error("Le DISCORD_TOKEN ou le CHANNEL_ID ne sont pas définis dans le fichier .env")
