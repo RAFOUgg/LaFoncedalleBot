@@ -55,12 +55,14 @@ class CompareView(discord.ui.View):
             details2 = self.p2_rating_data['details']
             scores2 = np.array([details2.get(k, 0) for k in ['Visuel', 'Odeur', 'Toucher', 'Goût', 'Effets']])
             
-            # --- AJOUT D'UN TIMEOUT POUR EMPÊCHER LE BLOCAGE INDÉFINI ---
+            # --- MODIFICATION CLÉ : ON UTILISE LE PROCESS EXECUTOR ---
+            loop = asyncio.get_running_loop()
             chart_path = await asyncio.wait_for(
-                asyncio.to_thread(
+                loop.run_in_executor(
+                    process_executor,  # On utilise l'exécuteur de processus
                     create_comparison_radar_chart, db_name1, scores1, db_name2, scores2
                 ),
-                timeout=15.0  # On abandonne après 15 secondes
+                timeout=20.0  # On laisse un peu plus de temps car la création d'un processus est plus lourde
             )
 
             if chart_path:
@@ -71,10 +73,10 @@ class CompareView(discord.ui.View):
                 ).set_image(url="attachment://comparison_radar_chart.png")
                 await interaction.followup.send(embed=embed, file=file, ephemeral=True)
             else:
-                await interaction.followup.send("😕 La génération du graphique a échoué (la fonction a retourné None). Vérifiez les logs du bot.", ephemeral=True)
+                await interaction.followup.send("😕 La génération du graphique a échoué. Vérifiez les logs du bot.", ephemeral=True)
 
         except asyncio.TimeoutError:
-            Logger.error("[CompareGraph] TIMEOUT: La génération du graphique a dépassé 15 secondes. Probablement un blocage de Matplotlib.")
+            Logger.error("[CompareGraph] TIMEOUT: La génération du graphique a dépassé 20 secondes. Probablement un blocage de Matplotlib.")
             await interaction.followup.send("⏳ Oups ! La génération du graphique a pris trop de temps et a été annulée. Le staff a été notifié.", ephemeral=True)
         except Exception as e:
             Logger.error(f"Échec critique de la génération du graphique de comparaison : {e}")

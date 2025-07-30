@@ -5,7 +5,7 @@ import json
 from dotenv import load_dotenv
 from colorama import init, Fore
 from datetime import datetime, timezone, timedelta
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 import asyncio
 from typing import List, Optional
 
@@ -35,6 +35,7 @@ CLAIMED_CODES_FILE = os.path.join(BASE_DIR, "claimed_nitro_codes.json")
 
 # --- Objets Partagés ---
 executor = ThreadPoolExecutor(max_workers=10)
+process_executor = ProcessPoolExecutor(max_workers=2) 
 paris_tz = timezone(timedelta(hours=2))
 
 # --- Emojis (définis avant d'être utilisés) ---

@@ -24,7 +24,7 @@ from bs4 import BeautifulSoup
 from commands import MenuView
 from shared_utils import (
     TOKEN, CHANNEL_ID, ROLE_ID_TO_MENTION, CATALOG_URL,
-    Logger, executor, paris_tz, initialize_database, config_manager,
+    Logger, executor, process_executor, paris_tz, initialize_database, config_manager,
     CACHE_FILE, RANKING_CHANNEL_ID, DB_FILE, THUMBNAIL_LOGO_URL,
     create_styled_embed, get_product_counts, GUILD_ID, SELECTION_CHANNEL_ID, 
 )
@@ -786,8 +786,15 @@ if __name__ == "__main__":
         try: asyncio.run(main())
         except KeyboardInterrupt: Logger.warning("Arrêt du bot demandé.")
         finally:
+            # --- BLOC D'ARRÊT MODIFIÉ ---
             if not executor._shutdown:
-                Logger.info("Fermeture de l'exécuteur...")
+                Logger.info("Fermeture de l'exécuteur de threads...")
                 executor.shutdown(wait=True)
-                Logger.success("Exécuteur fermé.")
+                Logger.success("Exécuteur de threads fermé.")
+            
+            # AJOUTEZ CE BLOC
+            if not process_executor._shutdown:
+                Logger.info("Fermeture de l'exécuteur de processus...")
+                process_executor.shutdown(wait=True)
+                Logger.success("Exécuteur de processus fermé.")
     else: Logger.error("Le DISCORD_TOKEN ou le CHANNEL_ID ne sont pas définis dans le fichier .env")
