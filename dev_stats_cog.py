@@ -51,7 +51,6 @@ async def get_commit_stats() -> dict:
     # Calcul de l'estimation du temps
     daily_sessions = {}
     for commit in all_commits:
-        # On utilise la date de l'auteur du commit
         commit_date_str = commit['commit']['author']['date']
         commit_date = datetime.fromisoformat(commit_date_str.replace('Z', '+00:00'))
         day = commit_date.date()
@@ -66,11 +65,6 @@ async def get_commit_stats() -> dict:
             first_commit = min(commits_in_day)
             last_commit = max(commits_in_day)
             session_duration = last_commit - first_commit
-            
-            # Optionnel : Logique pour ignorer les "trous"
-            # C'est complexe et potentiellement trompeur.
-            # Pour l'instant, on garde la durée totale de la session.
-            
             total_duration += session_duration
 
     return {
@@ -83,30 +77,37 @@ async def get_commit_stats() -> dict:
 
 def get_loc_stats() -> dict:
     """
-    Utilise des commandes git locales pour compter les lignes et les caractères.
+    Utilise des commandes git locales pour compter les lignes et les caractères
+    UNIQUEMENT pour les fichiers Python (.py).
     """
     try:
-        # Compte le nombre total de fichiers suivis par git
+        # --- MODIFICATION 1 : On spécifie de ne chercher que les fichiers .py ---
+        pathspec = '*.py'
+
+        # Compte le nombre de fichiers Python
         files_process = subprocess.run(
-            ['git', 'ls-files'], 
+            ['git', 'ls-files', pathspec], 
             capture_output=True, text=True, check=True
         )
         file_list = files_process.stdout.strip().split('\n')
-        total_files = len(file_list)
+        # Gère le cas où aucun fichier .py n'est trouvé pour éviter une erreur
+        total_files = len(file_list) if file_list and file_list[0] else 0
 
-        # Utilise xargs et wc pour compter lignes et caractères sur les fichiers suivis
-        # C'est beaucoup plus rapide que de boucler en Python
-        p1 = subprocess.Popen(['git', 'ls-files'], stdout=subprocess.PIPE)
+        # Si aucun fichier .py n'est trouvé, on retourne des zéros
+        if total_files == 0:
+            return {"total_lines": 0, "total_chars": 0, "total_files": 0}
+
+        # Utilise xargs et wc sur la liste filtrée de fichiers Python
+        p1 = subprocess.Popen(['git', 'ls-files', pathspec], stdout=subprocess.PIPE)
         p2 = subprocess.Popen(['xargs', 'wc'], stdin=p1.stdout, stdout=subprocess.PIPE, text=True)
         p1.stdout.close()
         output = p2.communicate()[0]
         
-        # Le résultat de 'wc' inclut une ligne "total" à la fin
         total_line = output.strip().split('\n')[-1]
         parts = total_line.split()
         
         total_lines = int(parts[0])
-        total_chars = int(parts[2]) # wc compte les bytes, ce qui est très proche des caractères pour du code
+        total_chars = int(parts[2])
 
         return {
             "total_lines": total_lines,
@@ -116,21 +117,8 @@ def get_loc_stats() -> dict:
 
     except (subprocess.CalledProcessError, FileNotFoundError, IndexError) as e:
         Logger.error(f"Erreur lors de l'exécution de git/wc : {e}")
-        return {"error": "Impossible d'exécuter les commandes git locales. Le bot tourne-t-il dans le dépôt git ?"}
+        return {"error": "Impossible d'exécuter les commandes git locales."}
 
-
-def format_duration(td: timedelta) -> str:
-    """Formate un timedelta en une chaîne lisible."""
-    days = td.days
-    hours, remainder = divmod(td.seconds, 3600)
-    minutes, _ = divmod(remainder, 60)
-    
-    parts = []
-    if days > 0: parts.append(f"{days} jour{'s' if days > 1 else ''}")
-    if hours > 0: parts.append(f"{hours} heure{'s' if hours > 1 else ''}")
-    if minutes > 0: parts.append(f"{minutes} minute{'s' if minutes > 1 else ''}")
-    
-    return ", ".join(parts) if parts else "Moins d'une minute"
 
 # --- Le Cog ---
 
@@ -144,13 +132,11 @@ class DevStatsCog(commands.Cog):
         await interaction.response.defer(thinking=True, ephemeral=True)
 
         try:
-            # Lancer les deux tâches en parallèle
             commit_task = asyncio.create_task(get_commit_stats())
-            loc_task = asyncio.to_thread(get_loc_stats) # C'est une fonction synchrone
+            loc_task = asyncio.to_thread(get_loc_stats)
 
             commit_data, loc_data = await asyncio.gather(commit_task, loc_task)
             
-            # Gestion des erreurs
             if "error" in commit_data:
                 await interaction.followup.send(f"❌ Erreur GitHub : {commit_data['error']}", ephemeral=True)
                 return
@@ -164,7 +150,6 @@ class DevStatsCog(commands.Cog):
                 color=discord.Color.dark_green()
             )
 
-            # Champ 1: Stats des Commits
             first_commit_ts = int(commit_data['first_commit_date'].timestamp())
             last_commit_ts = int(commit_data['last_commit_date'].timestamp())
             
@@ -175,17 +160,18 @@ class DevStatsCog(commands.Cog):
             )
             embed.add_field(name="⚙️ Activité des Commits", value=commit_text, inline=False)
             
-            # Champ 2: Stats du Code
+            # --- MODIFICATION 1 (Label) : On précise qu'on compte les fichiers Python ---
             loc_text = (
                 f"**Lignes de code :** `{loc_data['total_lines']:,}`\n"
                 f"**Caractères :** `{loc_data['total_chars']:,}`\n"
-                f"**Fichiers suivis :** `{loc_data['total_files']}`"
+                f"**Fichiers Python :** `{loc_data['total_files']}`"
             )
-            embed.add_field(name="💻 Code Source", value=loc_text, inline=True)
+            embed.add_field(name="💻 Code Source (.py)", value=loc_text, inline=True)
 
-            # Champ 3: Estimation du temps
-            duration_str = format_duration(commit_data['estimated_duration'])
-            time_text = f"**Estimation :**\n`{duration_str}`"
+            # --- MODIFICATION 2 : On calcule et affiche le nombre total d'heures ---
+            total_seconds = commit_data['estimated_duration'].total_seconds()
+            total_hours = total_seconds / 3600
+            time_text = f"**Estimation :**\n`{total_hours:.2f} heures`"
             embed.add_field(name="⏱️ Amplitude de Développement", value=time_text, inline=True)
 
             embed.set_footer(text="Données via API GitHub & commandes git locales.")
