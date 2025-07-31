@@ -81,25 +81,24 @@ def get_loc_stats() -> dict:
     UNIQUEMENT pour les fichiers Python (.py).
     """
     try:
-        # --- MODIFICATION 1 : On spécifie de ne chercher que les fichiers .py ---
         pathspec = '*.py'
 
-        # Compte le nombre de fichiers Python
+        # --- CORRECTION 1 : On ajoute -z pour un output avec des séparateurs nuls ---
         files_process = subprocess.run(
-            ['git', 'ls-files', pathspec], 
+            ['git', 'ls-files', '-z', pathspec], 
             capture_output=True, text=True, check=True
         )
-        file_list = files_process.stdout.strip().split('\n')
-        # Gère le cas où aucun fichier .py n'est trouvé pour éviter une erreur
+        # On sépare sur le caractère nul
+        file_list = files_process.stdout.strip().split('\0')
         total_files = len(file_list) if file_list and file_list[0] else 0
 
-        # Si aucun fichier .py n'est trouvé, on retourne des zéros
         if total_files == 0:
             return {"total_lines": 0, "total_chars": 0, "total_files": 0}
 
-        # Utilise xargs et wc sur la liste filtrée de fichiers Python
-        p1 = subprocess.Popen(['git', 'ls-files', pathspec], stdout=subprocess.PIPE)
-        p2 = subprocess.Popen(['xargs', 'wc'], stdin=p1.stdout, stdout=subprocess.PIPE, text=True)
+        # --- CORRECTION 2 : On passe les bons arguments à Popen et xargs ---
+        p1 = subprocess.Popen(['git', 'ls-files', '-z', pathspec], stdout=subprocess.PIPE)
+        # On dit à xargs de lire les séparateurs nuls avec -0
+        p2 = subprocess.Popen(['xargs', '-0', 'wc'], stdin=p1.stdout, stdout=subprocess.PIPE, text=True)
         p1.stdout.close()
         output = p2.communicate()[0]
         

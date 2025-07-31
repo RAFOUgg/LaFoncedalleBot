@@ -27,7 +27,7 @@ services:
     # Le 'command' est maintenant dans le Dockerfile, donc plus besoin ici
     volumes:
       # !! CORRECTION CRUCIALE !!
-      # On ne monte plus tout le dossier, seulement la DB pour la persistance.
+      - ./bot_state.json:/app/bot_state.json
       - ./ratings.db:/app/ratings.db
     env_file:
       - .env
