@@ -1,3 +1,5 @@
+# bot.Dockerfile
+
 # --- Étape 1 : Le "builder" qui clone le dépôt ---
 FROM python:3.11-slim AS builder
 
@@ -5,20 +7,20 @@ FROM python:3.11-slim AS builder
 RUN apt-get update && apt-get install -y git
 
 # Définir le répertoire de travail
-WORKDIR /app
+WORKDIR /cloned_repo
 
-# Recevoir le token comme argument de build
+# Recevoir les arguments de build
 ARG GITHUB_TOKEN
+ARG GITHUB_REPO_OWNER
+ARG GITHUB_REPO_NAME
 
 # Cloner le dépôt en utilisant le token pour l'authentification
-# Remplacez GITHUB_REPO_OWNER et GITHUB_REPO_NAME par les vrais noms
-RUN git clone https://${GITHUB_TOKEN}@github.com/RAFOU/LaFoncedalleBot.git .
+RUN git clone https://${GITHUB_TOKEN}@github.com/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}.git .
 
 
 # --- Étape 2 : L'image finale du bot ---
 FROM python:3.11-slim
 
-# Définir le répertoire de travail
 WORKDIR /app
 
 # Installer les dépendances système (comme avant)
@@ -37,7 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copier les fichiers du code cloné depuis l'étape "builder"
-COPY --from=builder /app .
+COPY --from=builder /cloned_repo .
 
 # Installer les dépendances Python
 RUN pip install --no-cache-dir -r requirements.txt

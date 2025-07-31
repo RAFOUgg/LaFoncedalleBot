@@ -2,31 +2,41 @@ version: '3.8'
 
 services:
   lafoncedalleapi:
-    build: .
+    build:
+      context: .
+      dockerfile: api.Dockerfile # Utilise le Dockerfile de l'API
     container_name: lafoncedalleapi
     command: gunicorn --workers 4 --bind 0.0.0.0:5000 app:app
     volumes:
-      - .:/app
+      - .:/app # On peut garder le bind mount ici pour le développement
     env_file:
       - .env
     networks:
-      - lafoncedallenet # <-- Doit être présent
+      - lafoncedallenet
     restart: unless-stopped
 
   lafoncedallebot:
-    build: .
+    build:
+      context: .
+      dockerfile: bot.Dockerfile # Utilise le Dockerfile du bot
+      args: # On passe les arguments pour le clonage
+        - GITHUB_TOKEN=${GITHUB_TOKEN}
+        - GITHUB_REPO_OWNER=${GITHUB_REPO_OWNER}
+        - GITHUB_REPO_NAME=${GITHUB_REPO_NAME}
     container_name: lafoncedallebot
-    command: python bot_runner.py # Ou votre script start.sh
+    # Le 'command' est maintenant dans le Dockerfile, donc plus besoin ici
     volumes:
-      - .:/app
+      # !! CORRECTION CRUCIALE !!
+      # On ne monte plus tout le dossier, seulement la DB pour la persistance.
+      - ./ratings.db:/app/ratings.db
     env_file:
       - .env
-    depends_on: # <-- Important pour l'ordre de démarrage
+    depends_on:
       - lafoncedalleapi
     networks:
-      - lafoncedallenet # <-- Doit être présent
+      - lafoncedallenet
     restart: unless-stopped
 
-networks: # <-- Cette section est OBLIGATOIRE
+networks:
   lafoncedallenet:
     driver: bridge
