@@ -25,6 +25,9 @@ ROLE_ID_TO_MENTION = os.getenv('ROLE_ID_TO_MENTION')
 STAFF_ROLE_ID = os.getenv('STAFF_ROLE_ID')
 SELECTION_CHANNEL_ID = int(os.getenv('SELECTION_CHANNEL_ID')) if os.getenv('SELECTION_CHANNEL_ID') else None
 GUILD_ID = int(os.getenv('GUILD_ID')) if os.getenv('GUILD_ID') else None
+GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
+GITHUB_REPO_OWNER = os.getenv('GITHUB_REPO_OWNER')
+GITHUB_REPO_NAME = os.getenv('GITHUB_REPO_NAME')
 
 # --- Fichiers de données ---
 CACHE_FILE = os.path.join(BASE_DIR, 'scrape_cache.json')

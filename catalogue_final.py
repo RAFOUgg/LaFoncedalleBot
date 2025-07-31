@@ -896,6 +896,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
 async def main():
     async with bot:
         await bot.load_extension("commands")
+        await bot.load_extension("dev_stats_cog")
         await bot.start(TOKEN)
 
 if __name__ == "__main__":
