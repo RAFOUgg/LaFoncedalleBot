@@ -18,12 +18,10 @@ from shared_utils import (
 )
 from commands import is_staff_or_owner # On importe le check de permission
 
-# --- Fonctions de Calcul ---
+# --- Fonctions de Calcul (inchangées) ---
 
 async def get_commit_stats() -> dict:
-    """
-    Interroge l'API GitHub pour récupérer les statistiques des commits.
-    """
+    # ... (cette fonction reste exactement la même)
     if not all([GITHUB_TOKEN, GITHUB_REPO_OWNER, GITHUB_REPO_NAME]):
         return {"error": "Configuration GitHub manquante."}
 
@@ -76,28 +74,21 @@ async def get_commit_stats() -> dict:
 
 
 def get_loc_stats() -> dict:
-    """
-    Utilise des commandes git locales pour compter les lignes et les caractères
-    UNIQUEMENT pour les fichiers Python (.py).
-    """
+    # ... (cette fonction reste exactement la même)
     try:
         pathspec = '*.py'
 
-        # --- CORRECTION 1 : On ajoute -z pour un output avec des séparateurs nuls ---
         files_process = subprocess.run(
             ['git', 'ls-files', '-z', pathspec], 
             capture_output=True, text=True, check=True
         )
-        # On sépare sur le caractère nul
         file_list = files_process.stdout.strip().split('\0')
         total_files = len(file_list) if file_list and file_list[0] else 0
 
         if total_files == 0:
             return {"total_lines": 0, "total_chars": 0, "total_files": 0}
 
-        # --- CORRECTION 2 : On passe les bons arguments à Popen et xargs ---
         p1 = subprocess.Popen(['git', 'ls-files', '-z', pathspec], stdout=subprocess.PIPE)
-        # On dit à xargs de lire les séparateurs nuls avec -0
         p2 = subprocess.Popen(['xargs', '-0', 'wc'], stdin=p1.stdout, stdout=subprocess.PIPE, text=True)
         p1.stdout.close()
         output = p2.communicate()[0]
@@ -151,15 +142,22 @@ class DevStatsCog(commands.Cog):
 
             first_commit_ts = int(commit_data['first_commit_date'].timestamp())
             last_commit_ts = int(commit_data['last_commit_date'].timestamp())
+
+            # <--- DÉBUT DE LA MODIFICATION ---
+            # Calcule la durée totale du projet en jours
+            project_duration = commit_data['last_commit_date'] - commit_data['first_commit_date']
+            project_duration_days = project_duration.days
+            # <--- FIN DE LA MODIFICATION ---
             
             commit_text = (
                 f"**Nombre total de commits :** `{commit_data['total_commits']}`\n"
                 f"**Premier commit :** <t:{first_commit_ts}:D>\n"
-                f"**Dernier commit :** <t:{last_commit_ts}:R>"
+                f"**Dernier commit :** <t:{last_commit_ts}:R>\n"
+                # <--- LIGNE AJOUTÉE ---
+                f"**Durée du projet :** `{project_duration_days} jours`"
             )
             embed.add_field(name="⚙️ Activité des Commits", value=commit_text, inline=False)
             
-            # --- MODIFICATION 1 (Label) : On précise qu'on compte les fichiers Python ---
             loc_text = (
                 f"**Lignes de code :** `{loc_data['total_lines']:,}`\n"
                 f"**Caractères :** `{loc_data['total_chars']:,}`\n"
@@ -167,7 +165,6 @@ class DevStatsCog(commands.Cog):
             )
             embed.add_field(name="💻 Code Source (.py)", value=loc_text, inline=True)
 
-            # --- MODIFICATION 2 : On calcule et affiche le nombre total d'heures ---
             total_seconds = commit_data['estimated_duration'].total_seconds()
             total_hours = total_seconds / 3600
             time_text = f"**Estimation :**\n`{total_hours:.2f} heures`"
